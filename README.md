@@ -69,11 +69,7 @@ This costs about 170 lines of context per session. Without the line, the skill i
 
 ## Configuration
 
-The `commit` and `dual-branch-finish` GitLab handoffs share a read-only verifier at
-`skills/dual-branch-finish/scripts/verify-mr.mjs` (`--help` lists the flags). It discovers MRs
-by source branch, checks open state before a push, and verifies title, target, full description
-and pushed commit after it. A creation link is reported as pending until the MR is read back;
-MR creation and updates still require the user's authorization. No new dependencies.
+`commit` and `dual-branch-finish` share the read-only MR verifier `skills/dual-branch-finish/scripts/verify-mr.mjs` (`--help`).
 
 Four optional lines in your `~/.claude/CLAUDE.md`:
 

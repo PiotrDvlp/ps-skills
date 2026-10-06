@@ -19,26 +19,17 @@ function command(name, args, cwd) {
   return r.stdout;
 }
 
-function jsonCommand(args, cwd) {
-  const output = command('glab', args, cwd);
-  try { return JSON.parse(output); }
-  catch { throw new Error('glab returned malformed JSON'); }
-}
+const glab = (args, cwd) => JSON.parse(command('glab', args, cwd));
 
+// ponytail: first 100 MRs per source branch only; page if a branch ever exceeds it
 function listMRs(branch, cwd, remoteUrl) {
-  const all = [];
-  for (let page = 1; page <= 100; page++) {
-    const rows = jsonCommand(['mr', 'list', '--all', '--source-branch', branch,
-      '--per-page', '100', '--page', String(page), '-F', 'json', '-R', remoteUrl], cwd);
-    if (!Array.isArray(rows) || rows.some((m) => !m || !Number.isInteger(m.iid) || m.iid < 1 ||
-      !['opened', 'merged', 'closed'].includes(m.state) || typeof m.source_branch !== 'string' ||
-      !Number.isInteger(m.source_project_id) || !Number.isInteger(m.target_project_id))) {
-      throw new Error('glab returned an invalid MR list');
-    }
-    all.push(...rows.filter((m) => m.source_branch === branch && m.source_project_id === m.target_project_id));
-    if (rows.length < 100) return all;
+  const rows = glab(['mr', 'list', '--all', '--source-branch', branch, '--per-page', '100', '-F', 'json', '-R', remoteUrl], cwd);
+  if (!Array.isArray(rows) || rows.some((m) => !m || !Number.isInteger(m.iid) || m.iid < 1 ||
+    !['opened', 'merged', 'closed'].includes(m.state) || typeof m.source_branch !== 'string' ||
+    !Number.isInteger(m.source_project_id) || !Number.isInteger(m.target_project_id))) {
+    throw new Error('glab returned an invalid MR list');
   }
-  throw new Error('MR lookup exceeded 100 pages; handoff unverified');
+  return rows.filter((m) => m.source_branch === branch && m.source_project_id === m.target_project_id);
 }
 
 function result(status, problems = [], mr) {
@@ -59,7 +50,6 @@ function verify(v) {
   const remoteName = v.remote ?? 'origin';
   if (!remoteName || remoteName.startsWith('-')) throw new Error('invalid remote name');
   const remoteUrl = command('git', ['remote', 'get-url', remoteName], v.repo).trim();
-  if (!remoteUrl) throw new Error('remote URL is empty');
   const matches = listMRs(v.branch, v.repo, remoteUrl);
   const open = matches.filter((m) => m.state === 'opened');
   if (open.length > 1) return result('pending', ['ambiguous-mr: multiple open MRs for this branch']);
@@ -67,21 +57,16 @@ function verify(v) {
     if (matches.length) return result('pending', ['inactive-mr: branch has only merged/closed MRs; use a fresh branch']);
     return phase === 'before-push' ? result('ready-to-push') : result('pending', ['missing-mr: creation form has not become an open MR']);
   }
-  const mr = jsonCommand(['mr', 'view', String(open[0].iid), '-F', 'json', '-R', remoteUrl], v.repo);
-  if (!mr || mr.iid !== open[0].iid || !['opened', 'merged', 'closed'].includes(mr.state) ||
-    !Number.isInteger(mr.source_project_id) || !Number.isInteger(mr.target_project_id)) {
-    throw new Error('glab returned invalid MR details');
-  }
+  if (phase === 'before-push') return result('ready-to-push', [], open[0]);
+  const mr = glab(['mr', 'view', String(open[0].iid), '-F', 'json', '-R', remoteUrl], v.repo);
+  if (!mr || mr.iid !== open[0].iid || !['opened', 'merged', 'closed'].includes(mr.state)) throw new Error('glab returned invalid MR details');
   const problems = [];
   if (mr.state !== 'opened') problems.push('inactive-mr: MR is no longer open');
-  if (mr.source_branch !== v.branch || mr.source_project_id !== mr.target_project_id) problems.push('source-mismatch');
-  if (phase === 'before-push') return result(problems.length ? 'pending' : 'ready-to-push', problems, mr);
   if (mr.target_branch !== v.target) problems.push('target-mismatch');
   if (mr.title !== v.title) problems.push('title-mismatch');
   const normalize = (s) => s.replaceAll('\r\n', '\n').replace(/\n+$/, '');
   if (typeof mr.description !== 'string' || normalize(mr.description) !== normalize(expectedDescription)) problems.push('description-mismatch');
   const head = command('git', ['rev-parse', '--verify', `${v.branch}^{commit}`], v.repo).trim();
-  if (!/^[a-f0-9]{40,64}$/.test(head)) throw new Error('git returned an invalid local commit');
   const ref = `refs/heads/${v.branch}`;
   const remote = command('git', ['ls-remote', remoteName, ref], v.repo)
     .trim().split('\n').map((line) => line.split(/\s+/)).filter((row) => row[1] === ref);

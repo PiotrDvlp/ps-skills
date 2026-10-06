@@ -276,10 +276,7 @@ node "${CLAUDE_SKILL_DIR}/scripts/verify-mr.mjs" --repo . --branch <name> --targ
 node "${CLAUDE_SKILL_DIR}/scripts/verify-mr.mjs" --repo . --branch <name>_develop --target develop --title '<Step 5 twin title>' --description '<absolute Step 5 twin draft path>'
 ```
 
-The verifier reads GitLab and the remote branch: exactly one open MR from the same project,
-the intended source and target, the exact title, the full description matching the draft
-(CRLF and terminal newlines normalized), and both remote branch tip and MR SHA matching the
-local branch commit. It performs no pushes, MR creation, or updates.
+The verifier is read-only: it performs no pushes, MR creation, or updates.
 
 - **Exit 0, `verified`:** quote the JSON evidence and MR URL. Both branches must be verified
   before calling the twin handoff complete.

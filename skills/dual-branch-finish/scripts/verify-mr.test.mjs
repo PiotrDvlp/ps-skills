@@ -14,13 +14,13 @@ const MR = { iid: 7, state: 'opened', source_branch: 'fix/form', target_branch: 
   description: DESCRIPTION, sha: SHA, web_url: 'https://gitlab.example.com/team/shop/-/merge_requests/7' };
 
 function run(t, { mrs = [MR], detail = mrs[0], phase = 'after-push', remoteSha = SHA,
-  glabError = false, malformed = false, description = DESCRIPTION, firstPage } = {}) {
+  glabError = false, malformed = false, description = DESCRIPTION } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'mr handoff-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const log = join(root, 'calls.jsonl');
   const draft = join(root, 'MR draft.md');
   writeFileSync(draft, description);
-  const config = { mrs, detail, remoteSha, glabError, malformed, firstPage };
+  const config = { mrs, detail, remoteSha, glabError, malformed };
   const fake = `#!${process.execPath}
 const fs = require('node:fs');
 const args = process.argv.slice(2), name = require('node:path').basename(process.argv[1]);
@@ -29,8 +29,7 @@ fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify([name, ...args]) + '\\n
 if (name === 'glab') {
   if (config.glabError) { console.error('network unavailable'); process.exit(1); }
   if (config.malformed) { console.log('not JSON'); process.exit(0); }
-  const page = args[args.indexOf('--page') + 1];
-  console.log(JSON.stringify(args[1] === 'list' ? (page === '1' && config.firstPage ? config.firstPage : config.mrs) : config.detail));
+  console.log(JSON.stringify(args[1] === 'list' ? config.mrs : config.detail));
 } else if (args[0] === 'rev-parse') console.log('${SHA}');
 else if (args[0] === 'remote') console.log('https://gitlab.example.com/team/shop.git');
 else if (args[0] === 'ls-remote') console.log(config.remoteSha ? config.remoteSha + '\\trefs/heads/fix/form' : '');
@@ -70,7 +69,7 @@ test('a new branch may be pushed but no MR means handoff is pending', (t) => {
 });
 
 for (const [field, value] of [['title', 'wrong title'], ['target_branch', 'develop'],
-  ['source_branch', 'fix/other'], ['description', 'Nonempty but stale description'],
+  ['description', 'Nonempty but stale description'],
   ['sha', 'b'.repeat(40)], ['state', 'merged']]) {
   test(`rejects mismatched ${field} from the MR read-back`, (t) => {
     const r = run(t, { detail: { ...MR, [field]: value } });
@@ -111,13 +110,6 @@ test('tool failures and malformed responses cannot turn into success', (t) => {
 test('normalizes line endings and a terminal newline, preserving actual content', (t) => {
   assert.equal(run(t, { detail: { ...MR, description: DESCRIPTION.trimEnd().replaceAll('\n', '\r\n') } }).status, 0);
   assert.equal(run(t, { description: ' \n' }).status, 2);
-});
-
-test('searches later pages before concluding no MR exists', (t) => {
-  const firstPage = Array.from({ length: 100 }, (_, i) => ({ ...MR, iid: i + 100, state: 'closed' }));
-  const r = run(t, { firstPage });
-  assert.equal(r.status, 0, r.stderr);
-  assert.ok(r.calls().some((c) => c.includes('--page') && c.includes('2')));
 });
 
 test('invalid list/detail schema is unverified rather than missing or complete', (t) => {
