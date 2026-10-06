@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'lint-layers.mjs')
 
 /**
- * The ISFH-1795 shape: a common/ file with ONE explicit feature import and several
+ * The PROJ-1795 shape: a common/ file with ONE explicit feature import and several
  * auto-imported feature calls. The explicit edge is the only thing v1 can see, so the
  * report must say out loud that the rest went unanalyzed.
  */
