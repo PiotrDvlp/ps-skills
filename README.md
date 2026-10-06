@@ -84,6 +84,8 @@ Without `Notes root:`, `task-auditor` answers in chat, `codex-review` writes to 
 
 Skill files reference themselves as `${CLAUDE_SKILL_DIR}/...`. Claude Code substitutes the variable. Codex does not: read it as "the directory holding `SKILL.md`".
 
+Before you publish: `node scripts/check-public-leaks.mjs --root . --deny-file <your private deny file> --allow-path skills/layer-lint` must print `0 findings`. The deny file lists names that must never appear here, one per line; a missing or empty file exits 2 on purpose. `layer-lint` is allowed to name the frameworks it lints.
+
 ## Credits
 
 - `retro`: fork of [mattpocock/skills](https://github.com/mattpocock/skills) (MIT), see `skills/retro/NOTICE`.
