@@ -1,6 +1,6 @@
 # ps-skills
 
-Ten development skills for Claude Code and Codex, by Piotr Strzelecki.
+Twelve development skills for Claude Code and Codex, by Piotr Strzelecki.
 
 ## Install
 
@@ -31,6 +31,8 @@ npx skills@latest add PiotrDvlp/ps-skills
 | `layer-lint` | SHOPin `pageModules/` layer-boundary linter | Node 22 |
 | `retro` | Fork of mattpocock/skills `retro` | — |
 | `dev-browser` | Fork of SawyerHood/dev-browser; targets CLI 0.2.5 | `dev-browser@0.2.5` |
+| `worktree-audit` | Read-only inventory of a repo's git worktrees: target, ahead/behind, dirty, deps, MRs | `glab` for `--mr` |
+| `prove-ui` | Proves a browser-visible change with a baseline-vs-candidate run and an attested line | a repo adapter at `.claude/prove-ui/adapter.md` |
 
 ## Configuration
 
