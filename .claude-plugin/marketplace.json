@@ -2,7 +2,7 @@
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "ps-skills",
   "description": "Piotr Strzelecki's development skills for Claude Code and Codex",
-  "owner": { "name": "Piotr Strzelecki", "url": "https://github.com/PSDvlpr" },
+  "owner": { "name": "Piotr Strzelecki", "url": "https://github.com/PiotrDvlp" },
   "plugins": [
     {
       "name": "ps",

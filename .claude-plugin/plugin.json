@@ -2,9 +2,9 @@
   "name": "ps",
   "version": "0.1.0",
   "description": "Piotr Strzelecki's development skills",
-  "author": { "name": "Piotr Strzelecki", "url": "https://github.com/PSDvlpr" },
-  "homepage": "https://github.com/PSDvlpr/ps-skills",
-  "repository": "https://github.com/PSDvlpr/ps-skills",
+  "author": { "name": "Piotr Strzelecki", "url": "https://github.com/PiotrDvlp" },
+  "homepage": "https://github.com/PiotrDvlp/ps-skills",
+  "repository": "https://github.com/PiotrDvlp/ps-skills",
   "license": "MIT",
   "keywords": ["git", "code-review", "jira", "codex", "skills"],
   "skills": "./skills/"

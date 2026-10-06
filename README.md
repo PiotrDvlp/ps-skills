@@ -7,14 +7,14 @@ Ten development skills for Claude Code and Codex, by Piotr Strzelecki.
 Claude Code (plugin, namespaced `/ps:<skill>`):
 
 ```
-claude plugin marketplace add PSDvlpr/ps-skills
+claude plugin marketplace add PiotrDvlp/ps-skills
 claude plugin install ps@ps-skills
 ```
 
 Any agent that reads `SKILL.md` directories (`npx skills`, bare names):
 
 ```
-npx skills@latest add PSDvlpr/ps-skills
+npx skills@latest add PiotrDvlp/ps-skills
 ```
 
 ## Skills
