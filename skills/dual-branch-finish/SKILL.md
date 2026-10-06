@@ -156,6 +156,9 @@ When the repo has `.gitlab/merge_request_templates/Default.md`, fill it in once 
 write each draft to the scratchpad as `mr-<branch, slashes as underscores>.md`. The repo's
 `AGENTS.md` "Merge Request Descriptions" section, when present, is the authority on content.
 
+- Choose each title from the repo's `AGENTS.md` MR title convention; when absent, derive the
+  shape from `git log --oneline -20`. A one-commit range uses its conforming subject; a longer
+  range uses a summary in the same shape. Keep this exact title for the link and verification.
 - Why and What come from `git log origin/main..<name>` and the range diff, not from memory of the
   session.
 - Verification quotes only output produced in this session: home's checks and the Step 4
@@ -165,7 +168,8 @@ write each draft to the scratchpad as `mr-<branch, slashes as underscores>.md`. 
 - When Step 3 resolved a conflict or Step 4 patch-ids differed, say so in the develop draft's
   Review notes and quote the sibling's own checks in its Verification.
 
-No template in the repo: skip this step and say so in one line. The drafts are not the
+No template in the repo: write a concise description of the change and the checks actually
+run. Keep both non-empty drafts until remote verification succeeds. The drafts are not the
 deliverable on their own: Step 6 encodes each one into its branch's MR creation link, so the
 form opens with the description already filled in.
 
@@ -182,6 +186,19 @@ git rev-list --count origin/develop..<name>_develop   # must be > 0
 A non-empty status or a zero count stops the workflow: commit (via the `commit` skill) or
 explain, never push. Also stop when the branch's upstream shows `[gone]` in `git branch -vv`:
 it was merged and deleted on the remote, and a push would re-create it.
+
+Then run the read-only MR state check for **both** branches, from the target repo. It discovers
+MRs by source branch, including merged/closed history; no MR number from the user is needed:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/scripts/verify-mr.mjs" --repo . --branch <name> --phase before-push
+node "${CLAUDE_SKILL_DIR}/scripts/verify-mr.mjs" --repo . --branch <name>_develop --phase before-push
+```
+
+Requires Node 22+, git and authenticated `glab`. Exit 1 blocks pushing an inactive or ambiguous
+MR branch; use a fresh branch for follow-up work after merge. Exit 2 means unavailable or invalid
+input: report unverified and stop. Exit 0 with `ready-to-push` only permits asking for push
+approval; it does not mean an MR exists or the handoff is complete.
 
 Ask the user once: "Push both branches and set upstreams?" On yes, push each and set tracking:
 
@@ -218,20 +235,19 @@ Operation not permitted`. That is the deny described in Gotchas, not a broken wo
 it in one line and hand both `git config` commands to the user alongside the push commands;
 they succeed from a shell outside the sandbox.
 
-End with the MR creation links, one line per branch, with source, target, title and the Step 5
+After each successful push, run Step 7 immediately. End with the verified MR URLs or pending
+MR creation links, one line per branch, with source, target, title and the Step 5
 description all encoded in the URL, so the user opens a form that is already filled in. Never
 relay the push output's `merge_requests/new` link, which omits the target and lets GitLab
 default it to the project's default branch, and never leave the description only in the draft
 file or in chat. Build each line with:
 
 ```bash
-b=<branch> t=<target> title='<MR title>' desc='<absolute path of the Step 5 draft, or empty>'; python3 -c 'import sys, urllib.parse as u; b, t, title, desc, base = sys.argv[1:]; q = {"merge_request[source_branch]": b, "merge_request[target_branch]": t, "merge_request[title]": title}; q.update({"merge_request[description]": open(desc).read()} if desc else {}); print(f"- {b}, target {t}: {base}/-/merge_requests/new?{u.urlencode(q)}")' "$b" "$t" "$title" "$desc" "$(git remote get-url origin | sed -E 's#^git@([^:]+):#https://\1/#; s#\.git$##')"
+b=<branch> t=<target> title='<MR title>' desc='<absolute path of the Step 5 draft>'; python3 -c 'import sys, urllib.parse as u; b, t, title, desc, base = sys.argv[1:]; q = {"merge_request[source_branch]": b, "merge_request[target_branch]": t, "merge_request[title]": title, "merge_request[description]": open(desc).read()}; print(f"- {b}, target {t}: {base}/-/merge_requests/new?{u.urlencode(q)}")' "$b" "$t" "$title" "$desc" "$(git remote get-url origin | sed -E 's#^git@([^:]+):#https://\1/#; s#\.git$##')"
 ```
 
-The title is the subject of the branch's commit when the range has one, otherwise a summary of
-the range; keep it single-quoted, since a subject like `fix(tests): ...` is a shell syntax error
-unquoted. Pass an empty `desc` only when Step 5 was skipped; GitLab then falls back to the
-repo's default template. A filled link is about 1.5 KB, well inside URL limits.
+Use Step 5's exact title and draft; keep the title single-quoted, since a subject like
+`fix(tests): ...` is a shell syntax error unquoted. Each link carries its non-empty draft.
 
 Run it for `<name>` with `main` and `<name>_develop` with `develop` (or the bases in use), and
 print both lines verbatim as the last thing in the reply (shortened here):
@@ -241,28 +257,40 @@ print both lines verbatim as the last thing in the reply (shortened here):
 - chore/remove_vacuous_unit_tests_develop, target develop: https://gitlab.example.com/group/repo/-/merge_requests/new?merge_request%5Bsource_branch%5D=chore%2Fremove_vacuous_unit_tests_develop&merge_request%5Btarget_branch%5D=develop&merge_request%5Btitle%5D=...&merge_request%5Bdescription%5D=...
 ```
 
-When a branch already has an open MR (its push printed `View merge request ...`), a creation link
-would open a duplicate. Print that MR's URL instead, followed by its description draft for the
-user to paste over the current description.
+When Step 7 discovers an open MR, print its URL rather than a duplicate creation link. If its
+metadata differs, provide the exact title/target/draft to correct. An authorized API update is
+an external write; after the update or user edit, re-run Step 7. A draft or filled URL is a
+pending handoff until the read-back succeeds.
 
 Print them even when the user declined the push and you handed over push commands instead —
 the links work as soon as the branches are pushed.
 
 ## Step 7 — Confirm the MRs on GitLab
 
-When the user reports the MR numbers (or a later turn asks "did it land?"), read each MR back
-instead of trusting the link you printed; two MR descriptions never reached GitLab once and a
-title broke the repo convention:
+Run immediately after pushing, after any authorized MR creation/update, and whenever a later
+turn resumes the handoff. Discover both MRs by branch rather than waiting for the user to supply
+numbers. Use the exact Step 5 title and draft for each:
 
 ```bash
-glab mr view <n> -F json | python3 -c 'import json,sys; m=json.load(sys.stdin); print(m["title"]); print(m["source_branch"], "->", m["target_branch"]); print("description chars:", len(m["description"] or ""))'
+node "${CLAUDE_SKILL_DIR}/scripts/verify-mr.mjs" --repo . --branch <name> --target main --title '<Step 5 title>' --description '<absolute Step 5 draft path>'
+node "${CLAUDE_SKILL_DIR}/scripts/verify-mr.mjs" --repo . --branch <name>_develop --target develop --title '<Step 5 twin title>' --description '<absolute Step 5 twin draft path>'
 ```
 
-Check three things: the title matches the branch's commit subject shape (`type(scope)[TICKET]: ...`
-or whatever `git log` showed in Step 5), the target is the intended base, and the description
-length is not 0 and not the bare template. Any miss: print the Step 5 draft again for the user
-to paste. Under the Bash sandbox `glab mr view` needs the network, so list `glab mr view *` in
-`sandbox.excludedCommands` or run it from a shell outside the sandbox.
+The verifier is read-only: it performs no pushes, MR creation, or updates.
+
+- **Exit 0, `verified`:** quote the JSON evidence and MR URL. Both branches must be verified
+  before calling the twin handoff complete.
+- **Exit 1, `pending`:** report each problem. `missing-mr` means print the filled creation link
+  and say "branch pushed; MR creation pending". Other mismatches remain pending until corrected
+  and verified. A merged/closed MR means fresh follow-up branch, not another push to the old one.
+- **Exit 2, `unverified`:** report the tool/network/input failure. Retain the draft and exact
+  rerun command; never infer success from a push banner or a cached MR URL.
+
+When the user says the forms were submitted, re-run both commands without asking for MR
+numbers. For an existing open MR, the first successful push already supplies everything needed
+to verify in the same turn. Network permission must cover the Node verifier and its child
+`glab mr list`, `glab mr view` and `git ls-remote` commands; handle sandbox denial through the
+runtime's normal approval flow. Do not weaken the check when the network is unavailable.
 
 ## Gotchas
 

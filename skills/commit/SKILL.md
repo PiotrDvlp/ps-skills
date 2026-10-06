@@ -110,10 +110,12 @@ When the repo has `.gitlab/merge_request_templates/Default.md` (read it from the
 with `git show origin/<target>:<path>` when the working tree lacks it), fill it in for
 `git log origin/<target>..HEAD` and write the draft to the scratchpad. The repo's `AGENTS.md`
 "Merge Request Descriptions" section, when present, is the authority on content; Verification
-quotes only output produced in this session. No template: leave `desc` empty. Then:
+quotes only output produced in this session. No template: write a concise non-empty description
+of the change and checks actually run. Choose the title from the repo's MR title convention,
+falling back to the commit shape from `git log`; keep the exact title and draft for read-back. Then:
 
 ```bash
-b=$(git branch --show-current); case "$b" in *_develop|*_dev) t=develop;; *) t=main;; esac; title=$(git log -1 --format=%s); desc='<absolute draft path, or empty>'; python3 -c 'import sys, urllib.parse as u; b, t, title, desc, base = sys.argv[1:]; q = {"merge_request[source_branch]": b, "merge_request[target_branch]": t, "merge_request[title]": title}; q.update({"merge_request[description]": open(desc).read()} if desc else {}); print(f"- {b}, target {t}: {base}/-/merge_requests/new?{u.urlencode(q)}")' "$b" "$t" "$title" "$desc" "$(git remote get-url origin | sed -E 's#^git@([^:]+):#https://\1/#; s#\.git$##')"
+b=$(git branch --show-current); case "$b" in *_develop|*_dev) t=develop;; *) t=main;; esac; title='<chosen MR title>'; desc='<absolute draft path>'; python3 -c 'import sys, urllib.parse as u; b, t, title, desc, base = sys.argv[1:]; q = {"merge_request[source_branch]": b, "merge_request[target_branch]": t, "merge_request[title]": title, "merge_request[description]": open(desc).read()}; print(f"- {b}, target {t}: {base}/-/merge_requests/new?{u.urlencode(q)}")' "$b" "$t" "$title" "$desc" "$(git remote get-url origin | sed -E 's#^git@([^:]+):#https://\1/#; s#\.git$##')"
 ```
 
 Print its output verbatim (shortened here):
@@ -122,11 +124,30 @@ Print its output verbatim (shortened here):
 - chore/remove_vacuous_unit_tests, target main: https://gitlab.example.com/group/repo/-/merge_requests/new?merge_request%5Bsource_branch%5D=chore%2Fremove_vacuous_unit_tests&merge_request%5Btarget_branch%5D=main&merge_request%5Btitle%5D=...&merge_request%5Bdescription%5D=...
 ```
 
-When the branch has several commits, replace `title=$(...)` with a single-quoted summary of the range
-(`title='...'`; unquoted, a subject like `fix(tests): ...` is a shell syntax error). When the
+Set `title` to the chosen convention-compliant title, using a summary of the range for several
+commits (`title='...'`; unquoted, a subject like `fix(tests): ...` is a shell syntax error). When the
 branch already has an open MR, print its URL and the draft for the user to paste instead; a
-creation link would open a duplicate. The link works once the branch is pushed; this skill
-never pushes.
+creation link would open a duplicate. Discover the MR with the read-only verifier shared with
+`dual-branch-finish` (Node 22+, authenticated `glab`):
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../dual-branch-finish/scripts/verify-mr.mjs" --repo . --branch '<branch>' --phase before-push
+```
+
+An inactive or ambiguous MR blocks any later push offer; follow-up work after merge belongs
+on a fresh branch. Tool failure is unverified, not evidence that no MR exists. The creation
+link works once the branch is pushed; this skill never pushes. Report "commit complete;
+push/MR handoff pending" when no remote handoff was verified.
+
+When resuming after a separately authorized push or MR edit, verify without asking for numbers:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../dual-branch-finish/scripts/verify-mr.mjs" --repo . --branch '<branch>' --target '<target>' --title '<exact title>' --description '<absolute draft path>'
+```
+
+Only exit 0 with `verified` means the MR handoff is complete: open state, exact source/target,
+title, full description and pushed commit match. Exit 1 is pending (print the URL or creation
+link plus the correction needed); exit 2 is unverified (keep the draft and rerun command).
 
 ## Gotchas
 

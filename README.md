@@ -22,7 +22,7 @@ npx skills@latest add PiotrDvlp/ps-skills
 | Skill | What it does | Needs |
 | --- | --- | --- |
 | `commit` | Groups unstaged changes into logical commits; derives the message shape from `git log` | — |
-| `dual-branch-finish` | Lands one change on two integration branches and prints both MR links | — |
+| `dual-branch-finish` | Lands one change on two integration branches and verifies both MR handoffs | Node 22+, authenticated `glab` |
 | `codex-review` | Independent read-only Codex review of a design, plan or diff | Codex CLI 0.130+ |
 | `second-view` | Independent Codex proposal on a problem still being decided | Codex CLI 0.130+ |
 | `task-auditor` | Readiness audit of a Jira ticket before implementation | `cs-atlassian` MCP (ask the author for the `cs-tools` repo) |
@@ -68,6 +68,8 @@ This costs about 170 lines of context per session. Without the line, the skill i
 | `key-fact-first` | human | Answer first, corrections first, decisions under one numbered heading |
 
 ## Configuration
+
+`commit` and `dual-branch-finish` share the read-only MR verifier `skills/dual-branch-finish/scripts/verify-mr.mjs` (`--help`).
 
 Four optional lines in your `~/.claude/CLAUDE.md`:
 
