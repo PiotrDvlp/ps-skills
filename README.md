@@ -46,6 +46,25 @@ At the start of each task, invoke /ps:principles.
 
 This costs about 170 lines of context per session. Without the line, the skill is a reference you pull in when you want it. Source: `skills/principles/SKILL.md`.
 
+| Principle | Group | Rule |
+| --- | --- | --- |
+| `prove-it-works` | verification | A check that did not run is not a pass; quote the decisive line before claiming done |
+| `explain-the-number` | verification | A measured value travels with run count, spread and the named limiter |
+| `verification-must-be-able-to-fail` | verification | A test or check that passes with and without the change proves nothing |
+| `fix-root-causes` | debugging | Reproduce, write three hypotheses, rule out two; after two failed fixes, attack the shared premise |
+| `blast-radius` | debugging | Find the one fact a change is safe because of, and prove it, not just the caller list |
+| `executable-plans` | planning | Cite claims, evaluate two real alternatives, make every criterion a runnable command |
+| `second-pass-before-presenting` | planning | A non-trivial plan gets an independent model review before the human sees it |
+| `review-only-on-shared-code` | planning | Fix the diff base first; on shared or analytics code propose, do not apply |
+| `zero-comments` | code | No comments unless a reader cannot derive it; suppressions are defects |
+| `tooling-outside-team-repos` | code | Personal linters, hooks and skills never land in a team repository |
+| `guard-the-context-window` | delegation | Bulk reads and searches go through subagents; the main thread keeps the decision |
+| `pin-model-and-effort-on-dispatch` | delegation | Cheap tier only behind a gate that sees the failure; pin effort with model |
+| `encode-lessons-in-structure` | delegation | A repeated instruction becomes a type, lint, hook or script, not more text |
+| `ask-only-at-the-boundary` | human | Act on anything reversible; ask first for push, installs, destructive or external writes |
+| `disagree-with-evidence` | human | Object directly with a file, incident or alternative; no evidence, ask instead |
+| `key-fact-first` | human | Answer first, corrections first, decisions under one numbered heading |
+
 ## Configuration
 
 Four optional lines in your `~/.claude/CLAUDE.md`:
