@@ -1,6 +1,6 @@
 ---
 name: layer-lint
-description: "Use when checking or enforcing SHOPin pageModules layer boundaries in futterhaus, betzold-vue, or brax — \"lint layers\", \"check layer boundaries\", \"did I break the layer rules\" — or before finishing work that touched pageModules/. Skip for the Obsidian vault (use lint) or repos without the SHOPin pageModules architecture."
+description: "Use when checking or enforcing SHOPin pageModules layer boundaries in futterhaus, betzold-vue, or brax — \"lint layers\", \"check layer boundaries\", \"did I break the layer rules\" — or before finishing work that touched pageModules/. Skip for repos without the SHOPin pageModules architecture."
 ---
 
 # SHOPin layer-dependency linter

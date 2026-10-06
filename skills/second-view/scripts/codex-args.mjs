@@ -39,7 +39,6 @@ export function assertSafeArgs(extra = []) {
  * Seatbelt cannot nest: from inside the Claude Code Bash sandbox, `-s read-only`
  * fails every Codex shell command with `sandbox_apply: Operation not permitted`.
  * A no-op `sandbox-exec` makes the same syscall, so it answers in milliseconds.
- * Same probe as `codex-build/scripts/implement.mjs` `assertCodexSandboxUsable`.
  *
  * @param probe - injectable runner; throws when a nested sandbox cannot be created.
  */

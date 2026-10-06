@@ -8,7 +8,7 @@ Announce to the user before starting: `Auditing <ISSUE_KEY> — verifying prereq
 Run one check — abort if it fails:
 
 1. **cs-atlassian MCP** — `mcp__cs-atlassian__atlassian_jira_get_issue` is in the tool list (load it via ToolSearch if deferred). If absent, check the CLI instead: `bash -lc 'command -v cs-atlassian >/dev/null && cs-atlassian --version'`. If neither exists, print and abort:
-   > cs-atlassian not available. Install it from the `cs-tools` repo (`packages/atlassian/README.md`), register its MCP server, then run `cs-atlassian login`.
+   > cs-atlassian not available. Install it from the `cs-tools` repo (ask the skill author for access; `packages/atlassian/README.md`), register its MCP server, then run `cs-atlassian login`.
 
 ### 0b. Normalize `<ISSUE_KEY>`
 

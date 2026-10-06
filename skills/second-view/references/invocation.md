@@ -102,7 +102,7 @@ shell still buffers the file in memory first and strips trailing newlines.
 ## Model resolution
 
 Default `gpt-5.6-sol`. `gpt-6-astra` is the top tier, an explicit opt-in for
-hard, high-stakes design calls, matching `codex-build` and `codex-review`.
+hard, high-stakes design calls, matching `codex-review`.
 `--deep` appends `-c model_reasoning_effort="xhigh"` to the ALREADY-RESOLVED
 model rather than switching models — `--deep --model gpt-5.6-terra` runs Terra
 at xhigh.

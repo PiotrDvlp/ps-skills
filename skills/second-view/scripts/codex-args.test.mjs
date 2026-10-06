@@ -84,7 +84,7 @@ test('assertSafeArgs rejects full-access and bypass flags', () => {
 
 // A string makes every check vacuous: `for (const a of '--sandbox')` iterates
 // CHARACTERS, so each includes() test runs against one character and returns
-// false. codex-build hit exactly this; see codex-args.mjs:5-12 there.
+// false. A sibling skill shipped exactly this bug once.
 test('assertSafeArgs rejects a string instead of an array', () => {
   for (const bad of ['--sandbox workspace-write', '-s danger-full-access', '']) {
     assert.throws(() => assertSafeArgs(bad), /must be an array/);

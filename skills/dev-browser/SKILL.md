@@ -82,7 +82,7 @@ inert under `--connect`, which attaches to a browser someone else already starte
 
 ## Browser API
 
-Full API (pages, navigation, locators, snapshotForAI, screenshots, evaluate, sandbox files) is in references/api.md — read it before writing any script.
+Full API (pages, navigation, locators, snapshotForAI, screenshots, evaluate, sandbox files) is in references/api.md — read it before writing any script. `${CLAUDE_SKILL_DIR}` is the directory holding this file; `references/...` paths are relative to it, and Codex does not substitute the variable.
 
 ## Common workflows
 

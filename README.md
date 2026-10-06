@@ -25,8 +25,8 @@ npx skills@latest add PiotrDvlp/ps-skills
 | `dual-branch-finish` | Lands one change on two integration branches and prints both MR links | — |
 | `codex-review` | Independent read-only Codex review of a design, plan or diff | Codex CLI 0.130+ |
 | `second-view` | Independent Codex proposal on a problem still being decided | Codex CLI 0.130+ |
-| `task-auditor` | Readiness audit of a Jira ticket before implementation | `cs-atlassian` MCP, superpowers plugin |
-| `why` | Explains why existing code is the way it is, from history | — |
+| `task-auditor` | Readiness audit of a Jira ticket before implementation | `cs-atlassian` MCP (ask the author for the `cs-tools` repo) |
+| `why` | Explains why existing code is the way it is, from history | `cs-atlassian` MCP for tickets; `glab` or `gh` for MR lookups |
 | `blast-radius` | What a diff could break elsewhere | — |
 | `layer-lint` | SHOPin `pageModules/` layer-boundary linter | Node 22 |
 | `retro` | Fork of mattpocock/skills `retro` | — |
@@ -61,7 +61,7 @@ Skill files reference themselves as `${CLAUDE_SKILL_DIR}/...`. Claude Code subst
 
 Plugins and skills I run every session but do not ship here:
 
-- [superpowers](https://github.com/obra/superpowers) (Jesse Vincent, MIT) — required by `task-auditor`
+- [superpowers](https://github.com/obra/superpowers) (Jesse Vincent, MIT)
 - [caveman](https://github.com/JuliusBrussee/caveman) (Julius Brussee)
 - [ponytail](https://github.com/DietrichGebert/ponytail) (Dietrich Gebert, MIT) — `commit` and `dual-branch-finish` use `/ponytail-review` when present
 - [evals-skills](https://github.com/ai-evals-course/evals-skills) (Hamel Husain, Shreya Shankar)

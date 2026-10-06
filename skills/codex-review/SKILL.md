@@ -106,7 +106,7 @@ tags: [codex-review, <mode>]                                             # cross
 Body:
 
 - **Design / plan modes** — the validated Codex output (Verdict / Issues / Unresolved assumptions / Counter-questions), unchanged. The two required headings come from the rubric and Codex emits them directly.
-- **Code mode** — written by `scripts/write-note.mjs` from the runner's result object, not by hand. It renders `## Verdict`, `## Issues`, an `## Incomplete coverage` section when `unreviewable_paths` is non-empty, and `## Unresolved assumptions` when present, and it prepends the `log.md` entry itself. Do not compose this body manually; the writer refuses on a failed run and that gate is the point.
+- **Code mode** — written by `scripts/write-note.mjs` from the runner's result object, not by hand. It renders `## Verdict`, `## Issues`, an `## Incomplete coverage` section when `unreviewable_paths` is non-empty, and `## Unresolved assumptions` when present; the shared routing calls it with `--no-log` and prepends the log entry per "Log integration", and only an extension may let the writer prepend the entry itself. Do not compose this body manually; the writer refuses on a failed run and that gate is the point.
 - **Duel mode** — the synthesis produced by *Invocation — duel mode* Step 4 (`## Verdict` / `## Synthesis` / `## Convergence` / `## Divergence` / `## Discarded`), followed by `## Appendix A — Claude proposal` and `## Appendix B — Codex proposal`, each holding that generator's raw unedited proposal.
 
 **Never truncate the issue list after the fact.** The rubric caps at 10 issues upstream. If Codex returns more than 10:
