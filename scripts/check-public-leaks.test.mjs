@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -61,4 +61,28 @@ test('exits 0 and prints 0 findings on a clean tree', () => {
   const r = spawnSync('node', [SCRIPT, '--root', root, '--deny-file', join(denyDir, 'deny.txt')], { encoding: 'utf8' });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /0 findings/);
+});
+
+test('exits 2 when no file was scanned', () => {
+  const denyDir = tree({ 'deny.txt': 'acme\n' });
+  const r = spawnSync('node', [SCRIPT, '--root', tree({}), '--deny-file', join(denyDir, 'deny.txt')], { encoding: 'utf8' });
+  assert.equal(r.status, 2);
+});
+
+test('scans extensionless, upper-case-extension and assets files, skips binaries', () => {
+  const root = tree({
+    LICENSE: `${USERS}x\n`,
+    'a/NOTES.MD': `${USERS}x\n`,
+    'assets/page.vue': `${USERS}x\n`,
+    'img.bin': `\0${USERS}x\n`,
+  });
+  const { findings } = scanTree({ root, deny: ['acme'], allowPaths: [] });
+  assert.deepEqual(findings.map((f) => f.file).sort(), ['LICENSE', 'a/NOTES.MD', 'assets/page.vue']);
+});
+
+test('scans symlink text without following the link', () => {
+  const root = tree({});
+  symlinkSync(`${USERS}nobody/missing`, join(root, 'link'));
+  const { findings } = scanTree({ root, deny: ['acme'], allowPaths: [] });
+  assert.deepEqual(findings.map((f) => `${f.file}:${f.rule}`), ['link:personal-path']);
 });
