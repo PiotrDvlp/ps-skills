@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "codex-review code mode output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "verdict", "issues", "unresolved_assumptions"],
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "enum": ["codex-review-code/v1"]
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["PASS", "NEEDS-WORK", "BLOCKER"]
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "title", "path", "side", "line", "body"],
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["BLOCKER", "WARNING", "SUGGESTION"]
+          },
+          "title": { "type": "string" },
+          "path": { "type": "string" },
+          "side": {
+            "type": "string",
+            "enum": ["old", "new"]
+          },
+          "line": { "type": "integer" },
+          "body": { "type": "string" }
+        }
+      }
+    },
+    "unresolved_assumptions": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "$comment": "SHOPin layer-lint allowlist. Each entry suppresses ONE rule for a matched edge. error-severity entries are technical debt and should trend to zero; see README.md in this skill's directory. Generated from the v1 calibration on 2026-06-01.",
+  "severityOverrides": {},
+  "allow": [
+    {
+      "rule": "layer-inversion",
+      "from": "analyticsTracking/mappers",
+      "to": "common/stores",
+      "files": ["**/mapProductPagePayload.ts"],
+      "reason": "tracking payload needs the domain id; accepted 2026-06-01, candidate to refactor (pass domain in as an argument)"
+    },
+    {
+      "rule": "layer-inversion",
+      "from": "novomindIshopTracking/helpers",
+      "to": "cart/stores",
+      "files": ["**/getCartItemsFromStore.ts"],
+      "reason": "helper reads the cart store directly; accepted 2026-06-01, candidate to move the read into the caller"
+    },
+    {
+      "rule": "layer-inversion",
+      "from": "productList/mappers",
+      "to": "productList/stores",
+      "files": ["**/mapActiveFilters.ts"],
+      "reason": "mapper reads its own feature store; accepted 2026-06-01, candidate to invert"
+    }
+  ]
+}

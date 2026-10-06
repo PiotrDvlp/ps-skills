@@ -1,0 +1,32 @@
+{
+  "$comment": "SHOPin layer-lint allowlist for betzold-vue (srcDir = repo root; run with --root=.). Each entry suppresses ONE rule for a matched edge. error-severity entries are technical debt and should trend to zero; see SKILL.md / README.md. Seeded 2026-07-08. layerAliases teach the linter betzold's extra layer dirs so they are ENFORCED with a canonical layer's allow-set (utils behaves like helpers, lazy-composables like composables), not silenced. The `stories` dir is Storybook scaffolding (1 file) and is left as an unknown-layer warning. The 3 error-severity entries below are known debt to be fixed later, not now.",
+  "severityOverrides": {},
+  "sharedModules": ["form"],
+  "layerAliases": {
+    "utils": "helpers",
+    "lazy-composables": "composables"
+  },
+  "allow": [
+    {
+      "rule": "common-reaches-feature",
+      "from": "common/mappers",
+      "to": "lightningDeal/mappers",
+      "files": ["**/mapItemDetailsFromItemData.ts"],
+      "reason": "shared item mapper pulls a feature mapper; accepted 2026-07-08, candidate to move mapLightningDealInfo into common/ or invert"
+    },
+    {
+      "rule": "common-reaches-feature",
+      "from": "common/mappers",
+      "to": "productDetailsPage/mappers",
+      "files": ["**/mapItemDetailsFromItemData.ts"],
+      "reason": "shared item mapper pulls productDetailsPage/mapImages; accepted 2026-07-08, candidate to move the shared mapper into common/ or invert"
+    },
+    {
+      "rule": "layer-inversion",
+      "from": "navigation/stores",
+      "to": "navigation/composables",
+      "files": ["**/navigation.ts"],
+      "reason": "navigation store imports useGetFullNavById (a composable); accepted 2026-07-08, candidate to move the read into a caller and pass the value in"
+    }
+  ]
+}

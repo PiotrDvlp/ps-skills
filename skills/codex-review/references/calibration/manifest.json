@@ -1,0 +1,62 @@
+{
+  "description": "codex-review calibration corpus — small diffs with KNOWN verdicts, for measuring the reviewer's recall and precision on demand. Each fixture is materialized into a throwaway git repo (base/ committed, change/ overlaid as the working-tree diff) and reviewed via the normal two-phase runner. See references/calibration.md.",
+  "fixtures": [
+    {
+      "id": "buggy-operator",
+      "description": "shipping-rate thresholds changed from >= to > — off-by-one boundary regressions (total exactly 100 and exactly 50 now take the wrong bracket)",
+      "kind": "buggy",
+      "expected_verdict": "NEEDS-WORK",
+      "defects": [
+        { "keyword": "100", "note": "a real finding must engage with the exact boundary value 100" },
+        { "keyword": "50", "note": "and with 50; 100 alone is not enough" },
+        { "keyword": "boundary", "note": "the >= -> > shift is a boundary/off-by-one class defect" }
+      ]
+    },
+    {
+      "id": "missing-null-guard",
+      "description": "renderCart switched from i.price (always present) to i.discountPrice (nullable from the backend) with no guard — null.toFixed throws at runtime",
+      "kind": "buggy",
+      "expected_verdict": "NEEDS-WORK",
+      "defects": [
+        { "keyword": "null", "note": "the unhandled null/undefined is the defect (rubric item 1)" },
+        { "keyword": "discountPrice", "note": "must name the field the change introduced" },
+        { "keyword": "toFixed", "note": "or name the throwing call" }
+      ]
+    },
+    {
+      "id": "swallowed-error",
+      "description": "fetchOrders now catches every failure and returns [] — callers cannot distinguish an empty order list from a backend failure; error context lost",
+      "kind": "buggy",
+      "expected_verdict": "NEEDS-WORK",
+      "defects": [
+        { "keyword": "swallow", "note": "the swallowed-error class (rubric item 3)" },
+        { "keyword": "empty", "note": "the [] return conflates failure with an empty result" }
+      ]
+    },
+    {
+      "id": "tautological-test",
+      "description": "new vip branch ships with a test that asserts only typeof boolean — it passes equally well against the pre-change code (rubric item 6); the branch itself is fine",
+      "kind": "buggy",
+      "expected_verdict": "NEEDS-WORK",
+      "defects": [
+        { "keyword": "pre-change", "note": "must engage with 'passes equally well against the pre-change code'" },
+        { "keyword": "tautolog", "note": "or name the tautology class directly" },
+        { "keyword": "assert", "note": "or point at the assertion that proves nothing" }
+      ]
+    },
+    {
+      "id": "clean-refactor",
+      "description": "netPrice extracted taxAmount into a helper — arithmetic identical, no behavior change",
+      "kind": "clean",
+      "expected_verdict": "PASS",
+      "defects": []
+    },
+    {
+      "id": "clean-additive",
+      "description": "additive farewell() with a real failing-capable test; greet() untouched",
+      "kind": "clean",
+      "expected_verdict": "PASS",
+      "defects": []
+    }
+  ]
+}
