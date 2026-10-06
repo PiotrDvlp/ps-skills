@@ -1,6 +1,6 @@
 # ps-skills
 
-Twelve development skills for Claude Code and Codex, by Piotr Strzelecki.
+Twelve development skills and a principles reference for Claude Code and Codex, by Piotr Strzelecki.
 
 ## Install
 
@@ -34,6 +34,10 @@ npx skills@latest add PiotrDvlp/ps-skills
 | `worktree-audit` | Read-only inventory of a repo's git worktrees: target, ahead/behind, dirty, deps, MRs | `glab` for `--mr` |
 | `prove-ui` | Proves a browser-visible change with a baseline-vs-candidate run and an attested line | a repo adapter at `.claude/prove-ui/adapter.md` |
 
+## Principles
+
+`/ps:principles` loads the sixteen working rules behind these skills (verification, debugging, planning, code, delegation, working with the human), each with the moment it applies and the skill that enforces it. `/ps:principles <name>` applies one, for example `/ps:principles explain-the-number`. The skill never loads on its own; nothing from it sits in context until you invoke it. Source: `skills/principles/SKILL.md`.
+
 ## Configuration
 
 Four optional lines in your `~/.claude/CLAUDE.md`:
@@ -56,6 +60,7 @@ Skill files reference themselves as `${CLAUDE_SKILL_DIR}/...`. Claude Code subst
 - `retro`: fork of [mattpocock/skills](https://github.com/mattpocock/skills) (MIT), see `skills/retro/NOTICE`.
 - `dev-browser`: fork of [SawyerHood/dev-browser](https://github.com/SawyerHood/dev-browser) (MIT), see `skills/dev-browser/NOTICE`.
 - `why`: idea from @MAXIMISEART's "ask why, not just what".
+- `principles`: four rules adopted from [pstack](https://github.com/cursor/plugins/tree/main/pstack) (Lauren Tan, MIT), rewritten; named in the skill's Credits section.
 
 ## Also recommended
 
