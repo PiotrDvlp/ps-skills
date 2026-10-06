@@ -101,7 +101,7 @@ Apply to any factual, planning, or synthesis question when a `Notes root:` is co
 
 - Search your own notes before web sources or model knowledge. Answer from them when they cover the question, and name the files used.
 - When the notes are incomplete, state the gap first, then use outside sources only for the missing part. When they have nothing, say so before answering from outside.
-- A recent-context summary is a routing aid; verify the linked note before relying on the summary text.
+- If the notes keep a summary or index file, treat it as a routing aid: open the note it points to before relying on the summary text.
 
 ### read-the-whole-source
 
