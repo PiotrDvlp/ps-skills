@@ -36,7 +36,15 @@ npx skills@latest add PiotrDvlp/ps-skills
 
 ## Principles
 
-`/ps:principles` loads the sixteen working rules behind these skills (verification, debugging, planning, code, delegation, working with the human), each with the moment it applies and the skill that enforces it. `/ps:principles <name>` applies one, for example `/ps:principles explain-the-number`. The skill never loads on its own; nothing from it sits in context until you invoke it. Source: `skills/principles/SKILL.md`.
+`/ps:principles` loads the sixteen working rules behind these skills (verification, debugging, planning, code, delegation, working with the human), each with the moment it applies and the skill that enforces it. `/ps:principles <name>` applies one, for example `/ps:principles explain-the-number`. The skill never loads on its own; nothing from it sits in context until you invoke it, and a new session starts without it.
+
+To have the principles in every session, add one line to your `~/.claude/CLAUDE.md` (or the project one):
+
+```
+At the start of each task, invoke /ps:principles.
+```
+
+This costs about 170 lines of context per session. Without the line, the skill is a reference you pull in when you want it. Source: `skills/principles/SKILL.md`.
 
 ## Configuration
 
