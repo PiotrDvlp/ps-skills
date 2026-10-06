@@ -688,3 +688,32 @@ test('writer-gate/ dry-run agrees with a real run on a sentinel-less vault (exit
   assert.equal(existsSync(join(v, 'outputs/p/codex-reviews/note.md')), false);
   rmSync(v, { recursive: true, force: true });
 });
+
+test('run/ an unspawnable codex binary dies with a [code] line, no stack, and no leaked bundle', () => {
+  const r = dirtyRepo();
+  const prep = JSON.parse(runner('prepare', ['--uncommitted', '--repo', r.dir]).stdout);
+  const fakeDir = mkdtempSync(join(tmpdir(), 'cxr-nocodex-'));
+  const env = { ...process.env, PATH: `${fakeDir}:${dirname(process.execPath)}:/usr/bin:/bin` };
+  const res = spawnSync('node', [RUNNER, 'run', '--bundle', prep.bundle], { encoding: 'utf8', env });
+  assert.notEqual(res.status, 0);
+  assert.match(res.stderr, /^\[codex_spawn_failed\] /m, res.stderr);
+  assert.doesNotMatch(res.stderr, /at .*node:/, 'no stack trace on a clean abort');
+  assert.equal(existsSync(prep.bundle), false, 'bundle is cleaned up');
+  rmSync(fakeDir, { recursive: true, force: true }); r.cleanup();
+});
+
+test('writer-gate/ the log path creates a missing base directory like --no-log does', () => {
+  const v = fakeVault();
+  const resultPath = join(v, 'result.json');
+  writeFileSync(resultPath, JSON.stringify({
+    ok: true, date: '2026-08-15', title: 'T', body: '## Verdict\n\nPASS\n', frontmatter: {},
+  }));
+  const res = spawnSync('node', [WRITER,
+    '--result', resultPath, '--vault', v,
+    '--base-dir', 'outputs/newproj/codex-reviews', '--slug', 'note', '--routing', 'project',
+  ], { encoding: 'utf8' });
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(readFileSync(join(v, 'outputs/newproj/codex-reviews/note.md'), 'utf8'), /## Verdict/);
+  assert.match(readFileSync(join(v, 'log.md'), 'utf8'), /\[\[note\]\]/);
+  rmSync(v, { recursive: true, force: true });
+});

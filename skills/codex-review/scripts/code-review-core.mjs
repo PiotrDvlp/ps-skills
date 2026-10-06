@@ -260,6 +260,7 @@ export function parsePatch(patch) {
 
   let oldPath = null, newPath = null;
   let oldLine = 0, newLine = 0;
+  let oldLeft = 0, newLeft = 0;
   let pendingBinary = false;
 
   const unquote = (p) => {
@@ -279,6 +280,12 @@ export function parsePatch(patch) {
   };
 
   for (const raw of lines) {
+    if (oldLeft > 0 || newLeft > 0) {
+      if (raw.startsWith('+')) { add(newPath, 'new', newLine++); newLeft--; continue; }
+      if (raw.startsWith('-')) { add(oldPath, 'old', oldLine++); oldLeft--; continue; }
+      if (raw.startsWith(' ') || raw === '') { oldLine++; newLine++; oldLeft--; newLeft--; continue; }
+      if (raw.startsWith('\\')) continue;
+    }
     if (raw.startsWith('diff --git ')) {
       if (pendingBinary && newPath) unreviewable.push(newPath);
       pendingBinary = false;
@@ -310,6 +317,8 @@ export function parsePatch(patch) {
     if (hunk) {
       oldLine = parseInt(hunk[1], 10);
       newLine = parseInt(hunk[3], 10);
+      oldLeft = hunk[2] === undefined ? 1 : parseInt(hunk[2], 10);
+      newLeft = hunk[4] === undefined ? 1 : parseInt(hunk[4], 10);
       continue;
     }
     if (raw.startsWith('+') && !raw.startsWith('+++')) { add(newPath, 'new', newLine++); continue; }

@@ -600,3 +600,37 @@ test('render/ untracked count is surfaced', () => {
   );
   assert.match(body, /3 untracked file\(s\)/);
 });
+
+test('patch/ hunk content lines starting with "--- " or "+++ " are not file headers', () => {
+  const patch = [
+    'diff --git a/q.sql b/q.sql',
+    '--- a/q.sql',
+    '+++ b/q.sql',
+    '@@ -1,3 +1,3 @@',
+    ' select 1;',
+    '--- old comment',
+    '-select 2;',
+    '+++ new comment',
+    '+select 3;',
+    '',
+  ].join('\n');
+  const { citations } = parsePatch(patch);
+  assert.deepEqual([...citations.get('q.sql\0old')].sort(), [2, 3], 'both removed lines cite q.sql old side');
+  assert.deepEqual([...citations.get('q.sql\0new')].sort(), [2, 3], 'both added lines cite q.sql new side');
+  assert.equal([...citations.keys()].some((k) => k.startsWith('old comment')), false, 'no path invented from the comment');
+});
+
+test('patch/ a deleted markdown "---" line keeps the old-side counter honest', () => {
+  const patch = [
+    'diff --git a/n.md b/n.md',
+    '--- a/n.md',
+    '+++ b/n.md',
+    '@@ -1,3 +1,1 @@',
+    ' title',
+    '---',
+    '-body',
+    '',
+  ].join('\n');
+  const { citations } = parsePatch(patch);
+  assert.deepEqual([...citations.get('n.md\0old')].sort(), [2, 3], 'the "---" removal is old line 2, body is old line 3');
+});

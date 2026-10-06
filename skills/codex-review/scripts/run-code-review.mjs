@@ -230,8 +230,15 @@ async function cmdRun(args) {
     let stdout = '', stderr = '';
     child.stdout.on('data', (d) => { stdout += d; });
     child.stderr.on('data', (d) => { stderr += d; });
-    const exit = await new Promise((res) => child.on('close', res));
-    closeSync(fd);
+    let exit;
+    try {
+      exit = await new Promise((res, rej) => {
+        child.on('error', (e) => rej(new ReviewError('codex_spawn_failed', `cannot start codex: ${e.message}`)));
+        child.on('close', res);
+      });
+    } finally {
+      closeSync(fd);
+    }
     writeFileSync(join(bundle, 'codex.stdout.log'), stdout);
     writeFileSync(join(bundle, 'codex.stderr.log'), stderr);
 

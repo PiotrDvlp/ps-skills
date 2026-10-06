@@ -133,13 +133,13 @@ const yaml = [
 ].join('\n');
 
 const notePath = join(args.vault, decision.path);
+if (!args.dryRun) mkdirSync(absBase, { recursive: true });
 
 if (args.noLog) {
   if (args.dryRun) {
     console.log(JSON.stringify({ written: false, dryRun: true, path: notePath, logLine: null }, null, 2));
     process.exit(0);
   }
-  mkdirSync(absBase, { recursive: true });
   writeFileSync(notePath, yaml + result.body);
   console.log(JSON.stringify({ written: true, path: notePath, logLine: null }, null, 2));
   process.exit(0);
