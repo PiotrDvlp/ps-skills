@@ -171,6 +171,18 @@ form opens with the description already filled in.
 
 ## Step 6 — Push both (after confirming once)
 
+Before asking, prove there is something to push and nothing left behind:
+
+```bash
+git status --porcelain                      # must be empty: a staged revert that never got committed pushed a branch identical to main once
+git rev-list --count origin/main..<name>    # must be > 0
+git rev-list --count origin/develop..<name>_develop   # must be > 0
+```
+
+A non-empty status or a zero count stops the workflow: commit (via the `commit` skill) or
+explain, never push. Also stop when the branch's upstream shows `[gone]` in `git branch -vv`:
+it was merged and deleted on the remote, and a push would re-create it.
+
 Ask the user once: "Push both branches and set upstreams?" On yes, push each and set tracking:
 
 ```bash
@@ -235,6 +247,22 @@ user to paste over the current description.
 
 Print them even when the user declined the push and you handed over push commands instead —
 the links work as soon as the branches are pushed.
+
+## Step 7 — Confirm the MRs on GitLab
+
+When the user reports the MR numbers (or a later turn asks "did it land?"), read each MR back
+instead of trusting the link you printed; two MR descriptions never reached GitLab once and a
+title broke the repo convention:
+
+```bash
+glab mr view <n> -F json | python3 -c 'import json,sys; m=json.load(sys.stdin); print(m["title"]); print(m["source_branch"], "->", m["target_branch"]); print("description chars:", len(m["description"] or ""))'
+```
+
+Check three things: the title matches the branch's commit subject shape (`type(scope)[TICKET]: ...`
+or whatever `git log` showed in Step 5), the target is the intended base, and the description
+length is not 0 and not the bare template. Any miss: print the Step 5 draft again for the user
+to paste. Under the Bash sandbox `glab mr view` needs the network, so list `glab mr view *` in
+`sandbox.excludedCommands` or run it from a shell outside the sandbox.
 
 ## Gotchas
 
