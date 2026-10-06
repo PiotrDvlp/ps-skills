@@ -36,7 +36,7 @@ npx skills@latest add PiotrDvlp/ps-skills
 
 ## Principles
 
-`/ps:principles` loads the sixteen working rules behind these skills (verification, debugging, planning, code, delegation, working with the human), each with the moment it applies and the skill that enforces it. `/ps:principles <name>` applies one, for example `/ps:principles explain-the-number`. The skill never loads on its own; nothing from it sits in context until you invoke it, and a new session starts without it.
+`/ps:principles` loads the eighteen working rules behind these skills (verification, debugging, planning, retrieval, code, delegation, working with the human), each with the moment it applies and the skill that enforces it. `/ps:principles <name>` applies one, for example `/ps:principles explain-the-number`. The skill never loads on its own; nothing from it sits in context until you invoke it, and a new session starts without it.
 
 To have the principles in every session, add one line to your `~/.claude/CLAUDE.md` (or the project one):
 
@@ -56,6 +56,8 @@ This costs about 170 lines of context per session. Without the line, the skill i
 | `executable-plans` | planning | Cite claims, evaluate two real alternatives, make every criterion a runnable command |
 | `second-pass-before-presenting` | planning | A non-trivial plan gets an independent model review before the human sees it |
 | `review-only-on-shared-code` | planning | Fix the diff base first; on shared or analytics code propose, do not apply |
+| `notes-first-retrieval` | retrieval | Search your own notes before web or model knowledge; name the files, state the gap |
+| `read-the-whole-source` | retrieval | Fetch the full thread or article before summarizing; cite per claim |
 | `zero-comments` | code | No comments unless a reader cannot derive it; suppressions are defects |
 | `tooling-outside-team-repos` | code | Personal linters, hooks and skills never land in a team repository |
 | `guard-the-context-window` | delegation | Bulk reads and searches go through subagents; the main thread keeps the decision |

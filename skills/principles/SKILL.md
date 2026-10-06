@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Principles
 
-Sixteen rules, each with the moment it applies and the skill or hook that enforces it where one exists. When invoked with a name, apply only that section. Most of these rules exist because text alone did not hold; where a mechanism replaced the text, the section says so. The hooks named below live in the author's own setup and are not shipped in this plugin; the skills are.
+Eighteen rules, each with the moment it applies and the skill or hook that enforces it where one exists. When invoked with a name, apply only that section. Most of these rules exist because text alone did not hold; where a mechanism replaced the text, the section says so. The hooks named below live in the author's own setup and are not shipped in this plugin; the skills are.
 
 ## Verification
 
@@ -48,6 +48,7 @@ Apply when a test, build, lint, or observed behaviour is wrong and the next acti
 - Fix where all callers route through. A guard in one caller leaves every sibling broken; a guard that silences a crash is a symptom fix.
 - When two fixes that share one premise have failed the same check, the premise is the suspect. Write it down in one sentence and test it before a third fix.
 - A workaround that needs a paragraph to justify is wrong code, not a missing comment.
+- Prefer the small fix at the root over a hardcoded fallback. Ask before adding a fallback string or default where config or i18n is the right path.
 
 Enforced by a UserPromptSubmit hook that injects the hypothesis reminder on bug-shaped prompts.
 
@@ -79,6 +80,7 @@ Apply to any non-trivial plan or design before the human sees it.
 
 - Run an independent review from a different model, and present the plan with the defects it found already fixed and a one-line note of what it caught. First-pass plans have shipped a regex that introduced DAG cycles, a vacuous canary test, and an acceptance criterion that passed without ever scanning.
 - When the design question is genuinely open, run a duel between competing approaches instead of a review of one.
+- While brainstorming, at the point where two or three approaches are on the table, offer an independent view in one line; do not run it unprompted. Skip the offer when one approach is obvious.
 - An unavailable review is not a passed review. Say so and mark the plan unreviewed.
 - Never run it twice on the same plan.
 
@@ -90,6 +92,23 @@ Apply when reviewing a diff.
 
 - Determine the diff base first (branch against develop or main) and the true review scope before tracing any finding.
 - On shared or analytics-sensitive code, propose fixes and wait for approval before applying edits. Check side effects on shared fields before writing.
+
+## Retrieval
+
+### notes-first-retrieval
+
+Apply to any factual, planning, or synthesis question when a `Notes root:` is configured.
+
+- Search your own notes before web sources or model knowledge. Answer from them when they cover the question, and name the files used.
+- When the notes are incomplete, state the gap first, then use outside sources only for the missing part. When they have nothing, say so before answering from outside.
+- A recent-context summary is a routing aid; verify the linked note before relying on the summary text.
+
+### read-the-whole-source
+
+Apply before summarizing or ingesting a thread, article, transcript, or document.
+
+- Fetch and read the full source. Never summarize from the first post, the first paragraph, or a preview card.
+- A summary cites the specific part of the source each claim rests on; a subagent that read the source returns per-claim citations, not a paraphrase.
 
 ## Code
 
@@ -168,6 +187,8 @@ Apply to every message the human reads.
 - One term, one meaning; define an ID, ticket, or option the first time you use it. A count matches its list.
 - Decisions go under a final "Decision needed" heading as a numbered list: named options, your recommendation, and what you will do without an answer. For a remote or irreversible action, that default is "do nothing".
 - Steps for the human are a numbered list, one action and one code block per step, with the expected output and a warning before any risky command.
+- When choosing between approaches, state the tradeoff. Skip explanations of basics the reader already knows.
+- Plain text in answers and notes: no emoji, emoticons, or decorative glyphs. Arrows and symbols a file format requires are exempt.
 
 ## Credits
 
