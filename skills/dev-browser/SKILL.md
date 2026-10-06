@@ -10,7 +10,7 @@ CLI for controlling a browser via sandboxed JavaScript scripts (Playwright Page 
 
 ## Installation
 
-Already installed globally (`dev-browser@0.2.5`); `dev-browser install` only if Chromium is missing.
+Requires `npm i -g dev-browser@0.2.5` (newer CLI versions changed the API); run `dev-browser install` once for Chromium.
 
 ## Usage
 
