@@ -192,6 +192,34 @@ test('tasks/ no task headings, no task findings', () => {
   assert.deepEqual(check(GOOD + '## Tasks overview\nprose\n'), []);
 });
 
+// ---------------------------------------------------------------- negative proof/
+
+const SCANNER = GOOD + '### Task 4: Add the leak scanner\n```bash\nnode scripts/scan.mjs fixtures/clean\n```\nExpected: exit 0, prints `scanned 2 files`.\n';
+const startsWith = (findings, prefix) => findings.some((f) => f.startsWith(prefix));
+
+test('negative proof/ a task adding a check needs one', () => {
+  assert.ok(startsWith(check(SCANNER), '[Task 4: Add the leak scanner] no negative proof'));
+});
+
+test('negative proof/ with a failing expectation passes', () => {
+  const text = SCANNER + 'Negative proof: `node scripts/scan.mjs fixtures/secret` exits 1 and names `secret.txt`.\n';
+  assert.deepEqual(check(text), []);
+});
+
+test('negative proof/ expecting success is flagged', () => {
+  const text = SCANNER + 'Negative proof: `node scripts/scan.mjs fixtures/secret` exits 0.\n';
+  assert.ok(startsWith(check(text), '[Task 4: Add the leak scanner] negative proof names no failing result'));
+});
+
+test('negative proof/ a task that only runs existing tests is not classified', () => {
+  assert.deepEqual(check(GOOD + '### Task 5: Wire the button\nRun `npm test`; exits 0.\n'), []);
+});
+
+test('negative proof/ a test file path in the body classifies the task', () => {
+  const text = GOOD + '### Task 6: Guard the push\nEdit `hooks/guard.py` and `hooks/test_guard.py`; `python3 hooks/test_guard.py` prints `OK`.\n';
+  assert.ok(startsWith(check(text), '[Task 6: Guard the push] no negative proof'));
+});
+
 // ---------------------------------------------------------------- cli/
 
 function cliOn(content) {

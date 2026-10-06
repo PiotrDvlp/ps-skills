@@ -26,6 +26,10 @@ const SINGLE_QUOTED = /'[^'\n]*'/g;
 const TASK = /^task\s+\d+/i;
 const PIPED_TEST = /\b(?:(?:npm|npx|pnpm|yarn)\s+(?:run\s+)?(?:test|typecheck|build|lint)\b|(?<![\w"'./-])vitest(?=\s|$)(?!\s+list\b)|node\s+--test\b|pytest\b|cargo\s+test\b|go\s+test\b)(?:[^|\n;&]|(?<=>)&|&(?=>))*\|\s*(?:tail|head|grep|rg)\b/g;
 const PIPEFAIL_SET = /\bset\s+-[a-zA-Z]*o\s+pipefail\b/;
+const CHECK_TITLE = /\b(add|write|create|build|extend|harden|introduce)\w*\b[^\n]{0,60}\b(tests?|specs?|scanner|verifier|validator|gate|guard|checker|check|lint\w*)\b/i;
+const TEST_FILE = /[\w./-]*(?:\.(?:test|spec)\.\w+|\/test_\w+\.py|_test\.(?:py|go))\b/;
+const NEGATIVE_PROOF = /\b(negative proof|mutation proof|red first|prove[sd]? (?:it|that it|the check) can fail)\b[^\n]*(?:\n(?!\s*\n)[^\n]*)*/i;
+const FAIL_EXPECTED = /\b(exit\w*\s+(?:non-?zero|[1-9]\d*)|non-?zero|fails?|failing|rejects?|denied|blocked|red)\b/i;
 
 /** Python str.splitlines() for \n, \r\n and \r: no trailing empty element. */
 function splitLines(text) {
@@ -134,6 +138,11 @@ function taskFindings(lines) {
     const text = body.join('\n');
     if (!hasCommand(text)) out.push(`[${title}] no verification command`);
     if (!EXPECTED.test(text)) out.push(`[${title}] no expected result`);
+    if (CHECK_TITLE.test(title) || TEST_FILE.test(text)) {
+      const proof = NEGATIVE_PROOF.exec(text);
+      if (!proof) out.push(`[${title}] no negative proof (a 'Negative proof:' line with a command expected to fail)`);
+      else if (!FAIL_EXPECTED.test(proof[0])) out.push(`[${title}] negative proof names no failing result (exit 1, non-zero, fails, rejects)`);
+    }
   }
   return out;
 }
