@@ -1,0 +1,14 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "ps-skills",
+  "description": "Piotr Strzelecki's development skills for Claude Code and Codex",
+  "owner": { "name": "Piotr Strzelecki", "url": "https://github.com/PSDvlpr" },
+  "plugins": [
+    {
+      "name": "ps",
+      "description": "Development workflow skills: commit, dual-branch-finish, codex-review, second-view, task-auditor, why, blast-radius, layer-lint, retro, dev-browser",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

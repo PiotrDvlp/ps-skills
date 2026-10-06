@@ -1,0 +1,11 @@
+{
+  "name": "ps",
+  "version": "0.1.0",
+  "description": "Piotr Strzelecki's development skills",
+  "author": { "name": "Piotr Strzelecki", "url": "https://github.com/PSDvlpr" },
+  "homepage": "https://github.com/PSDvlpr/ps-skills",
+  "repository": "https://github.com/PSDvlpr/ps-skills",
+  "license": "MIT",
+  "keywords": ["git", "code-review", "jira", "codex", "skills"],
+  "skills": "./skills/"
+}
