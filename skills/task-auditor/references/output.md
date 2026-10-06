@@ -55,8 +55,9 @@ Body sections in this order:
 5. `## Impact Matrix`
 6. `## Gaps` (with `### BLOCKER`, `### WARNING`, `### MISSING_ASSETS` subsections; numbered bullets inside)
 7. `## Technical Readiness`
-8. `## Calibration` ← MANDATORY, emitted on every audit
-9. `## Related`
+8. `## Environment Prerequisites`
+9. `## Calibration` ← MANDATORY, emitted on every audit
+10. `## Related`
 
 ### Scope Decision section
 
@@ -115,6 +116,21 @@ Gap bullets carry per-category numbered IDs that Phase 2.5 references:
 ```
 
 If a category has no gaps, keep the subsection header and emit a single `- _None._` bullet beneath it. All three subsections are always present; Phase 3 fills in `- _None._` for empty categories.
+
+### Environment Prerequisites section
+
+Everything the implementer must have before work starts, from Phase 2 `ENV_PREREQUISITES`. One row per entry; `none` with the Phase 2 reason when the field was `none`.
+
+```markdown
+## Environment Prerequisites
+
+| Kind | What | Needed for | Status | Evidence |
+|---|---|---|---|---|
+| env-file | `.env` with `STORYBLOK_TOKEN` | build, browser check | unknown | `nuxt.config.ts:41` |
+| test-account | customer login on integ | browser check | missing | PROJ-123 description |
+```
+
+Rows with status `missing` or `unknown` are the first thing to ask the user for in the implementation session.
 
 ### Calibration section
 
@@ -219,6 +235,12 @@ Format using:
 - **Score**: <N>%
 - **Verdict**: <GO / NO-GO>
 - **Recommendation**: <brief action>
+
+#### Environment prerequisites
+Environment prerequisites: <N> item(s), <M> missing or unknown
+- <kind>: <what> (<needed for>)
+
+Or, when the field was `none`: `Environment prerequisites: none (<reason>)`
 
 #### Saved to
 - `<notes root>/<project>/task-audits/<dated-slug>.md`

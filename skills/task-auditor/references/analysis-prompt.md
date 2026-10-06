@@ -227,6 +227,13 @@ When the dev-verifiable downgrade rule from Step 3 applies, append ` (dev-verifi
 
 When the in-flight downgrade rule applies, append ` (in-flight)` to the gap title and include the literal sentence `Resolves via: <packet-visible anchor>.` in the gap prose. When the deferred-visual rule applies, append ` (visual-deferred)` to the gap title and include the literal sentence `Deferred: <logic buildable now>; pending design: <the undecided visual decision>.` in the gap prose.
 
+ENV_PREREQUISITES:
+- kind: env-file | credential | test-account | external-host | local-service | sandbox-exclusion
+  what: <concrete name: the .env key, the account role and environment, the hostname, the service>
+  needed_for: <build | typecheck | unit tests | browser check | e2e | codegen | deploy>
+  evidence: <file:line in the codebase, or the Jira field, that implies it>
+  status: available | missing | unknown
+
 READINESS:
 - Score: {N}%
 - Verdict: {GO/NO-GO} (use `NO-GO (BLOCKER)` only when a real BLOCKER gap exists — see Step 6 band-label rule)
@@ -244,3 +251,10 @@ These define the section's contract; the list is leads, not a diff prediction:
 - **Non-impact must be earned.** An area enters *Confirmed non-impact* only if Step 5 rates it None AND the packet covered it. If `cap_reached: yes` stopped the pre-scan before covering it, leave it out — silence is not confirmation.
 - **Anticipated surfaces are roles, not filenames.** Describe the new capability; do not invent exact names a pre-implementation auditor cannot know. Name a file only when local conventions make it unambiguous.
 - **Reconciliation.** Any file path you name in a gap's prose (Step 3) MUST also appear somewhere in Codebase Evidence — Primary, Candidate, or Adjacent/excluded — or in the packet's FILENAME_HITS / CONTENT_HITS.
+
+### ENV_PREREQUISITES rules
+
+- **Three sources only.** Derive entries from: (1) `.env.example` keys and `process.env` / `runtimeConfig` / `useRuntimeConfig` reads in the files listed under CODEBASE_EVIDENCE; (2) Jira text that names a login, customer or admin account, an environment URL, or a feature flag; (3) hosts the work must call from a shell (GraphQL endpoint, CMS, payment, tracking) which the Bash sandbox blocks unless allowlisted.
+- **`.env` is sandbox-unreadable.** `.env` files are unreadable inside the Bash sandbox, so any build or browser check that needs one gets `kind: env-file` with `needed_for` set to that check.
+- **Status needs evidence.** `status` is `available` only with evidence in the repo or Jira; otherwise `unknown`. Never infer availability.
+- **Empty case.** When nothing applies, write `ENV_PREREQUISITES: none` followed by one line saying why (for example: pure unit-level change, no runtime config read).
