@@ -1,6 +1,6 @@
 ---
 name: dual-branch-finish
-description: "Use when a change must land on both `main` and `origin/develop` so an MR can be opened against each — \"create both branches\", \"finish on both branches\", \"open MRs to main and develop\", or an afterthought like \"...and develop also\". Skip if the work lands on a single branch."
+description: 'Use when a change must land on both `main` and `origin/develop` so an MR can be opened against each — "create both branches", "finish on both branches", "open MRs to main and develop", or an afterthought like "...and develop also". Skip if the work lands on a single branch.'
 ---
 
 # Dual-Branch Finish
@@ -165,8 +165,9 @@ write each draft to the scratchpad as `mr-<branch, slashes as underscores>.md`. 
 - When Step 3 resolved a conflict or Step 4 patch-ids differed, say so in the develop draft's
   Review notes and quote the sibling's own checks in its Verification.
 
-No template in the repo: skip this step and say so in one line. Print both draft paths before
-the Step 6 links.
+No template in the repo: skip this step and say so in one line. The drafts are not the
+deliverable on their own: Step 6 encodes each one into its branch's MR creation link, so the
+form opens with the description already filled in.
 
 ## Step 6 — Push both (after confirming once)
 
@@ -205,21 +206,32 @@ Operation not permitted`. That is the deny described in Gotchas, not a broken wo
 it in one line and hand both `git config` commands to the user alongside the push commands;
 they succeed from a shell outside the sandbox.
 
-End with the MR creation links, one line per branch, with source and target both encoded in
-the URL — never relay the push output's `merge_requests/new` link, which omits the target and
-lets GitLab default it to the project's default branch. Build each line with:
+End with the MR creation links, one line per branch, with source, target, title and the Step 5
+description all encoded in the URL, so the user opens a form that is already filled in. Never
+relay the push output's `merge_requests/new` link, which omits the target and lets GitLab
+default it to the project's default branch, and never leave the description only in the draft
+file or in chat. Build each line with:
 
 ```bash
-b=<branch> t=<target>; printf -- '- %s, target %s: %s/-/merge_requests/new?merge_request%%5Bsource_branch%%5D=%s&merge_request%%5Btarget_branch%%5D=%s\n' "$b" "$t" "$(git remote get-url origin | sed -E 's#^git@([^:]+):#https://\1/#; s#\.git$##')" "${b//\//%2F}" "${t//\//%2F}"
+b=<branch> t=<target> title='<MR title>' desc='<absolute path of the Step 5 draft, or empty>'; python3 -c 'import sys, urllib.parse as u; b, t, title, desc, base = sys.argv[1:]; q = {"merge_request[source_branch]": b, "merge_request[target_branch]": t, "merge_request[title]": title}; q.update({"merge_request[description]": open(desc).read()} if desc else {}); print(f"- {b}, target {t}: {base}/-/merge_requests/new?{u.urlencode(q)}")' "$b" "$t" "$title" "$desc" "$(git remote get-url origin | sed -E 's#^git@([^:]+):#https://\1/#; s#\.git$##')"
 ```
+
+The title is the subject of the branch's commit when the range has one, otherwise a summary of
+the range; keep it single-quoted, since a subject like `fix(tests): ...` is a shell syntax error
+unquoted. Pass an empty `desc` only when Step 5 was skipped; GitLab then falls back to the
+repo's default template. A filled link is about 1.5 KB, well inside URL limits.
 
 Run it for `<name>` with `main` and `<name>_develop` with `develop` (or the bases in use), and
-print both lines verbatim as the last thing in the reply:
+print both lines verbatim as the last thing in the reply (shortened here):
 
 ```
-- chore/remove_vacuous_unit_tests, target main: https://gitlab.example.com/group/repo/-/merge_requests/new?merge_request%5Bsource_branch%5D=chore%2Fremove_vacuous_unit_tests&merge_request%5Btarget_branch%5D=main
-- chore/remove_vacuous_unit_tests_develop, target develop: https://gitlab.example.com/group/repo/-/merge_requests/new?merge_request%5Bsource_branch%5D=chore%2Fremove_vacuous_unit_tests_develop&merge_request%5Btarget_branch%5D=develop
+- chore/remove_vacuous_unit_tests, target main: https://gitlab.example.com/group/repo/-/merge_requests/new?merge_request%5Bsource_branch%5D=chore%2Fremove_vacuous_unit_tests&merge_request%5Btarget_branch%5D=main&merge_request%5Btitle%5D=...&merge_request%5Bdescription%5D=...
+- chore/remove_vacuous_unit_tests_develop, target develop: https://gitlab.example.com/group/repo/-/merge_requests/new?merge_request%5Bsource_branch%5D=chore%2Fremove_vacuous_unit_tests_develop&merge_request%5Btarget_branch%5D=develop&merge_request%5Btitle%5D=...&merge_request%5Bdescription%5D=...
 ```
+
+When a branch already has an open MR (its push printed `View merge request ...`), a creation link
+would open a duplicate. Print that MR's URL instead, followed by its description draft for the
+user to paste over the current description.
 
 Print them even when the user declined the push and you handed over push commands instead —
 the links work as soon as the branches are pushed.
@@ -231,13 +243,13 @@ the links work as soon as the branches are pushed.
   it out where it is not already checked out) instead of `git checkout -b`; `checkout -b`
   fails, and forcing it discards the pushed sibling.
 - **The Bash sandbox denies writes to `.git/config`, and a plain `git checkout -b <name>
-  origin/<branch>` needs one.** Everything else under `.git` is writable — `.git/index`,
+origin/<branch>` needs one.** Everything else under `.git` is writable — `.git/index`,
   refs, objects, and `.git/worktrees/**` all work, so commits and worktree creation are fine.
   Denied: `.git/config` and `.git/hooks/**`, which are git's arbitrary-code surface
   (`core.hooksPath`, `core.fsmonitor`, aliases). Do not try to allowlist them.
   `checkout -b` from a remote-tracking start point writes `[branch "<name>"] remote/merge`, so
   it hits the deny and **fails partially**: exit 1, `error: could not lock config file
-  .git/config`, the branch ref created, HEAD left on the old branch (reproduced). Exit 1 is
+.git/config`, the branch ref created, HEAD left on the old branch (reproduced). Exit 1 is
   real — read it; the state it leaves is not one a clean failure would produce. `--no-track`
   on both `checkout -b` and `worktree add -b` avoids the config write entirely and exits 0.
 - **Step 6's `git config branch.<name>.mr` write hits the same deny.** It is a convenience, not
@@ -245,7 +257,7 @@ the links work as soon as the branches are pushed.
   the push commands, rather than treating the workflow as blocked. They run outside the sandbox
   (prefix a shell line with `!`), where it succeeds.
 - **Home may itself be a linked worktree.** Compare `git rev-parse --path-format=absolute
-  --git-dir --git-common-dir` before Step 2; when they differ, `git worktree add` replaces
+--git-dir --git-common-dir` before Step 2; when they differ, `git worktree add` replaces
   `git checkout -b`. Skipping this check once left a half-applied `checkout -b` (branch ref
   created, index and working tree rewritten, HEAD still on the old branch) that needed a
   `reset --hard` to undo and pushed an empty branch to origin.

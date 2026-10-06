@@ -1,6 +1,6 @@
 ---
 name: commit
-description: "ALWAYS use for any git commit — never run `git commit` yourself without it. Triggers immediately on a bare \"commit\", \"commit the changes\", \"ok commit\", \"commit this\", or any message whose intent is committing working-tree changes. Skip if the intent is push, MR, or branch integration (use dual-branch-finish or finishing-a-development-branch)."
+description: 'ALWAYS use for any git commit — never run `git commit` yourself without it. Triggers immediately on a bare "commit", "commit the changes", "ok commit", "commit this", or any message whose intent is committing working-tree changes. Skip if the intent is push, MR, or branch integration (use dual-branch-finish or finishing-a-development-branch).'
 ---
 
 # Commit
@@ -27,6 +27,7 @@ Apply these signals in priority order to form groups. A group is a set of files 
 **Signal 1 — Ticket ID** (strongest): extract from the branch name (e.g. `PROJ-123` from `feat/PROJ-123/short_name`), then check it against what the diff actually does before using it. Changes for different tickets go into separate commits.
 
 The branch's ticket is a candidate, not a fact. Three cases:
+
 - **Diff matches the ticket** — use it.
 - **Diff reaches beyond the ticket** (a fix that also touches unrelated code) — omit the ticket rather than mislabel the wider change.
 - **Branch names a different ticket than the work you were asked to do** — stop and ask which ID belongs on the commit; don't copy the branch's.
@@ -34,6 +35,7 @@ The branch's ticket is a candidate, not a fact. Three cases:
 **Signal 2 — Feature area**: group by module or domain — `pageModules/footer/`, `pageModules/checkout/`, `common/stores/`, etc. Changes in different areas usually belong in separate commits.
 
 **Signal 3 — Change type**: determine the type from what the diff actually does:
+
 - New functionality → `feat`
 - Bug correction → `fix`
 - Code restructure without behavior change → `refactor`
@@ -101,20 +103,30 @@ On approval, commit in order. On rejection or edits, adjust the plan first.
 
 Skip when another skill invoked this one (dual-branch-finish prints both links itself), when
 the branch is `main`/`develop`, or when `origin` is not GitLab. Otherwise end the reply with the
-branch's MR creation link. Target is `develop` when the branch ends in `_develop` or `_dev`,
-else `main`:
+branch's MR creation link, with the title and description already in it. Target is `develop`
+when the branch ends in `_develop` or `_dev`, else `main`.
+
+When the repo has `.gitlab/merge_request_templates/Default.md` (read it from the target branch
+with `git show origin/<target>:<path>` when the working tree lacks it), fill it in for
+`git log origin/<target>..HEAD` and write the draft to the scratchpad. The repo's `AGENTS.md`
+"Merge Request Descriptions" section, when present, is the authority on content; Verification
+quotes only output produced in this session. No template: leave `desc` empty. Then:
 
 ```bash
-b=$(git branch --show-current); case "$b" in *_develop|*_dev) t=develop;; *) t=main;; esac; printf -- '- %s, target %s: %s/-/merge_requests/new?merge_request%%5Bsource_branch%%5D=%s&merge_request%%5Btarget_branch%%5D=%s\n' "$b" "$t" "$(git remote get-url origin | sed -E 's#^git@([^:]+):#https://\1/#; s#\.git$##')" "${b//\//%2F}" "${t//\//%2F}"
+b=$(git branch --show-current); case "$b" in *_develop|*_dev) t=develop;; *) t=main;; esac; title=$(git log -1 --format=%s); desc='<absolute draft path, or empty>'; python3 -c 'import sys, urllib.parse as u; b, t, title, desc, base = sys.argv[1:]; q = {"merge_request[source_branch]": b, "merge_request[target_branch]": t, "merge_request[title]": title}; q.update({"merge_request[description]": open(desc).read()} if desc else {}); print(f"- {b}, target {t}: {base}/-/merge_requests/new?{u.urlencode(q)}")' "$b" "$t" "$title" "$desc" "$(git remote get-url origin | sed -E 's#^git@([^:]+):#https://\1/#; s#\.git$##')"
 ```
 
-Print its output verbatim, e.g.:
+Print its output verbatim (shortened here):
 
 ```
-- chore/remove_vacuous_unit_tests, target main: https://gitlab.example.com/group/repo/-/merge_requests/new?merge_request%5Bsource_branch%5D=chore%2Fremove_vacuous_unit_tests&merge_request%5Btarget_branch%5D=main
+- chore/remove_vacuous_unit_tests, target main: https://gitlab.example.com/group/repo/-/merge_requests/new?merge_request%5Bsource_branch%5D=chore%2Fremove_vacuous_unit_tests&merge_request%5Btarget_branch%5D=main&merge_request%5Btitle%5D=...&merge_request%5Bdescription%5D=...
 ```
 
-The link works once the branch is pushed; this skill never pushes.
+When the branch has several commits, replace `title=$(...)` with a single-quoted summary of the range
+(`title='...'`; unquoted, a subject like `fix(tests): ...` is a shell syntax error). When the
+branch already has an open MR, print its URL and the draft for the user to paste instead; a
+creation link would open a duplicate. The link works once the branch is pushed; this skill
+never pushes.
 
 ## Gotchas
 
