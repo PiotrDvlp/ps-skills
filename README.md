@@ -22,7 +22,7 @@ npx skills@latest add PiotrDvlp/ps-skills
 | Skill | What it does | Needs |
 | --- | --- | --- |
 | `commit` | Groups unstaged changes into logical commits; derives the message shape from `git log` | — |
-| `dual-branch-finish` | Lands one change on two integration branches and prints both MR links | — |
+| `dual-branch-finish` | Lands one change on two integration branches and verifies both MR handoffs | Node 22+, authenticated `glab` |
 | `codex-review` | Independent read-only Codex review of a design, plan or diff | Codex CLI 0.130+ |
 | `second-view` | Independent Codex proposal on a problem still being decided | Codex CLI 0.130+ |
 | `task-auditor` | Readiness audit of a Jira ticket before implementation | `cs-atlassian` MCP (ask the author for the `cs-tools` repo) |
@@ -68,6 +68,12 @@ This costs about 170 lines of context per session. Without the line, the skill i
 | `key-fact-first` | human | Answer first, corrections first, decisions under one numbered heading |
 
 ## Configuration
+
+The `commit` and `dual-branch-finish` GitLab handoffs share a read-only verifier at
+`skills/dual-branch-finish/scripts/verify-mr.mjs` (`--help` lists the flags). It discovers MRs
+by source branch, checks open state before a push, and verifies title, target, full description
+and pushed commit after it. A creation link is reported as pending until the MR is read back;
+MR creation and updates still require the user's authorization. No new dependencies.
 
 Four optional lines in your `~/.claude/CLAUDE.md`:
 
