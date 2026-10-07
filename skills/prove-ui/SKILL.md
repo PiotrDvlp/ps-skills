@@ -34,6 +34,9 @@ end state proves nothing: six past checks passed with or without the fix.
    `${CLAUDE_SKILL_DIR}` is the directory holding this file; resolve it yourself when the variable is not substituted (Codex does not substitute it). Write the resolved absolute path into the check file.
    `id` equals the file name. Name the correct and the broken state before writing it.
    Preconditions (route, data, market, rendered app) are separate from observations.
+   An `observe` needs different baseline and candidate values (`NOT_DISTINCT` otherwise); a
+   value that must hold in both phases is a `precondition`. Assert the state a precondition
+   names (market, shop, login) from the rendered app, not from the URL.
    Prefer computed style, geometry, ARIA state or text over pixels.
 3. Run the adapter's harness command with `PROVE_UI_PHASE=baseline`. The manifest under
    `.distro/browser/prove-ui/<id>/baseline.json` must say `OBSERVED`. A mismatch here

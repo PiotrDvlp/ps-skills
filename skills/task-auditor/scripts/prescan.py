@@ -114,8 +114,17 @@ def cited_modules(plan):
     return out
 
 
+SHORT_TOKEN = 3  # a bare 'AT' matches inside "reservation"; short tokens need word boundaries
+
+
+def is_short(keyword):
+    return len(keyword) <= SHORT_TOKEN
+
+
 def build_pattern(keywords):
-    return "|".join(re.escape(k) for k in keywords) if keywords else r"(?!.*)"
+    if not keywords:
+        return r"(?!.*)"
+    return "|".join(rf"\b{re.escape(k)}\b" if is_short(k) else re.escape(k) for k in keywords)
 
 
 # --- pre-scan steps --------------------------------------------------------
@@ -182,6 +191,7 @@ def existing_scope(root, scope_paths):
 
 
 def filename_hits(root, scope_paths, keywords, deadline, cap=50):
+    keywords = [k for k in keywords if not is_short(k)]
     if not keywords or not scope_paths or remaining(deadline) <= 0:
         return []
     args = ["find"] + scope_paths + ["-type", "f", "("]

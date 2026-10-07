@@ -183,9 +183,10 @@ run. Keep both non-empty drafts until remote verification succeeds. The drafts a
 deliverable on their own: Step 6 encodes each one into its branch's MR creation link, so the
 form opens with the description already filled in.
 
-## Step 6 — Push both (after confirming once)
+## Step 6 — Hand over the push commands
 
-Before asking, prove there is something to push and nothing left behind:
+Never push and never offer to push: the user pushes. Before handing over the commands, prove
+there is something to push and nothing left behind:
 
 ```bash
 git status --porcelain                      # must be empty: a staged revert that never got committed pushed a branch identical to main once
@@ -207,17 +208,17 @@ node "${CLAUDE_SKILL_DIR}/scripts/verify-mr.mjs" --repo . --branch <name>_develo
 
 Requires Node 22+, git and authenticated `glab`. Exit 1 blocks pushing an inactive or ambiguous
 MR branch; use a fresh branch for follow-up work after merge. Exit 2 means unavailable or invalid
-input: report unverified and stop. Exit 0 with `ready-to-push` only permits asking for push
-approval; it does not mean an MR exists or the handoff is complete.
+input: report unverified and stop. Exit 0 with `ready-to-push` only permits handing over the
+push commands; it does not mean an MR exists or the handoff is complete.
 
-Ask the user once: "Push both branches and set upstreams?" On yes, push each and set tracking:
+Print the push commands for the user to run, one per branch:
 
 ```bash
 git push --set-upstream origin <name>
 git push --set-upstream origin <name>_develop
 ```
 
-For each pushed branch, store whichever `merge_requests` URL its push output prints on the
+Once the user has pushed, store whichever `merge_requests` URL each push output prints on the
 branch itself, so a later session can find it without `glab` or a network call:
 
 ```bash
@@ -245,7 +246,7 @@ Operation not permitted`. That is the deny described in Gotchas, not a broken wo
 it in one line and hand both `git config` commands to the user alongside the push commands;
 they succeed from a shell outside the sandbox.
 
-After each successful push, run Step 7 immediately. End with the verified MR URLs or pending
+When the user reports a successful push, run Step 7. End with the verified MR URLs or pending
 MR creation links, one line per branch, with source, target, title and the Step 5
 description all encoded in the URL, so the user opens a form that is already filled in. Never
 relay the push output's `merge_requests/new` link, which omits the target and lets GitLab
@@ -272,8 +273,7 @@ metadata differs, provide the exact title/target/draft to correct. An authorized
 an external write; after the update or user edit, re-run Step 7. A draft or filled URL is a
 pending handoff until the read-back succeeds.
 
-Print them even when the user declined the push and you handed over push commands instead —
-the links work as soon as the branches are pushed.
+Print them together with the push commands — the links work as soon as the branches are pushed.
 
 ## Step 7 — Confirm the MRs on GitLab
 
@@ -339,7 +339,7 @@ origin/<branch>` needs one.** Everything else under `.git` is writable — `.git
   verification carry over.
 - **`_develop` is a repo majority, not a rule.** Repos differ (one runs about 75 `*_develop` to 50 `*_dev`, another 1 to 2). Check with `git branch -r | grep -oE '_develop$|_dev$' | sort | uniq -c` and match the winner.
 - **Bases are configurable.** `main` + `origin/develop` are the defaults when the user names none. If a repo uses different integration branches (or the user names different ones), use those and keep the same two-sibling shape.
-- **Never push without the explicit yes in Step 6; never `--no-verify`, never force-push.** Branch creation and cherry-pick are local and safe; pushing is the outward-facing action. If a push is rejected, report it and stop.
+- **Never push and never offer to push; never `--no-verify`, never force-push.** Branch creation and cherry-pick are local and safe; pushing is the outward-facing action and the user runs it from the Step 6 commands. If the user reports a rejected push, stop.
 - **A cherry-pick conflict means `develop` diverged on the touched files — don't guess the resolution.** Resolve only when it's unambiguous (contextual/whitespace). If the change interacts with develop-only logic, stop and show the hunks; a wrong cherry-pick resolution is worse than a pause.
 - **Don't assume the branch is based on `main`.** If it isn't, find the real merge-base (`git merge-base HEAD origin/main`) before identifying the commit range — a wrong base carries unrelated history.
 - **End on the home (main-based) branch, not the develop sibling.** That's where the user was working and expects to land.
