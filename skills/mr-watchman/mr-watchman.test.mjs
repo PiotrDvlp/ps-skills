@@ -21,6 +21,8 @@ const thread = (author, path, line, body, resolved = false) => ({
     author: { username: author }, position: { new_path: path, new_line: line }, body }],
 })
 const summary = (body) => ({ id: 'd2', individual_note: true, notes: [{ resolvable: false, system: false, author: { username: 'review-bot' }, body }] })
+const reply = (author, body, created_at = '2026-01-02T08:27:00Z', system = false) => ({ resolvable: true, resolved: false, system, author: { username: author }, body, created_at })
+const answered = (first, ...replies) => ({ ...first, notes: [...first.notes, ...replies] })
 
 function run(t, { mrs, discussions = {}, jobs = {}, args = [], json = true, glabError = false, malformed = false }) {
   const root = mkdtempSync(join(tmpdir(), 'mr watchman-'))
@@ -67,7 +69,7 @@ test('threads: counts unresolved resolvable threads, ignores resolved ones and b
   const { status, rows } = run(t, config)
   assert.equal(status, 1)
   assert.equal(rows[0].state, 'threads')
-  assert.deepEqual(rows[0].threads, [{ author: 'review-bot', where: 'src/b.vue:54', head: '[P2] Await loading' }])
+  assert.deepEqual(rows[0].threads, [{ id: 'd1', author: 'review-bot', where: 'src/b.vue:54', head: '[P2] Await loading', replies: [], answered: false, reviewed: null }])
   const text = run(t, { ...config, json: false })
   assert.equal(text.status, 1)
   assert.match(text.out, /^mr\s+branch\s+state\s+threads\s+next$/m)
@@ -183,6 +185,33 @@ test('--json escapes DEL, C1 controls and line separators too', (t) => {
   assert.doesNotMatch(out, /[\u007f-\u009f\p{Zl}\p{Zp}]/u)
   assert.equal(JSON.parse(out)[0].threads[0].author, 'x y [31m')
   assert.equal(JSON.parse(out)[0].branch, 'fix/r [31m ')
+})
+
+test('an answered thread reads as answered: replies, last author and the reviewed commit are shown', (t) => {
+  const bot = (line, body) => thread('review-bot', 'src/h.vue', line, `${body}\n\n<!-- review-finding:sha=${'b'.repeat(40)} key=1 -->`)
+  const config = { mrs: [mr(19, 'fix/s', { detailed_merge_status: 'discussions_not_resolved' })],
+    discussions: { 19: [
+      answered(bot(5, '[P2] Pin the market'), reply('ghost', 'changed this line in version 5', '2026-01-02T08:20:00Z', true),
+        reply('alice', 'Fixed in abc1234.\nmore'), reply('review-bot', 'Verified, no change needed.', '2026-01-02T09:02:00Z')),
+      bot(9, '[P1] Keep the cart'),
+    ] } }
+  const { rows } = run(t, config)
+  assert.deepEqual(rows[0].threads.map((th) => [th.answered, th.replies.map((r) => r.author), th.reviewed]),
+    [[true, ['alice', 'review-bot'], 'bbbbbbbb'], [false, [], 'bbbbbbbb']])
+  assert.match(rows[0].next, /^2 unresolved thread\(s\), 1 already answered: triage the open ones against the code/)
+  const text = run(t, { ...config, json: false })
+  assert.match(text.out, /^ {2}!19 review-bot src\/h\.vue:5: \[P2\] Pin the market \(2 replies, last review-bot; reviewed bbbbbbbb, head aaaaaaaa\)$/m)
+  assert.match(text.out, /^ {2}!19 review-bot src\/h\.vue:9: \[P1\] Keep the cart \(no replies; reviewed bbbbbbbb, head aaaaaaaa\)$/m)
+  assert.doesNotMatch(text.out, /Fixed in abc1234|changed this line/)
+  const full = run(t, { ...config, json: false, args: ['--replies'] })
+  assert.match(full.out, /^ {6}alice 2026-01-02T08:27: Fixed in abc1234\.$/m)
+  assert.match(full.out, /^ {6}review-bot 2026-01-02T09:02: Verified, no change needed\.$/m)
+  assert.doesNotMatch(full.out, /changed this line|more/)
+})
+
+test('only answered threads: the next action is to read the replies and resolve', () => {
+  assert.match(verdict(mr(1, 'x'), [{ answered: true }, { answered: true }], []).next, /^2 answered thread\(s\): read the replies against the code, resolve the ones that hold/)
+  assert.match(verdict(mr(1, 'x'), [{ answered: false }], []).next, /^1 unresolved thread\(s\): triage against the code/)
 })
 
 test('verdict and unresolved are pure', () => {
