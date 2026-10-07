@@ -327,6 +327,13 @@ origin/<branch>` needs one.** Everything else under `.git` is writable — `.git
   `git checkout -b`. Skipping this check once left a half-applied `checkout -b` (branch ref
   created, index and working tree rewritten, HEAD still on the old branch) that needed a
   `reset --hard` to undo and pushed an empty branch to origin.
+- **The session may start on the develop twin, with home checked out in another worktree.**
+  Then the flow runs in reverse: commit on the twin you are on, carry that commit to home,
+  and end there. When the session's worktree guard refuses git in the other worktree, switch
+  the session with `EnterWorktree` (`path` = that worktree), confirm `git status --porcelain`
+  is empty, cherry-pick, and compare patch-ids. Never hand the cherry-pick to the user; only
+  the push is theirs. Handing it over once had to be corrected with "you always cherrypick
+  yourself".
 - **Vitest in a fresh worktree needs three symlinks, not two.** `node_modules`, `generated`
   and `.nuxt`. Without `.nuxt` the `tsconfig.json` extends chain is unresolvable and every
   spec reports "no tests". Symlink `.nuxt` for vitest only — never run `nuxt prepare`,
