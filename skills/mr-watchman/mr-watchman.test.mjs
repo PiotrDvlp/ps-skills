@@ -73,7 +73,7 @@ test('threads: counts unresolved resolvable threads, ignores resolved ones and b
   assert.match(text.out, /^mr\s+branch\s+state\s+threads\s+next$/m)
   assert.match(text.out, /^!2\s+fix\/b -> main\s+threads\s+1\s+1 unresolved thread\(s\)/m)
   assert.match(text.out, /^ {2}!2 review-bot src\/b\.vue:54: \[P2\] Await loading$/m)
-  assert.match(text.out, /^1 twin group\(s\), 1 need action, 0 ready$/m)
+  assert.match(text.out, /^1 twin group\(s\), 1 need action, 0 ready or waiting$/m)
   assert.doesNotMatch(text.out, /src\/c\.vue|No blocking issues|more/)
 })
 
@@ -154,6 +154,35 @@ test('thread text is untrusted: control and escape characters never reach the ou
     jobs: { 114: [{ name: 'Li\u001b[0mnt', allow_failure: false }] }, json: false })
   assert.doesNotMatch(table.out, /[\u0000-\u0008\u000b-\u001f\u007f]/)
   assert.match(table.out, /^!14\s+fix\/ \[2Jwipe -> ma in\s+ci-failed\s+0\s+failed: Li \[0mnt;/m)
+})
+
+test('a merged-results pipeline whose source_sha is the head is not stale', (t) => {
+  const { status, rows } = run(t, { mrs: [mr(15, 'fix/o', { head_pipeline: { id: 115, status: 'success', sha: 'c'.repeat(40), source_sha: SHA } })] })
+  assert.equal(rows[0].state, 'ready')
+  assert.equal(status, 0)
+})
+
+test('not_approved waits for the reviewer and is not action for the author', (t) => {
+  const { status, rows, out } = run(t, { mrs: [mr(16, 'fix/p', { detailed_merge_status: 'not_approved' })] })
+  assert.equal(rows[0].state, 'waiting-approval')
+  assert.equal(status, 0)
+  const text = run(t, { mrs: [mr(16, 'fix/p', { detailed_merge_status: 'not_approved' })], json: false })
+  assert.match(text.out, /^1 twin group\(s\), 0 need action, 1 ready or waiting$/m)
+  assert.equal(JSON.parse(out).length, 1)
+})
+
+test('--branch with no open MR exits 1 instead of reading as all ready', (t) => {
+  const { status, out } = run(t, { mrs: [mr(17, 'fix/q')], args: ['--branch', 'fix/typo'], json: false })
+  assert.equal(status, 1)
+  assert.match(out, /^no open MR for branch fix\/typo$/m)
+})
+
+test('--json escapes DEL, C1 controls and line separators too', (t) => {
+  const { out } = run(t, { mrs: [mr(18, 'fix/r\u009b[31m\u007f', { detailed_merge_status: 'discussions_not_resolved' })],
+    discussions: { 18: [thread('x\u007fy\u009b[31m', 'src/r.vue', 2, 'line two')] } })
+  assert.doesNotMatch(out, /[\u007f-\u009f\p{Zl}\p{Zp}]/u)
+  assert.equal(JSON.parse(out)[0].threads[0].author, 'x y [31m')
+  assert.equal(JSON.parse(out)[0].branch, 'fix/r [31m ')
 })
 
 test('verdict and unresolved are pure', () => {

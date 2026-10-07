@@ -8,7 +8,8 @@ import { parseArgs } from 'node:util'
 const HELP = `Read-only GitLab MR status pass (Node 22+, authenticated glab). Never merges, rebases, retries or comments.
 Usage: node mr-watchman.mjs --repo <path> [--branch <name>] [--author <user>] [--json]
 Order per MR: conflicts, then unresolved review threads, then CI. Twins (<name> and <name>_develop) are grouped.
-Exit 0: every MR ready; 1: at least one MR needs action or GitLab is still checking; 2: glab unavailable or invalid input.
+Exit 0: every MR ready or waiting for approval; 1: at least one MR needs action, GitLab is still checking, or --branch matched nothing;
+2: glab unavailable, invalid input, or a list at the 100-entry cap.
 `
 
 export function assertReadOnly(args) {
@@ -48,7 +49,8 @@ export function verdict(mr, threads, failedJobs) {
   if (threads.length) return { state: 'threads', next: `${threads.length} unresolved thread(s): triage against the code, fix in one push, resolve` }
   const p = mr.head_pipeline
   if (!p) return { state: 'ci-none', next: 'no pipeline for the head commit' }
-  if (p.sha !== mr.sha) return { state: 'ci-stale', next: `pipeline ${p.id} ran on ${p.sha.slice(0, 8)}, head is ${mr.sha.slice(0, 8)}; wait for the new pipeline` }
+  const pipelineSha = p.source_sha ?? p.sha
+  if (pipelineSha !== mr.sha) return { state: 'ci-stale', next: `pipeline ${p.id} ran on ${String(pipelineSha).slice(0, 8)}, head is ${mr.sha.slice(0, 8)}; wait for the new pipeline` }
   if (RUNNING.has(p.status)) return { state: 'ci-running', next: `pipeline ${p.id} is ${p.status}; re-run later` }
   if (p.status !== 'success') {
     const jobs = failedJobs.length ? `failed: ${failedJobs.join(', ')}` : `pipeline ${p.id} ${p.status}`
@@ -56,8 +58,11 @@ export function verdict(mr, threads, failedJobs) {
   }
   if (CHECKING.has(mr.detailed_merge_status)) return { state: 'checking', next: 'GitLab is recomputing merge status; re-run in a minute' }
   if (mr.detailed_merge_status === 'mergeable') return { state: 'ready', next: 'nothing to do on your side' }
+  if (mr.detailed_merge_status === 'not_approved') return { state: 'waiting-approval', next: "approval is the reviewer's; nothing on your side" }
   return { state: `blocked:${mr.detailed_merge_status}`, next: 'see the MR page' }
 }
+
+export const settled = (row) => row.state === 'ready' || row.state === 'waiting-approval'
 
 // ponytail: no paging; a list that reaches the 100 cap fails closed with exit 2
 const page = (what, list) => {
@@ -95,7 +100,12 @@ if (isMain) {
     if (values.help) { console.log(HELP); process.exit(0) }
     if (values.branch?.startsWith('-') || values.author?.startsWith('-')) throw new Error('invalid --branch or --author')
     const rows = collect(path.resolve(values.repo ?? process.cwd()), { branch: values.branch, author: values.author })
-    if (values.json) console.log(JSON.stringify(rows))
+    if (values.branch && !rows.length) {
+      console.log(values.json ? '[]' : `no open MR for branch ${plain(values.branch)}`)
+      process.exitCode = 1
+      process.exit()
+    }
+    if (values.json) console.log(JSON.stringify(rows).replace(/[\u007f-\u009f\p{Zl}\p{Zp}]/gu, ' '))
     else if (!rows.length) console.log('no open MRs')
     else {
       const header = ['mr', 'branch', 'state', 'threads', 'next']
@@ -103,10 +113,10 @@ if (isMain) {
       const widths = header.map((h, i) => Math.max(h.length, ...table.map((t) => t[i].length)))
       for (const t of [header, ...table]) console.log(t.map((c, i) => (i === t.length - 1 ? c : c.padEnd(widths[i]))).join('  '))
       for (const r of rows) for (const th of r.threads) console.log(plain(`  !${r.iid} ${th.author} ${th.where}: ${th.head}`).replace(/^/, '  '))
-      const ready = rows.filter((r) => r.state === 'ready').length
-      console.log(`${new Set(rows.map((r) => r.twin)).size} twin group(s), ${rows.length - ready} need action, ${ready} ready`)
+      const ready = rows.filter(settled).length
+      console.log(`${new Set(rows.map((r) => r.twin)).size} twin group(s), ${rows.length - ready} need action, ${ready} ready or waiting`)
     }
-    process.exitCode = rows.every((r) => r.state === 'ready') ? 0 : 1
+    process.exitCode = rows.every(settled) ? 0 : 1
   } catch (error) {
     console.log(JSON.stringify({ status: 'unavailable', problems: [error.message] }))
     process.exitCode = 2
