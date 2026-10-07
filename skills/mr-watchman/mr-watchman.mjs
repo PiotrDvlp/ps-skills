@@ -29,12 +29,14 @@ function glab(args, cwd) {
 
 export const baseName = (branch) => branch.replace(/_dev(elop)?$/, '')
 
+const plain = (text) => String(text ?? '').replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, ' ').trim()
+
 export const unresolved = (discussions) => discussions
   .filter((d) => !d.individual_note && d.notes?.[0]?.resolvable && !d.notes[0].resolved)
   .map(({ notes: [n] }) => ({
-    author: n.author?.username ?? 'unknown',
-    where: n.position ? `${n.position.new_path}:${n.position.new_line ?? n.position.old_line}` : 'general',
-    head: (n.body ?? '').split('\n')[0].slice(0, 80),
+    author: plain(n.author?.username ?? 'unknown'),
+    where: n.position ? `${plain(n.position.new_path)}:${n.position.new_line ?? n.position.old_line}` : 'general',
+    head: plain((n.body ?? '').split('\n')[0]).slice(0, 80),
   }))
 
 const CONFLICT = new Set(['conflict', 'need_rebase'])
