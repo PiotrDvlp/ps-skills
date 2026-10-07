@@ -112,6 +112,18 @@ test('normalizes line endings and a terminal newline, preserving actual content'
   assert.equal(run(t, { description: ' \n' }).status, 2);
 });
 
+test('existing phase verifies an MR from an earlier session without a draft, and still checks target and commit', (t) => {
+  const r = run(t, { phase: 'existing', detail: { ...MR, title: 'set in an earlier session', description: 'Written by hand' } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout), { status: 'verified', problems: [], mr: 7, url: MR.web_url, skipped: ['title', 'description'] });
+  for (const [detail, problem] of [[{ ...MR, target_branch: 'develop' }, 'target-mismatch'], [{ ...MR, sha: 'b'.repeat(40) }, 'mr-commit-mismatch'], [{ ...MR, state: 'merged' }, 'inactive-mr: MR is no longer open']]) {
+    const stale = run(t, { phase: 'existing', detail });
+    assert.equal(stale.status, 1, stale.stderr);
+    assert.ok(JSON.parse(stale.stdout).problems.includes(problem));
+  }
+  assert.equal(JSON.parse(run(t, { phase: 'existing', mrs: [] }).stdout).problems[0], 'missing-mr: creation form has not become an open MR');
+});
+
 test('invalid list/detail schema is unverified rather than missing or complete', (t) => {
   for (const options of [{ mrs: {} }, { mrs: [{ ...MR, state: 'unknown' }] }, { detail: {} }]) {
     const r = run(t, options);
