@@ -7,6 +7,8 @@ const HELP = `Read-only GitLab MR handoff verifier (Node 22+, git, authenticated
 Usage: node verify-mr.mjs --repo <path> --branch <branch> --phase before-push
        node verify-mr.mjs --repo <path> --branch <branch> --target <base>
          --title <expected title> --description <draft.md> [--remote origin]
+       node verify-mr.mjs --repo <path> --branch <branch> --target <base> --phase existing
+         (an MR opened earlier, no draft: checks state, target and pushed commit; skips title and description)
 Default phase: after-push. Exit 0: ready-to-push or verified; 1: pending/blocked;
 2: unavailable or invalid input. Only 'verified' means the handoff is complete.
 Description comparison normalizes CRLF and terminal newlines only.
@@ -38,7 +40,7 @@ function result(status, problems = [], mr) {
 
 function verify(v) {
   const phase = v.phase ?? 'after-push';
-  if (!v.repo || !v.branch || v.branch.startsWith('-') || !['before-push', 'after-push'].includes(phase)) {
+  if (!v.repo || !v.branch || v.branch.startsWith('-') || !['before-push', 'after-push', 'existing'].includes(phase)) {
     throw new Error('required: --repo, --branch, and a valid --phase; use --help');
   }
   let expectedDescription;
@@ -47,6 +49,7 @@ function verify(v) {
     expectedDescription = readFileSync(v.description, 'utf8');
     if (!expectedDescription.trim()) throw new Error('description draft is empty');
   }
+  if (phase === 'existing' && !v.target) throw new Error('existing requires --target');
   const remoteName = v.remote ?? 'origin';
   if (!remoteName || remoteName.startsWith('-')) throw new Error('invalid remote name');
   const remoteUrl = command('git', ['remote', 'get-url', remoteName], v.repo).trim();
@@ -63,16 +66,17 @@ function verify(v) {
   const problems = [];
   if (mr.state !== 'opened') problems.push('inactive-mr: MR is no longer open');
   if (mr.target_branch !== v.target) problems.push('target-mismatch');
-  if (mr.title !== v.title) problems.push('title-mismatch');
+  if (phase === 'after-push' && mr.title !== v.title) problems.push('title-mismatch');
   const normalize = (s) => s.replaceAll('\r\n', '\n').replace(/\n+$/, '');
-  if (typeof mr.description !== 'string' || normalize(mr.description) !== normalize(expectedDescription)) problems.push('description-mismatch');
+  if (phase === 'after-push' && (typeof mr.description !== 'string' || normalize(mr.description) !== normalize(expectedDescription))) problems.push('description-mismatch');
   const head = command('git', ['rev-parse', '--verify', `${v.branch}^{commit}`], v.repo).trim();
   const ref = `refs/heads/${v.branch}`;
   const remote = command('git', ['ls-remote', remoteName, ref], v.repo)
     .trim().split('\n').map((line) => line.split(/\s+/)).filter((row) => row[1] === ref);
   if (remote.length !== 1 || remote[0][0] !== head) problems.push('remote-commit-mismatch');
   if (mr.sha !== head) problems.push('mr-commit-mismatch');
-  return result(problems.length ? 'pending' : 'verified', problems, mr);
+  const report = result(problems.length ? 'pending' : 'verified', problems, mr);
+  return phase === 'existing' ? { ...report, skipped: ['title', 'description'] } : report;
 }
 
 try {

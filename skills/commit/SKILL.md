@@ -18,7 +18,9 @@ git diff
 git ls-files --others --exclude-standard  # untracked files
 ```
 
-Work only with **unstaged** changes (working tree vs HEAD). Ignore any already-staged files.
+Work only with **unstaged** changes (working tree vs HEAD). Ignore any already-staged files,
+except files you staged yourself in this task (for example for a `--staged` test-quality check):
+those belong to the scope, so name them in `git commit --only`.
 
 ## Step 2 — Group into logical commits
 

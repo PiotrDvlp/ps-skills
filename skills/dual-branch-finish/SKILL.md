@@ -53,6 +53,11 @@ Confirm the list looks right (it should be only this task's commits, not unrelat
 If the current branch isn't based on `main`, figure out the real merge-base first
 (`git merge-base HEAD origin/main`) and use that — never assume.
 
+When the branch is already pushed and the MR's review bot or an earlier session reviewed its
+pushed commits, both passes below cover only what is not pushed yet: `origin/<name>..HEAD`
+(`/codex-review code --base origin/<name>`). Re-reviewing the pushed range repeats findings
+the MR threads already hold.
+
 Then, if the ponytail plugin is installed (`/ponytail-review` exists), run one `ponytail-review` pass on the full range (`git diff origin/main...HEAD`)
 before anything is cherry-picked. This is the last point where a cut lands once instead of
 twice: a `delete:`/`yagni:`/`shrink:` finding fixed here is carried to develop by Step 2 for
@@ -295,6 +300,11 @@ The verifier is read-only: it performs no pushes, MR creation, or updates.
   and verified. A merged/closed MR means fresh follow-up branch, not another push to the old one.
 - **Exit 2, `unverified`:** report the tool/network/input failure. Retain the draft and exact
   rerun command; never infer success from a push banner or a cached MR URL.
+
+An MR opened in an earlier session has no Step 5 draft. Verify it with
+`--phase existing --target <base>` instead of `--title`/`--description`: it checks state,
+target and the pushed commit, and reports `skipped: ["title", "description"]`. Never pass the
+MR's own title and description as the draft: that comparison cannot fail.
 
 When the user says the forms were submitted, re-run both commands without asking for MR
 numbers. For an existing open MR, the first successful push already supplies everything needed

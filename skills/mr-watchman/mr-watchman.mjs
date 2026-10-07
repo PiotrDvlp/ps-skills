@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
 const HELP = `Read-only GitLab MR status pass (Node 22+, authenticated glab). Never merges, rebases, retries or comments.
-Usage: node mr-watchman.mjs --repo <path> [--branch <name>] [--author <user>] [--json]
+Usage: node mr-watchman.mjs --repo <path> [--branch <name>] [--author <user>] [--replies] [--json]
 Order per MR: conflicts, then unresolved review threads, then CI. Twins (<name> and <name>_develop) are grouped.
 Exit 0: every MR ready or waiting for approval; 1: at least one MR needs action, GitLab is still checking, or --branch matched nothing;
 2: glab unavailable, invalid input, or a list at the 100-entry cap.
@@ -32,13 +32,35 @@ export const baseName = (branch) => branch.replace(/_dev(elop)?$/, '')
 
 const plain = (text) => String(text ?? '').replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, ' ').trim()
 
+const REVIEWED = /<!--[^>]*\bsha=([0-9a-f]{7,40})/
+
 export const unresolved = (discussions) => discussions
   .filter((d) => !d.individual_note && d.notes?.[0]?.resolvable && !d.notes[0].resolved)
-  .map(({ notes: [n] }) => ({
-    author: plain(n.author?.username ?? 'unknown'),
-    where: n.position ? `${plain(n.position.new_path)}:${n.position.new_line ?? n.position.old_line}` : 'general',
-    head: plain((n.body ?? '').split('\n')[0]).slice(0, 80),
-  }))
+  .map(({ id, notes: [n, ...rest] }) => {
+    const author = plain(n.author?.username ?? 'unknown')
+    const replies = rest.filter((r) => !r.system).map((r) => ({
+      author: plain(r.author?.username ?? 'unknown'),
+      at: plain(r.created_at).slice(0, 16),
+      head: plain((r.body ?? '').split('\n')[0]).slice(0, 120),
+    }))
+    return {
+      id: plain(id),
+      author,
+      where: n.position ? `${plain(n.position.new_path)}:${n.position.new_line ?? n.position.old_line}` : 'general',
+      head: plain((n.body ?? '').split('\n')[0]).slice(0, 80),
+      replies,
+      answered: replies.some((r) => r.author !== author),
+      reviewed: (n.body ?? '').match(REVIEWED)?.[1].slice(0, 8) ?? null,
+    }
+  })
+
+const threadNote = (th, headSha) => {
+  if (!th.replies.length && !th.reviewed) return ''
+  const n = th.replies.length
+  const said = n ? `${n} ${n === 1 ? 'reply' : 'replies'}, last ${th.replies[n - 1].author}` : 'no replies'
+  const commit = th.reviewed ? `; reviewed ${th.reviewed}${th.reviewed === headSha ? ' (head)' : `, head ${headSha}`}` : ''
+  return ` (${said}${commit})`
+}
 
 const CONFLICT = new Set(['conflict', 'need_rebase'])
 const CHECKING = new Set(['unchecked', 'checking', 'preparing', 'approvals_syncing'])
@@ -46,7 +68,13 @@ const RUNNING = new Set(['running', 'pending', 'created', 'waiting_for_resource'
 
 export function verdict(mr, threads, failedJobs) {
   if (mr.has_conflicts || CONFLICT.has(mr.detailed_merge_status)) return { state: 'conflicts', next: `rebase ${mr.source_branch} onto ${mr.target_branch}; stop there` }
-  if (threads.length) return { state: 'threads', next: `${threads.length} unresolved thread(s): triage against the code, fix in one push, resolve` }
+  if (threads.length) {
+    const done = threads.filter((th) => th.answered).length
+    if (done === threads.length) return { state: 'threads', next: `${done} answered thread(s): read the replies against the code, resolve the ones that hold` }
+    return { state: 'threads', next: done
+      ? `${threads.length} unresolved thread(s), ${done} already answered: triage the open ones against the code, fix in one push, resolve`
+      : `${threads.length} unresolved thread(s): triage against the code, fix in one push, resolve` }
+  }
   const p = mr.head_pipeline
   if (!p) return { state: 'ci-none', next: 'no pipeline for the head commit' }
   const pipelineSha = p.source_sha ?? p.sha
@@ -81,7 +109,7 @@ export function collect(repo, { branch, author = '@me' } = {}) {
     const failedJobs = p && p.sha === mr.sha && !RUNNING.has(p.status) && p.status !== 'success'
       ? page(`failed jobs of pipeline ${p.id}`, glab(['api', `projects/:id/pipelines/${p.id}/jobs?scope[]=failed&per_page=100`], repo)).filter((j) => !j.allow_failure).map((j) => j.name)
       : []
-    return { iid: mr.iid, branch: mr.source_branch, target: mr.target_branch, twin: baseName(mr.source_branch), twinIid: null, url: mr.web_url, threads, ...verdict(mr, threads, failedJobs) }
+    return { iid: mr.iid, branch: mr.source_branch, target: mr.target_branch, headSha: String(mr.sha).slice(0, 8), twin: baseName(mr.source_branch), twinIid: null, url: mr.web_url, threads, ...verdict(mr, threads, failedJobs) }
   }).sort((a, b) => a.twin.localeCompare(b.twin) || a.branch.length - b.branch.length)
   for (const r of rows) {
     const other = rows.find((o) => o.twin === r.twin && o.iid !== r.iid && o.target !== r.target)
@@ -96,7 +124,7 @@ const isMain = process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpa
 
 if (isMain) {
   try {
-    const { values } = parseArgs({ options: { repo: { type: 'string' }, branch: { type: 'string' }, author: { type: 'string' }, json: { type: 'boolean' }, help: { type: 'boolean' } } })
+    const { values } = parseArgs({ options: { repo: { type: 'string' }, branch: { type: 'string' }, author: { type: 'string' }, json: { type: 'boolean' }, replies: { type: 'boolean' }, help: { type: 'boolean' } } })
     if (values.help) { console.log(HELP); process.exit(0) }
     if (values.branch?.startsWith('-') || values.author?.startsWith('-')) throw new Error('invalid --branch or --author')
     const rows = collect(path.resolve(values.repo ?? process.cwd()), { branch: values.branch, author: values.author })
@@ -112,7 +140,12 @@ if (isMain) {
       const table = rows.map((r) => [`!${r.iid}`, `${r.branch} -> ${r.target}`, r.state, String(r.threads.length), r.next].map(plain))
       const widths = header.map((h, i) => Math.max(h.length, ...table.map((t) => t[i].length)))
       for (const t of [header, ...table]) console.log(t.map((c, i) => (i === t.length - 1 ? c : c.padEnd(widths[i]))).join('  '))
-      for (const r of rows) for (const th of r.threads) console.log(plain(`  !${r.iid} ${th.author} ${th.where}: ${th.head}`).replace(/^/, '  '))
+      for (const r of rows) {
+        for (const th of r.threads) {
+          console.log(plain(`  !${r.iid} ${th.author} ${th.where}: ${th.head}${threadNote(th, r.headSha)}`).replace(/^/, '  '))
+          if (values.replies) for (const re of th.replies) console.log(`      ${plain(`${re.author} ${re.at}: ${re.head}`)}`)
+        }
+      }
       const ready = rows.filter(settled).length
       console.log(`${new Set(rows.map((r) => r.twin)).size} twin group(s), ${rows.length - ready} need action, ${ready} ready or waiting`)
     }
