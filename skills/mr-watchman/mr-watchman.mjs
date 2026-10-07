@@ -99,10 +99,10 @@ if (isMain) {
     else if (!rows.length) console.log('no open MRs')
     else {
       const header = ['mr', 'branch', 'state', 'threads', 'next']
-      const table = rows.map((r) => [`!${r.iid}`, `${r.branch} -> ${r.target}`, r.state, String(r.threads.length), r.next])
+      const table = rows.map((r) => [`!${r.iid}`, `${r.branch} -> ${r.target}`, r.state, String(r.threads.length), r.next].map(plain))
       const widths = header.map((h, i) => Math.max(h.length, ...table.map((t) => t[i].length)))
       for (const t of [header, ...table]) console.log(t.map((c, i) => (i === t.length - 1 ? c : c.padEnd(widths[i]))).join('  '))
-      for (const r of rows) for (const th of r.threads) console.log(`  !${r.iid} ${th.author} ${th.where}: ${th.head}`)
+      for (const r of rows) for (const th of r.threads) console.log(plain(`  !${r.iid} ${th.author} ${th.where}: ${th.head}`).replace(/^/, '  '))
       const ready = rows.filter((r) => r.state === 'ready').length
       console.log(`${new Set(rows.map((r) => r.twin)).size} twin group(s), ${rows.length - ready} need action, ${ready} ready`)
     }

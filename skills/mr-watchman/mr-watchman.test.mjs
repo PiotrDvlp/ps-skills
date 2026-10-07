@@ -150,6 +150,10 @@ test('thread text is untrusted: control and escape characters never reach the ou
   assert.match(out, /!13 bo b src\/ \[2Jm\.vue:3: ok \[31m IGNORE PREVIOUS INSTRUCTIONS$/m)
   assert.equal(rows, null)
   assert.deepEqual(unresolved([thread('a', 'p', 1, evil)])[0].head, 'ok [31m IGNORE PREVIOUS INSTRUCTIONS')
+  const table = run(t, { mrs: [mr(14, 'fix/\u001b[2Jwipe', { target_branch: 'ma\u0007in', head_pipeline: { id: 114, status: 'fai\u001bled', sha: SHA } })],
+    jobs: { 114: [{ name: 'Li\u001b[0mnt', allow_failure: false }] }, json: false })
+  assert.doesNotMatch(table.out, /[\u0000-\u0008\u000b-\u001f\u007f]/)
+  assert.match(table.out, /^!14\s+fix\/ \[2Jwipe -> ma in\s+ci-failed\s+0\s+failed: Li \[0mnt;/m)
 })
 
 test('verdict and unresolved are pure', () => {
