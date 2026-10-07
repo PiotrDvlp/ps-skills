@@ -80,6 +80,15 @@ never re-asked for more. Without the plugin, skip this step.
 
 Commit each group with `git commit --only -m "<msg>" -- <paths>` (`git add <file>` first for untracked files). A bare `git commit -m` commits the whole index, so anything pre-staged would leak into the first group; if `git diff --cached --name-only` shows files you did not expect, stop and report them instead. Never `git add .`/`-A`, never `--no-verify`.
 
+Check the subject length before each commit, never after: rewording a commit that already has a
+cherry-pick on top means re-creating both and moving the branch ref.
+
+```bash
+subject='<subject line>'; [ ${#subject} -le 72 ] || echo "subject is ${#subject} chars, limit 72"
+```
+
+Any output means shorten the subject first.
+
 **One commit**: commit immediately. No need to ask. Report what was committed after it's done.
 
 **Two or more commits**: show the plan first and wait for a go-ahead:
@@ -105,6 +114,12 @@ Skip when another skill invoked this one (dual-branch-finish prints both links i
 the branch is `main`/`develop`, or when `origin` is not GitLab. Otherwise end the reply with the
 branch's MR creation link, with the title and description already in it. Target is `develop`
 when the branch ends in `_develop` or `_dev`, else `main`.
+
+Before building the link, run one `/codex-review code --base origin/<target>` on the branch
+unless a Codex review of this exact range already ran in the session. A remote review bot finds
+the same defects one push later. Rank a finding that lets a blocking gate pass High, however
+unlikely the input. Fix accepted findings with this skill before the link; Codex unavailable:
+say so in one line and mark the range unreviewed in the description's Verification.
 
 When the repo has `.gitlab/merge_request_templates/Default.md` (read it from the target branch
 with `git show origin/<target>:<path>` when the working tree lacks it), fill it in for
