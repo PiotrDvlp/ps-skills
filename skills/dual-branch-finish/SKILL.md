@@ -60,6 +60,15 @@ free, fixed after Step 2 it needs a second cherry-pick. Apply the findings you a
 the `commit` skill, then re-run `git log --oneline origin/main..HEAD` so the range includes
 the fix. One pass only; never ask it for more findings. Without the plugin, skip the pass.
 
+Then run one `/codex-review code --base origin/main` on the same range, also before anything is
+cherry-picked, unless a Codex review of this exact range already ran in the session (for
+example from a standalone `commit` run). A remote review bot finds what this pass would have found, one push and one
+cherry-pick per round later: on one change it took four push rounds to surface four defects.
+Rank a finding that lets a blocking gate pass (a check, a waiver, an exit code) High, however
+unlikely the input; likelihood lowers only non-gate findings. Fix the accepted findings via the
+`commit` skill and re-run `git log --oneline origin/main..HEAD`. Codex unavailable: say so in
+one line and mark the range unreviewed in Step 5's Verification.
+
 ## Step 2 — Create the develop sibling and cherry-pick
 
 Derive the develop branch name from the current (main-based) branch by appending the repo's
@@ -134,9 +143,10 @@ git log -p --reverse origin/develop..<name>_develop | git patch-id --stable | cu
 ```
 
 - **Lists identical** — the sibling carries the exact patch. Say "patch identical, home
-  verification carries over".
+  verification carries over". The Step 1 review covers it too; do not review the sibling again.
 - **Lists differ** — a Step 3 resolution or develop's surrounding code changed the hunks, and
-  the sibling is unverified. Run on the sibling, on the files the range touches:
+  the sibling is unverified. Run the Step 1 review on the sibling range
+  (`/codex-review code --base origin/develop`), then, on the files the range touches:
   `npx vitest related --run <files>` and `npx eslint <files>`. In an ordinary checkout you are
   still on the sibling after Step 2, so run them before going home; in the worktree case run
   them in `../<name>_develop`. Quote the decisive line. A failure stops the workflow — report
