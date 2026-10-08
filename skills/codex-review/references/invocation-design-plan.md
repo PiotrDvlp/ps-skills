@@ -18,7 +18,7 @@
      -o <tmp-final-message-path> - < <tmp-prompt-file-path>
    ```
 
-   `<model>` defaults to `gpt-5.6-terra` (see `## Invocation forms` in SKILL.md for routing and supported overrides).
+   `<model>` defaults to `gpt-5.6-sol` (see `## Invocation forms` in SKILL.md for routing and supported overrides).
 
    When `--deep` was passed, keep the resolved `<model>` **unchanged** and add `-c model_reasoning_effort="xhigh"`:
 

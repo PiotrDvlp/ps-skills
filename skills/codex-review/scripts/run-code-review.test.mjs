@@ -222,7 +222,7 @@ printf '%s\\n' "$*" >> ${JSON.stringify(log)}
 OUT=""
 while [ $# -gt 0 ]; do case "$1" in -o) OUT="$2"; shift 2 ;; *) shift ;; esac; done
 cat > /dev/null
-printf 'model: gpt-5.6-terra\\n' >&2
+printf 'model: gpt-5.6-sol\\n' >&2
 [ -n "$OUT" ] && cat > "$OUT" <<'EOF'
 ${goodResult()}
 EOF
@@ -235,7 +235,7 @@ exit 0
   const calls = readFileSync(log, 'utf8').trim().split('\n');
   assert.equal(calls.length, 1, 'exactly one codex invocation per run');
   const argv = calls[0];
-  assert.match(argv, /-m gpt-5.6-terra/, 'the review default must use the cost-balanced Terra tier');
+  assert.match(argv, /-m gpt-5.6-sol/, 'the review default must use the Sol tier');
   assert.match(argv, /-s read-only/);
   assert.match(argv, /-C /);
   assert.match(argv, /--output-schema /);

@@ -50,7 +50,7 @@ export function makeFakeCodex(behavior = {}) {
     + '\x1b[2mcodex_models_manager::cache\x1b[0m\x1b[2m:\x1b[0m failed to load '
     + 'models cache: missing field `supports_reasoning_summaries` at line 87 column 5',
     'OpenAI Codex v0.144.5', '--------', `${b('workdir:')} /tmp/fake`,
-    `${b('model:')} ${behavior.model ?? 'gpt-5.6-terra'}`,
+    `${b('model:')} ${behavior.model ?? 'gpt-5.6-sol'}`,
     `${b('provider:')} openai`, `${b('approval:')} never`,
     `${b('sandbox:')} read-only`, '--------',
   ].join('\n');
