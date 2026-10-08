@@ -25,10 +25,10 @@ Treat the following as the canonical entry points:
 - `/codex-review duel <path-to-brief.md>` (blind two-track design generation)
 
 Common flags:
-- `--model <name>` — model override. Default `gpt-5.6-terra` for all modes, including `--deep`.
-  - `gpt-5.6-terra` is the cost-balanced default for routine reviews. For high-risk correctness or security work, opt into `--model gpt-5.6-sol`; use `--model gpt-6-astra` only when its extra cost is justified. `gpt-5.6-luna` remains available for calibration experiments, not production review defaults.
+- `--model <name>` — model override. Default `gpt-5.6-sol` for all modes, including `--deep`.
+  - `gpt-5.6-sol` is the default for every review. Upgrade with `--model gpt-6-astra` for high-risk correctness or security work when its extra cost is justified. `gpt-5.6-terra` (cheaper) and `gpt-5.6-luna` remain available for calibration experiments, not production review defaults.
   - **`gpt-5.6-pro` is not usable here** — verified 2026-08-06, it returns HTTP 400 `invalid_request_error`: "The 'gpt-5.6-pro' model is not supported when using Codex with a ChatGPT account." Reject it with a one-line error instead of burning a run on it.
-- `--deep` — raises reasoning effort on the already-resolved model: append `-c model_reasoning_effort="xhigh"` to the Codex invocation. It never changes the selected model — use `--model gpt-5.6-sol --deep` for a high-risk review. Without `--deep`, Codex inherits `model_reasoning_effort` from `~/.codex/config.toml`.
+- `--deep` — raises reasoning effort on the already-resolved model: append `-c model_reasoning_effort="xhigh"` to the Codex invocation. It never changes the selected model — use `--model gpt-6-astra --deep` for a high-risk review. Without `--deep`, Codex inherits `model_reasoning_effort` from `~/.codex/config.toml`.
   - Valid in `code`, `design`, and `plan` modes. **Reject `--deep` in `duel` mode** with a one-line error: it would raise effort on the Codex track only, and a stronger generator on one side is the exact asymmetry the blindness invariant forbids (see `references/invocation-duel.md`).
   - Every mode's spoke must actually apply the override when `--deep` is passed. If a spoke does not, do **not** record `reasoning_effort: xhigh` — the frontmatter would claim an effort the run never used.
 - `--claude-model <name>` — duel mode only: Claude-side subagent model, one of `sonnet | opus | haiku | fable`. Default: omit to inherit the session model.

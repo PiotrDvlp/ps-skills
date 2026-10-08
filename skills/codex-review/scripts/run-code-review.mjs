@@ -197,7 +197,7 @@ async function cmdRun(args) {
         `patch.diff hash ${actual} != manifest ${manifest.diff_sha256}; the bundle changed between phases`);
     }
 
-    const model = validateModel(args.model ?? 'gpt-5.6-terra');
+    const model = validateModel(args.model ?? 'gpt-5.6-sol');
 
     const digestBefore = stateDigest(repoRoot);
     if (digestBefore !== manifest.state_digest_prepare) {

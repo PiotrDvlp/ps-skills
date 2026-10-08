@@ -26,7 +26,7 @@ codex exec -m <model> -s read-only --skip-git-repo-check [-C <repo-root>] \
   -o <tmp-codex-out> - < <shared-prompt-file>
 ```
 
-Run it with `run_in_background: true` so the Claude track runs concurrently. Default `<model>` is `gpt-5.6-terra` (or `--model` override), the cost-balanced review tier.
+Run it with `run_in_background: true` so the Claude track runs concurrently. Default `<model>` is `gpt-5.6-sol` (or `--model` override).
 
 **`--deep` is rejected in duel mode** — reject it with a one-line error rather than honoring it. The override would apply to this track only, and the Claude track has no equivalent knob (`--claude-model` selects a model, not an effort). Handing one generator `xhigh` while the other runs at session effort is the same asymmetry as a weaker model, just in the opposite direction. Never add `-c model_reasoning_effort` to this command.
 
