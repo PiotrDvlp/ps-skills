@@ -343,6 +343,23 @@ test('audit: creates owner-only manifest directories', async () => {
   } finally { rmSync(root, { recursive: true, force: true }); rmSync(tt.manifestDir(root), { recursive: true, force: true }); }
 });
 
+test('audit: reports that ownership checks require a POSIX platform', async () => {
+  const root = miniRepo();
+  const getuid = process.getuid;
+  process.getuid = undefined;
+  try {
+    await assert.rejects(
+      () => tt.audit({ root, feature: '.', run: fakeRunner(root, []), log: () => {} }),
+      (error) => error.code === 3
+        && error.message === `unsafe manifest directory ${dirname(tt.manifestDir(root))}: ownership cannot be checked on this platform (POSIX only)`,
+    );
+  } finally {
+    process.getuid = getuid;
+    rmSync(root, { recursive: true, force: true });
+    rmSync(dirname(tt.manifestDir(root)), { recursive: true, force: true });
+  }
+});
+
 test('audit: refuses an unsafe manifest directory without restoring its named file', async () => {
   const root = miniRepo();
   const dir = tt.manifestDir(root);
@@ -453,6 +470,29 @@ test('discovery: walk skips directory symlinks that leave the root', () => {
     symlinkSync(elsewhere, join(root, 'linked'));
     assert.deepEqual(tt.walk(root, (path) => path.endsWith('.test.ts')), []);
   } finally { rmSync(root, { recursive: true, force: true }); rmSync(elsewhere, { recursive: true, force: true }); }
+});
+
+test('discovery: walk skips dangling symlinks', () => {
+  const root = mkdtempSync(join(tmpdir(), 'tt-walk-dangling-'));
+  try {
+    symlinkSync(join(root, 'missing'), join(root, 'dangling'));
+    writeFileSync(join(root, 'inside.test.ts'), 'inside');
+    assert.deepEqual(tt.walk(root, (path) => path.endsWith('.test.ts')), [join(root, 'inside.test.ts')]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('discovery: walk visits a real directory only once through cyclic symlinks', () => {
+  const root = mkdtempSync(join(tmpdir(), 'tt-walk-cycle-'));
+  const feature = join(root, 'feature');
+  mkdirSync(feature);
+  try {
+    writeFileSync(join(feature, 'inside.test.ts'), 'inside');
+    symlinkSync('..', join(feature, 'a'));
+    assert.deepEqual(
+      tt.walk(feature, (path) => path.endsWith('.test.ts'), [], realpathSync(root)),
+      [join(feature, 'inside.test.ts')],
+    );
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test('audit: SIGKILL timeout is caught unattributed', async () => {
@@ -655,6 +695,40 @@ test('audit: listed cases absent from the baseline report are quarantined', asyn
     assert.equal(missing.result, 'not matched in reporter output');
     assert.equal(missing.deletion, 'not verified: not matched in reporter output');
     assert.deepEqual(logs.filter((message) => /listed cases not matched/.test(message)), ['test-teeth: 1 listed cases not matched in reporter output']);
+  } finally { rmSync(root, { recursive: true, force: true }); rmSync(tt.manifestDir(root), { recursive: true, force: true }); }
+});
+
+test('audit: an unmatched case in a shared each span keeps its quarantine reason', async () => {
+  const root = miniRepo();
+  const spec = join(root, '__tests__', 'sum.test.ts');
+  writeFileSync(spec, "import { it } from 'vitest'\nit.each([[1], [2]])('row %i', () => {})\n");
+  const listed = [
+    { file: spec, name: 'row 1', location: { line: 2 } },
+    { file: spec, name: 'row 2', location: { line: 2 } },
+  ];
+  let runNo = 0;
+  const run = (args) => {
+    if (args[0] === 'list') return { status: 0, stdout: JSON.stringify(listed), stderr: '' };
+    const out = args.find((arg) => arg.startsWith('--outputFile=')).slice('--outputFile='.length);
+    writeFileSync(out, JSON.stringify({
+      numFailedTests: 0,
+      numPassedTests: 1,
+      testResults: [{
+        name: spec,
+        status: 'passed',
+        assertionResults: [{ title: 'row 1', location: { line: 2 }, status: 'passed', failureMessages: [] }],
+      }],
+    }));
+    runNo++;
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  try {
+    const result = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    assert.equal(
+      result.verdicts.find((verdict) => verdict.name === 'row 2').deletion,
+      'not verified: not matched in reporter output',
+    );
+    assert.equal(runNo, 2);
   } finally { rmSync(root, { recursive: true, force: true }); rmSync(tt.manifestDir(root), { recursive: true, force: true }); }
 });
 

@@ -78,6 +78,17 @@ test('empty-return stops at its own statement before later same-line work', () =
   assert.equal(applyMutation(source, mutation), 'if (ok) return undefined; cleanup();');
 });
 
+test('empty-return stops before a closing bracket at depth zero', () => {
+  const source = 'export function f(a, b) {\n  if (a) { return 1 }\n  if (b) { log(); }\n}\n';
+  const mutation = planMutations([{ path: 'src/a.js', source }])
+    .find((candidate) => candidate.kind === 'empty-return');
+
+  assert.equal(
+    applyMutation(source, mutation),
+    'export function f(a, b) {\n  if (a) { return undefined; }\n  if (b) { log(); }\n}\n',
+  );
+});
+
 test('per-operator caps and the global maxMutations cap are honoured', () => {
   const files = [{ path: 'src/a.js', source: 'a === b; c === d; e === f; g === h;' }];
   assert.equal(planMutations(files, { maxMutations: 10 }).length, 3, 'equality cap is 3');

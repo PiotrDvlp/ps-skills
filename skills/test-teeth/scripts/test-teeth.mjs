@@ -29,7 +29,12 @@ function requireSafeDirectory(path) {
   }
   if (st.isSymbolicLink()) throw unsafeManifestDir(path, 'is a symlink');
   if (!st.isDirectory()) throw unsafeManifestDir(path, 'is not a directory');
-  if (typeof process.getuid !== 'function' || st.uid !== process.getuid()) throw unsafeManifestDir(path, 'is not owned by the current user');
+  if (typeof process.getuid !== 'function') {
+    const err = new Error(`unsafe manifest directory ${path}: ownership cannot be checked on this platform (POSIX only)`);
+    err.code = 3;
+    throw err;
+  }
+  if (st.uid !== process.getuid()) throw unsafeManifestDir(path, 'is not owned by the current user');
   if ((st.mode & 0o077) !== 0) throw unsafeManifestDir(path, `permissions are ${(st.mode & 0o777).toString(8).padStart(3, '0')}, not owner-only`);
 }
 
@@ -323,13 +328,18 @@ export function defaultRun(bin, timeoutMs = 120000) {
   };
 }
 
-export function walk(dir, pred, out = [], root = realpathSync(dir)) {
+export function walk(dir, pred, out = [], root = realpathSync(dir), visited = new Set()) {
+  let dirReal;
+  try { dirReal = realpathSync(dir); } catch { return out; }
+  if (!inside(root, dirReal) || visited.has(dirReal)) return out;
+  visited.add(dirReal);
   for (const name of readdirSync(dir)) {
     if (name === 'node_modules' || name === '.git') continue;
     const p = join(dir, name);
-    if (statSync(p).isDirectory()) {
-      if (!inside(root, realpathSync(p))) continue;
-      walk(p, pred, out, root);
+    let st;
+    try { st = statSync(p); } catch { continue; }
+    if (st.isDirectory()) {
+      walk(p, pred, out, root, visited);
     }
     else if (pred(p)) out.push(p);
   }
@@ -561,7 +571,9 @@ export async function audit(opts) {
         if (group.ids.some((id) => !vs.some((candidate) => candidate.id === id))) {
           for (const id of group.ids) {
             const target = verdicts.find((candidate) => candidate.id === id);
-            if (target) target.deletion = 'not verified: shared each() call';
+            if (target && !target.deletion?.startsWith('not verified:')) {
+              target.deletion = 'not verified: shared each() call';
+            }
           }
         }
       }

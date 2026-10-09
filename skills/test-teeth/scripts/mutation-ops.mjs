@@ -137,15 +137,23 @@ export function planMutations(files, { maxMutations = 10, manual = [] } = {}) {
         const masked = maskedRanges(source);
         let depth = 0;
         let semi = -1;
+        let boundary = -1;
         for (let i = m.index + m[0].length; i < source.length; i++) {
           if (inRanges(i, masked)) continue;
           const c = source[i];
           if (c === '(' || c === '[' || c === '{') depth++;
-          else if (c === ')' || c === ']' || c === '}') depth--;
+          else if (c === ')' || c === ']' || c === '}') {
+            if (depth === 0) {
+              boundary = i;
+              while (boundary > m.index + m[0].length && /[ \t]/.test(source[boundary - 1])) boundary--;
+              break;
+            }
+            depth--;
+          }
           else if (c === ';' && depth === 0) { semi = i; break; }
           if (c === '\n' && depth === 0) break;
         }
-        const spanEnd = semi >= m.index ? semi + 1 : lineEnd;
+        const spanEnd = semi >= m.index ? semi + 1 : boundary >= m.index ? boundary : lineEnd;
         const expr = source.slice(m.index + m[0].length, spanEnd - (semi >= m.index ? 1 : 0)).trim();
         if (expr.length === 0 || expr === 'undefined') return null;
         if (semi < m.index && (continuesPastLine(source, lineEnd) || hasUnclosedOpener(expr))) return null;

@@ -9,6 +9,8 @@ Reports which sampled production-code mutants each test case killed, then checks
 
 ## Run
 
+This skill runs on macOS and Linux only.
+
 ```bash
 node ${CLAUDE_SKILL_DIR}/scripts/test-teeth.mjs audit --root /path/to/your/repo --feature src/features/cart
 ```
