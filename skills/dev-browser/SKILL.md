@@ -1,6 +1,6 @@
 ---
 name: dev-browser
-description: "Use when a task needs a real browser — navigating, clicking, filling forms, screenshots, scraping, logging in, or testing a rendered page. Triggers on \"go to [url]\", \"take a screenshot\", \"check the page\", \"log in\". Skip when plain HTTP fetching suffices (WebFetch/curl)."
+description: "Use when a task needs a real browser — navigating, clicking, filling forms, screenshots, scraping, logging in, or testing a rendered page, including accessibility (a11y) audits. Triggers on \"go to [url]\", \"take a screenshot\", \"check the page\", \"log in\", \"check accessibility\", \"run axe\". Skip when plain HTTP fetching suffices (WebFetch/curl)."
 allowed-tools: Bash(dev-browser *)
 ---
 
@@ -88,7 +88,7 @@ Full API (pages, navigation, locators, snapshotForAI, screenshots, evaluate, san
 
 ## Common workflows
 
-Copy-paste recipes (scraping, screenshots, form filling, structure analysis, mobile device emulation and LCP, real Lighthouse via the PageSpeed Insights API) are in references/workflows.md.
+Copy-paste recipes (scraping, screenshots, form filling, structure analysis, mobile device emulation and LCP, real Lighthouse via the PageSpeed Insights API, accessibility audit with axe-core) are in references/workflows.md.
 
 ## Debugging and troubleshooting
 

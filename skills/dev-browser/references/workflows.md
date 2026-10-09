@@ -93,3 +93,34 @@ https://pagespeedonline.googleapis.com/pagespeedonline/v5/runPagespeed?url=<url-
 ```
 
 Useful fields: `lighthouseResult.audits["largest-contentful-paint-element"].details`, `lighthouseResult.audits["network-requests"].details.items[].url`. Without `key=` the shared quota can be used up: a keyless call on 2026-10-08 returned HTTP 429. A key comes from a Google Cloud project with the PageSpeed Insights API enabled.
+
+### Accessibility audit (axe-core)
+
+Runs the axe-core WCAG 2.x A/AA rules against the rendered page. Works on localhost and behind a login (use a named page). axe checks only the machine-checkable subset of WCAG: keyboard access, focus order, focus traps, announced status messages and the meaning of alt or link text still need a manual check.
+
+```javascript
+const page = await browser.newPage();
+const cdp = await page.context().newCDPSession(page);
+await cdp.send("Page.setBypassCSP", { enabled: true });
+await page.goto("https://example.com", { waitUntil: "load" });
+await page.addScriptTag({ url: "https://cdn.jsdelivr.net/npm/axe-core@4.10.3/axe.min.js" });
+const result = await page.evaluate(async () => {
+  const r = await axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"] });
+  const summarize = (list) => list.map((v) => ({
+    id: v.id,
+    impact: v.impact,
+    help: v.help,
+    count: v.nodes.length,
+    targets: v.nodes.slice(0, 3).map((n) => n.target.join(" ")),
+  }));
+  return { violations: summarize(r.violations), incomplete: summarize(r.incomplete) };
+});
+console.log(JSON.stringify(result, null, 2));
+```
+
+- Send `Page.setBypassCSP` before `goto`. Without it, a strict CSP blocks the injected script: `Loading the script '...axe.min.js' violates the following Content Security Policy directive`.
+- `incomplete` lists checks axe could not decide, for example contrast of text over a gradient or an image. Review them by hand; they are not passes.
+- Return the summary, not the raw axe result: it can be hundreds of KB (see the large-string gotcha in SKILL.md).
+- To audit one component, pass a selector such as `"#checkout"` instead of `document`.
+
+Verified 2026-10-09 on known-bad HTML: 6 planted violations reported, gradient-background contrast reported under `incomplete`.
