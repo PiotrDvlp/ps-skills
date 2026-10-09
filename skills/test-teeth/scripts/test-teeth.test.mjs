@@ -1257,7 +1257,7 @@ test('audit: shared each rows are removed once without removing the next test', 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('audit: mixed outcomes on one each span are not verified and skip trimming', async () => {
+test('audit: on a mixed each span the killing row keeps keep and the others are not verified', async () => {
   const root = miniRepo();
   const spec = join(root, '__tests__', 'sum.test.ts');
   writeFileSync(spec, "import { it } from 'vitest'\nit.each([[1], [2]])('row %i', (n) => {})\n");
@@ -1273,7 +1273,11 @@ test('audit: mixed outcomes on one each span are not verified and skip trimming'
   };
   try {
     const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
-    assert.equal(r.verdicts.every((v) => v.deletion === 'not verified: shared each() call'), true);
+    const row1 = r.verdicts.find((v) => v.name === 'row 1');
+    const row2 = r.verdicts.find((v) => v.name === 'row 2');
+    assert.equal(row1.deletion, 'keep');
+    assert.equal(row1.result.startsWith('killed ['), true);
+    assert.equal(row2.deletion, 'not verified: shared each() call');
     assert.equal(runs, 2);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
