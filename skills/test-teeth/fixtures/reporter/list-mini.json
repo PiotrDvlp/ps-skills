@@ -1,0 +1,4 @@
+[
+  { "name": "sum > adds", "file": "/repo/__tests__/sum.test.ts", "location": { "line": 4, "column": 3 } },
+  { "name": "sum > tautology", "file": "/repo/__tests__/sum.test.ts", "location": { "line": 5, "column": 3 } }
+]
