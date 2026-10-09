@@ -1,0 +1,15 @@
+{
+  "numTotalTests": 2, "numPassedTests": 1, "numFailedTests": 1,
+  "testResults": [
+    {
+      "name": "/repo/__tests__/sum.test.ts", "status": "failed",
+      "assertionResults": [
+        { "ancestorTitles": ["sum"], "title": "adds", "fullName": "sum adds", "status": "failed",
+          "failureMessages": ["AssertionError: expected 3 to be 5 // Object.is equality\n    at /repo/__tests__/sum.test.ts:4:27"],
+          "location": { "line": 4, "column": 3 } },
+        { "ancestorTitles": ["sum"], "title": "tautology", "fullName": "sum tautology", "status": "passed",
+          "failureMessages": [], "location": { "line": 5, "column": 3 } }
+      ]
+    }
+  ]
+}

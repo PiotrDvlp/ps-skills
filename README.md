@@ -1,6 +1,6 @@
 # ps-skills
 
-Thirteen development skills and a principles reference for Claude Code and Codex, by Piotr Strzelecki.
+Fourteen development skills and a principles reference for Claude Code and Codex, by Piotr Strzelecki.
 
 ## Install
 
@@ -34,6 +34,7 @@ npx skills@latest add PiotrDvlp/ps-skills
 | `worktree-audit` | Read-only inventory of a repo's git worktrees: target, ahead/behind, dirty, deps, MRs | `glab` for `--mr` |
 | `prove-ui` | Proves a browser-visible change with a baseline-vs-candidate run and an attested line | a repo adapter at `.claude/prove-ui/adapter.md` |
 | `mr-watchman` | One read-only status pass over your open MRs: conflicts, then review threads, then CI; twins grouped | Node 22+, authenticated `glab` |
+| `test-teeth` | Sampled-mutation audit of a feature's vitest tests: which mutants each test case kills and whether zero-kill cases are removable | Node 22+, vitest 3 in the audited repo |
 
 ## Principles
 

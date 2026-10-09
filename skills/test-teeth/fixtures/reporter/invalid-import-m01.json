@@ -1,0 +1,27 @@
+{
+  "numTotalTests": 2,
+  "numPassedTests": 1,
+  "numFailedTests": 1,
+  "testResults": [
+    {
+      "name": "/repo/__tests__/sum.test.ts",
+      "status": "failed",
+      "assertionResults": [
+        {
+          "ancestorTitles": ["sum"],
+          "title": "adds",
+          "status": "failed",
+          "failureMessages": ["Error: Failed to resolve import \"../missing\" from \"__tests__/sum.test.ts\""],
+          "location": { "line": 4, "column": 3 }
+        },
+        {
+          "ancestorTitles": ["sum"],
+          "title": "tautology",
+          "status": "passed",
+          "failureMessages": [],
+          "location": { "line": 5, "column": 3 }
+        }
+      ]
+    }
+  ]
+}

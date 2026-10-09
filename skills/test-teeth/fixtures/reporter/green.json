@@ -1,0 +1,14 @@
+{
+  "numTotalTests": 2, "numPassedTests": 2, "numFailedTests": 0,
+  "testResults": [
+    {
+      "name": "/repo/__tests__/sum.test.ts", "status": "passed",
+      "assertionResults": [
+        { "ancestorTitles": ["sum"], "title": "adds", "fullName": "sum adds", "status": "passed",
+          "failureMessages": [], "location": { "line": 4, "column": 3 } },
+        { "ancestorTitles": ["sum"], "title": "tautology", "fullName": "sum tautology", "status": "passed",
+          "failureMessages": [], "location": { "line": 5, "column": 3 } }
+      ]
+    }
+  ]
+}

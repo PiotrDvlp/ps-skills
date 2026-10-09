@@ -1,0 +1,7 @@
+{
+  "numTotalTests": 0, "numPassedTests": 0, "numFailedTests": 0,
+  "testResults": [
+    { "name": "/repo/__tests__/sum.test.ts", "status": "failed", "assertionResults": [],
+      "message": "SyntaxError: Unexpected token (3:12)" }
+  ]
+}

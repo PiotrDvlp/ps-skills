@@ -1,0 +1,19 @@
+import { describe, it, test, expect } from 'vitest'
+
+describe('shapes', () => {
+  it('plain', () => {
+    expect(`a)b`).toBe('a)b');
+  });
+  it.each([[1], [2]])('each %i', (n) => {
+    expect(n).toBeGreaterThan(0)
+  })
+  it.each`
+    a | b
+    ${1} | ${2}
+  `('tagged $a', ({ a, b }) => { expect(a).toBeLessThan(b) })
+  test.concurrent('conc', async () => { expect(1).toBe(1) })
+  it.each([[Math.max(1, 2)]])('paren %i', (n) => { expect(n).toBe(2) })
+  describe.each([[1]])('block %i', (n) => {
+    it('inner', () => { expect(n).toBe(1) })
+  })
+})
