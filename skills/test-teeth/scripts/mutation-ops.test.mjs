@@ -70,6 +70,14 @@ test('empty-return keeps a trailing comment syntactically valid', () => {
   assert.ok(applied.includes('return undefined; // keep me'));
 });
 
+test('empty-return stops at its own statement before later same-line work', () => {
+  const source = 'if (ok) return value; cleanup();';
+  const mutation = planMutations([{ path: 'src/a.js', source }])
+    .find((candidate) => candidate.kind === 'empty-return');
+
+  assert.equal(applyMutation(source, mutation), 'if (ok) return undefined; cleanup();');
+});
+
 test('per-operator caps and the global maxMutations cap are honoured', () => {
   const files = [{ path: 'src/a.js', source: 'a === b; c === d; e === f; g === h;' }];
   assert.equal(planMutations(files, { maxMutations: 10 }).length, 3, 'equality cap is 3');

@@ -130,13 +130,21 @@ export function planMutations(files, { maxMutations = 10, manual = [] } = {}) {
       },
     },
     {
-      // Use the last semicolon on the line so trailing comments and strings containing a
-      // semicolon cannot leave a dangling fragment behind.
       kind: 'empty-return', re: /return\s+/g, cap: 2,
       make: (m, source) => {
         let lineEnd = source.indexOf('\n', m.index);
         if (lineEnd < 0) lineEnd = source.length;
-        const semi = source.lastIndexOf(';', lineEnd - 1);
+        const masked = maskedRanges(source);
+        let depth = 0;
+        let semi = -1;
+        for (let i = m.index + m[0].length; i < source.length; i++) {
+          if (inRanges(i, masked)) continue;
+          const c = source[i];
+          if (c === '(' || c === '[' || c === '{') depth++;
+          else if (c === ')' || c === ']' || c === '}') depth--;
+          else if (c === ';' && depth === 0) { semi = i; break; }
+          if (c === '\n' && depth === 0) break;
+        }
         const spanEnd = semi >= m.index ? semi + 1 : lineEnd;
         const expr = source.slice(m.index + m[0].length, spanEnd - (semi >= m.index ? 1 : 0)).trim();
         if (expr.length === 0 || expr === 'undefined') return null;

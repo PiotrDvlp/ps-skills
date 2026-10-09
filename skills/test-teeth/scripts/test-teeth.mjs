@@ -1,15 +1,57 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, existsSync, mkdirSync, writeFileSync, rmSync, readdirSync, statSync, realpathSync, openSync, closeSync, renameSync, unlinkSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, writeFileSync, rmSync, readdirSync, statSync, lstatSync, realpathSync, openSync, closeSync, renameSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export { planMutations, applyMutation, maskedRanges, safeMatches } from './mutation-ops.mjs';
 import { planMutations, applyMutation, maskedRanges, safeMatches } from './mutation-ops.mjs';
 
 export function sha256(buf) { return createHash('sha256').update(buf).digest('hex'); }
 export function manifestDir(root) { return join(tmpdir(), 'test-teeth', createHash('sha1').update(root).digest('hex')); }
+
+function inside(root, path) {
+  const rel = relative(root, path);
+  return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel));
+}
+
+function unsafeManifestDir(path, reason) {
+  const err = new Error(`unsafe manifest directory ${path}: ${reason}; remove it and rerun`);
+  err.code = 3;
+  return err;
+}
+
+function requireSafeDirectory(path) {
+  let st;
+  try { st = lstatSync(path); } catch (e) {
+    throw unsafeManifestDir(path, e.code === 'ENOENT' ? 'does not exist' : e.message);
+  }
+  if (st.isSymbolicLink()) throw unsafeManifestDir(path, 'is a symlink');
+  if (!st.isDirectory()) throw unsafeManifestDir(path, 'is not a directory');
+  if (typeof process.getuid !== 'function' || st.uid !== process.getuid()) throw unsafeManifestDir(path, 'is not owned by the current user');
+  if ((st.mode & 0o077) !== 0) throw unsafeManifestDir(path, `permissions are ${(st.mode & 0o777).toString(8).padStart(3, '0')}, not owner-only`);
+}
+
+function prepareManifestDirectories(root) {
+  const base = join(tmpdir(), 'test-teeth');
+  const dir = manifestDir(root);
+  mkdirSync(base, { recursive: true, mode: 0o700 });
+  requireSafeDirectory(base);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  requireSafeDirectory(dir);
+  return dir;
+}
+
+function validateManifestDirectories(dir) {
+  requireSafeDirectory(dirname(dir));
+  requireSafeDirectory(dir);
+}
+
+function clearManifest(dir) {
+  validateManifestDirectories(dir);
+  for (const name of readdirSync(dir)) rmSync(join(dir, name), { recursive: true, force: true });
+}
 
 export function reconcile(entries, readFile) {
   const r = { restore: [], drop: [], conflict: [] };
@@ -32,7 +74,8 @@ function loadManifest(dir) {
 }
 
 function saveManifest(dir, entries) {
-  mkdirSync(join(dir, 'originals'), { recursive: true });
+  validateManifestDirectories(dir);
+  mkdirSync(join(dir, 'originals'), { recursive: true, mode: 0o700 });
   for (const e of entries) {
     const original = join(dir, 'originals', e.key);
     if (!existsSync(original)) writeFileSync(original, e.original);
@@ -44,10 +87,20 @@ function saveManifest(dir, entries) {
 }
 
 export function recover(root, log = console.error) {
-  const dir = manifestDir(root);
+  const dir = prepareManifestDirectories(root);
   const entries = loadManifest(dir);
   if (entries.length === 0) return;
-  const r = reconcile(entries, (p) => readFileSync(p));
+  const rootReal = realpathSync(root);
+  const unsafe = [];
+  const safe = [];
+  for (const entry of entries) {
+    let target;
+    try { target = resolve(realpathSync(dirname(entry.path)), basename(entry.path)); } catch { target = null; }
+    if (!target || !inside(rootReal, target)) unsafe.push(entry);
+    else safe.push(entry);
+  }
+  const r = reconcile(safe, (p) => readFileSync(p));
+  r.conflict.push(...unsafe);
   for (const e of r.restore) { writeFileSync(e.path, e.original); log(`restored ${e.path} from manifest`); }
   if (r.conflict.length) {
     saveManifest(dir, r.conflict);
@@ -55,7 +108,7 @@ export function recover(root, log = console.error) {
     err.code = 3;
     throw err;
   }
-  rmSync(dir, { recursive: true, force: true });
+  clearManifest(dir);
 }
 
 export const INVALID_RE = /SyntaxError|Failed to resolve import|Cannot find module|Failed to parse|Transform failed|Parse failure/;
@@ -270,11 +323,14 @@ export function defaultRun(bin, timeoutMs = 120000) {
   };
 }
 
-export function walk(dir, pred, out = []) {
+export function walk(dir, pred, out = [], root = realpathSync(dir)) {
   for (const name of readdirSync(dir)) {
     if (name === 'node_modules' || name === '.git') continue;
     const p = join(dir, name);
-    if (statSync(p).isDirectory()) walk(p, pred, out);
+    if (statSync(p).isDirectory()) {
+      if (!inside(root, realpathSync(p))) continue;
+      walk(p, pred, out, root);
+    }
     else if (pred(p)) out.push(p);
   }
   return out;
@@ -284,7 +340,7 @@ export async function audit(opts) {
   const { root, feature, maxMutations = 30, manual = [], timeoutMs = 120000, log = console.error } = opts;
   const vitestBin = opts.vitestBin ?? join(root, 'node_modules', '.bin', 'vitest');
   const t0 = Date.now();
-  const dir = manifestDir(root);
+  const dir = prepareManifestDirectories(root);
   const lock = `${dir}.lock`;
   let ownsLock = false;
   const locked = (pid) => {
@@ -294,7 +350,7 @@ export async function audit(opts) {
   };
   try {
     let fd;
-    mkdirSync(dirname(lock), { recursive: true });
+    validateManifestDirectories(dir);
     try {
       fd = openSync(lock, 'wx');
     } catch (e) {
@@ -325,7 +381,6 @@ export async function audit(opts) {
       throw err;
     }
     const run = opts.run ?? defaultRun(vitestBin, timeoutMs);
-    mkdirSync(dir, { recursive: true });
     let entries = [];
     const skippedRestores = new Map();
     const restoreEntry = (entry) => {
@@ -347,7 +402,14 @@ export async function audit(opts) {
       throw err;
     };
     let runs = 0;
+    const rootReal = realpathSync(root);
     const featureAbs = resolve(root, feature);
+    const featureReal = realpathSync(featureAbs);
+    if (!inside(rootReal, featureReal)) {
+      const err = new Error('--feature must be inside --root');
+      err.code = 3;
+      throw err;
+    }
     const featureRel = relative(root, featureAbs).split(sep).join('/');
     const filter = featureRel ? `${featureRel.replace(/\/$/, '')}/` : null;
     const runVitest = (extraArgs) => {
@@ -364,7 +426,7 @@ export async function audit(opts) {
     return { ...r, json, reportInvalid };
     };
     try {
-    const specs = walk(featureAbs, (p) => /\.(test|spec)\.ts$/.test(p));
+    const specs = walk(featureAbs, (p) => /\.(test|spec)\.ts$/.test(p), [], rootReal);
     const implBySpec = new Map(specs.map((s) => [s, mapImpl(s)]));
     const unmapped = specs.filter((s) => !implBySpec.get(s)).map((s) => relative(root, s).split(sep).join('/'));
     const listOut = run(['list', ...(filter ? [filter] : []), '--root', root, '--json', '--includeTaskLocation', '--no-cache'], root);
@@ -393,6 +455,8 @@ export async function audit(opts) {
       err.code = 2;
       throw err;
     }
+    const unmatched = [...baseAttr.byCase.values()].filter((v) => v.status === 'missing').length;
+    if (unmatched) log(`test-teeth: ${unmatched} listed cases not matched in reporter output`);
     const baseWarn = fingerprints(baseRun.stderr);
     const mutants = planAll(implFiles, { maxMutations, manual });
     if (manual.length > maxMutations) log(`--mutations has ${manual.length} entries, more than --max-mutations ${maxMutations}; all ${manual.length} run`);
@@ -430,9 +494,10 @@ export async function audit(opts) {
       const state = attr.mutantState === 'survived' && attr.runtimeFailures.length ? `survived (runtime failure in ${attr.runtimeFailures.length} cases)` : attr.mutantState;
       mutantRows.push({ id: m.id, file: m.file, line: f.source.slice(0, m.at).split('\n').length, note: m.note, state, killedBy, runtimeFailures: attr.runtimeFailures });
     }
-    const sampled = mutantRows.filter((r) => r.state !== 'invalid').length;
+    const valid = (row) => row.state !== 'invalid' && row.state !== 'caught, unattributed';
+    const sampled = mutantRows.filter(valid).length;
     const validByImpl = new Map();
-    for (const row of mutantRows) if (row.state !== 'invalid') validByImpl.set(row.file, (validByImpl.get(row.file) ?? 0) + 1);
+    for (const row of mutantRows) if (valid(row)) validByImpl.set(row.file, (validByImpl.get(row.file) ?? 0) + 1);
     const verdicts = cases.map((c) => {
       const base = baseAttr.byCase.get(c.id);
       const k = kills.get(c.id);
@@ -440,13 +505,13 @@ export async function audit(opts) {
       const impl = implBySpec.get(join(root, c.spec));
       const implRel = impl ? relative(root, impl).split(sep).join('/') : null;
       const sample = implRel ? `${validByImpl.get(implRel) ?? 0} in ${basename(implRel)}` : '0 in mapped impl';
-      let result = base?.status === 'skipped' ? 'skipped at baseline' : k.length ? `killed [${k.join(', ')}]` : `killed none of ${sampled} sampled mutants (${sample})`;
-      if (!k.length && runtime.length) result += `; runtime failure on [${runtime.join(', ')}]`;
-      let deletion = k.length || base?.status === 'skipped' ? 'keep' : null;
-      if (!k.length && base?.status !== 'skipped') {
+      let result = base?.status === 'missing' ? 'not matched in reporter output' : base?.status === 'skipped' ? 'skipped at baseline' : k.length ? `killed [${k.join(', ')}]` : `killed none of ${sampled} sampled mutants (${sample})`;
+      if (base?.status !== 'missing' && !k.length && runtime.length) result += `; runtime failure on [${runtime.join(', ')}]`;
+      let deletion = base?.status === 'missing' ? 'not verified: not matched in reporter output' : k.length || base?.status === 'skipped' ? 'keep' : null;
+      if (!k.length && base?.status !== 'skipped' && base?.status !== 'missing') {
         if (mutants.length === 0) deletion = 'not verified: no mutants planned';
-        else if (sampled === 0) deletion = 'not verified: no valid mutants';
         else if (!impl && specs.some((s) => relative(root, s).split(sep).join('/') === c.spec)) deletion = 'not verified: no impl mapped';
+        else if (implRel && (validByImpl.get(implRel) ?? 0) === 0) deletion = `not verified: no valid mutants on ${basename(implRel)}`;
         else if (runtime.length) deletion = `not verified: runtime failure on [${runtime.join(', ')}]`;
       }
       return { id: c.id, spec: c.spec, name: c.name, line: c.line, result, deletion };
@@ -566,6 +631,14 @@ export async function audit(opts) {
       if (eligibleGroups.length) bisect(eligibleGroups);
     }
 
+    const changed = entries.filter((entry) => {
+      try { return sha256(readFileSync(entry.path)) !== entry.originalHash; } catch { return true; }
+    });
+    if (changed.length) {
+      const err = new Error(`concurrent edit: ${changed.map((entry) => entry.path).join(', ')} changed during the audit`);
+      err.code = 3;
+      throw err;
+    }
     return { root, feature, baseline: 'green', cases, mutants: mutantRows, verdicts, unmapped, runs, ms: Date.now() - t0, touched: entries.map((e) => e.path), manifest: dir };
     } finally {
       for (const e of entries) restoreEntry(e);
@@ -577,7 +650,7 @@ export async function audit(opts) {
         err.code = 3;
         throw err;
       }
-      rmSync(dir, { recursive: true, force: true });
+      clearManifest(dir);
     }
   } finally {
     if (ownsLock) rmSync(lock, { force: true });
@@ -626,7 +699,8 @@ export async function main(argv) {
     if (argv.includes('--list-only')) {
       if (manual.length > maxMutations) process.stderr.write(`--mutations has ${manual.length} entries, more than --max-mutations ${maxMutations}; all ${manual.length} run\n`);
       const featureAbs = resolve(root, feature);
-      const specs = walk(featureAbs, (p) => /\.(test|spec)\.ts$/.test(p));
+      if (!inside(root, realpathSync(featureAbs))) throw new Error('--feature must be inside --root');
+      const specs = walk(featureAbs, (p) => /\.(test|spec)\.ts$/.test(p), [], root);
       const files = [...new Set(specs.map((spec) => mapImpl(spec)).filter(Boolean))].map((file) => ({ path: relative(root, file).split(sep).join('/'), file, source: readFileSync(file, 'utf8') }));
       for (const m of planAll(files, { maxMutations, manual })) process.stdout.write(`${m.id} ${m.file} ${m.kind} ${m.note}\n`);
       return 0;

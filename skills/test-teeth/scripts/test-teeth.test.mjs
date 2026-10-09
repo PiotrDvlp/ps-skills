@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync, cpSync, existsSync, realpathSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync, cpSync, existsSync, realpathSync, chmodSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -332,6 +332,57 @@ test('audit: works on an empty TMPDIR', async () => {
   }
 });
 
+test('audit: creates owner-only manifest directories', async () => {
+  const root = miniRepo();
+  try {
+    const green = { report: 'reporter/green.json' };
+    await tt.audit({ root, feature: '.', maxMutations: 1, run: fakeRunner(root, [green, { report: 'reporter/tautology-m01.json', status: 1 }, green]), log: () => {} });
+    const dir = tt.manifestDir(root);
+    assert.equal(statSync(dirname(dir)).mode & 0o777, 0o700);
+    assert.equal(statSync(dir).mode & 0o777, 0o700);
+  } finally { rmSync(root, { recursive: true, force: true }); rmSync(tt.manifestDir(root), { recursive: true, force: true }); }
+});
+
+test('audit: refuses an unsafe manifest directory without restoring its named file', async () => {
+  const root = miniRepo();
+  const dir = tt.manifestDir(root);
+  const target = join(root, 'sum.ts');
+  const edited = Buffer.from('do not overwrite me');
+  try {
+    mkdirSync(join(dir, 'originals'), { recursive: true, mode: 0o700 });
+    chmodSync(dir, 0o755);
+    writeFileSync(join(dir, 'originals', 'k'), 'attacker bytes');
+    writeFileSync(target, edited);
+    writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ entries: [{ path: target, key: 'k', originalHash: tt.sha256(Buffer.from('original')), mutatedHash: tt.sha256(edited) }] }));
+
+    await assert.rejects(
+      () => tt.audit({ root, feature: '.', run: fakeRunner(root, []), log: () => {} }),
+      (error) => error.code === 3 && /unsafe manifest directory/.test(error.message),
+    );
+    assert.deepEqual(readFileSync(target), edited);
+  } finally { chmodSync(dir, 0o700); rmSync(dir, { recursive: true, force: true }); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('audit: treats a restorable manifest entry outside the root as a conflict', async () => {
+  const root = miniRepo();
+  const elsewhere = mkdtempSync(join(tmpdir(), 'tt-elsewhere-'));
+  const outside = join(elsewhere, 'outside.ts');
+  const dir = tt.manifestDir(root);
+  const current = Buffer.from('outside current');
+  try {
+    mkdirSync(join(dir, 'originals'), { recursive: true, mode: 0o700 });
+    writeFileSync(outside, current);
+    writeFileSync(join(dir, 'originals', 'k'), 'outside original');
+    writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ entries: [{ path: outside, key: 'k', originalHash: tt.sha256(Buffer.from('outside original')), mutatedHash: tt.sha256(current) }] }));
+
+    await assert.rejects(
+      () => tt.audit({ root, feature: '.', run: fakeRunner(root, []), log: () => {} }),
+      (error) => error.code === 3 && /manifest conflict/.test(error.message),
+    );
+    assert.deepEqual(readFileSync(outside), current);
+  } finally { rmSync(dir, { recursive: true, force: true }); rmSync(root, { recursive: true, force: true }); rmSync(elsewhere, { recursive: true, force: true }); }
+});
+
 test('audit: runtime failures appear on case and mutant rows', async () => {
   const root = miniRepo();
   try {
@@ -383,11 +434,33 @@ test('audit: feature filter is repo-relative with slash, and root or its absolut
   }
 });
 
+test('audit: rejects a feature outside the root', async () => {
+  const root = miniRepo();
+  const elsewhere = mkdtempSync(join(tmpdir(), 'tt-feature-'));
+  try {
+    await assert.rejects(
+      () => tt.audit({ root, feature: elsewhere, run: fakeRunner(root, []), log: () => {} }),
+      (error) => error.code === 3 && error.message === '--feature must be inside --root',
+    );
+  } finally { rmSync(root, { recursive: true, force: true }); rmSync(elsewhere, { recursive: true, force: true }); }
+});
+
+test('discovery: walk skips directory symlinks that leave the root', () => {
+  const root = mkdtempSync(join(tmpdir(), 'tt-walk-root-'));
+  const elsewhere = mkdtempSync(join(tmpdir(), 'tt-walk-elsewhere-'));
+  try {
+    writeFileSync(join(elsewhere, 'outside.test.ts'), 'outside');
+    symlinkSync(elsewhere, join(root, 'linked'));
+    assert.deepEqual(tt.walk(root, (path) => path.endsWith('.test.ts')), []);
+  } finally { rmSync(root, { recursive: true, force: true }); rmSync(elsewhere, { recursive: true, force: true }); }
+});
+
 test('audit: SIGKILL timeout is caught unattributed', async () => {
   const root = miniRepo();
   try {
     const r = await tt.audit({ root, feature: '.', maxMutations: 1, run: fakeRunner(root, [{ report: 'reporter/green.json' }, { report: 'reporter/green.json', status: null, signal: 'SIGKILL' }, { report: 'reporter/green.json' }]), log: () => {} });
     assert.equal(r.mutants[0].state, 'caught, unattributed');
+    assert.equal(r.verdicts.every((v) => v.deletion === 'not verified: no valid mutants on sum.ts'), true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -402,7 +475,8 @@ test('audit: SIGKILL without reporter output is caught unattributed and defaultR
   try {
     const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
     assert.equal(r.mutants[0].state, 'caught, unattributed');
-    assert.match(r.verdicts[0].result, /1 sampled mutants/);
+    assert.match(r.verdicts[0].result, /0 sampled mutants/);
+    assert.equal(r.verdicts[0].deletion, 'not verified: no valid mutants on sum.ts');
   } finally { rmSync(root, { recursive: true, force: true }); }
 
   const started = Date.now();
@@ -517,8 +591,100 @@ test('audit: no valid mutants skips deletion verification', async () => {
   try {
     const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
     assert.equal(runCalls, 2);
-    assert.equal(r.verdicts.every((v) => v.deletion === 'not verified: no valid mutants'), true);
+    assert.equal(r.verdicts.every((v) => v.deletion === 'not verified: no valid mutants on sum.ts'), true);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('audit: a mapped implementation without a valid mutant is never offered for removal', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tt-two-impls-'));
+  const tests = join(root, '__tests__');
+  mkdirSync(tests);
+  const aSpec = join(tests, 'a.test.ts');
+  const bSpec = join(tests, 'b.test.ts');
+  writeFileSync(join(root, 'a.ts'), 'export const a = (x: number) => x === 1\n');
+  writeFileSync(join(root, 'b.ts'), 'export const b = (x: number) => x === 2\n');
+  writeFileSync(aSpec, "it('a', () => {})\n");
+  writeFileSync(bSpec, "it('b', () => {})\n");
+  const listed = [
+    { file: aSpec, name: 'a', location: { line: 1 } },
+    { file: bSpec, name: 'b', location: { line: 1 } },
+  ];
+  let runNo = 0;
+  const run = (args) => {
+    if (args[0] === 'list') return { status: 0, stdout: JSON.stringify(listed), stderr: '' };
+    const mutant = runNo++ === 1;
+    const out = args.find((arg) => arg.startsWith('--outputFile=')).slice(13);
+    writeFileSync(out, JSON.stringify({
+      numFailedTests: mutant ? 1 : 0,
+      numPassedTests: mutant ? 1 : 2,
+      testResults: [
+        { name: aSpec, status: mutant ? 'failed' : 'passed', assertionResults: [{ title: 'a', location: { line: 1 }, status: mutant ? 'failed' : 'passed', failureMessages: mutant ? ['AssertionError: boom'] : [] }] },
+        { name: bSpec, status: 'passed', assertionResults: [{ title: 'b', location: { line: 1 }, status: 'passed', failureMessages: [] }] },
+      ],
+    }));
+    return { status: mutant ? 1 : 0, stdout: '', stderr: '' };
+  };
+  try {
+    const result = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    const b = result.verdicts.find((verdict) => verdict.name === 'b');
+    assert.equal(b.result, 'killed none of 1 sampled mutants (0 in b.ts)');
+    assert.equal(b.deletion, 'not verified: no valid mutants on b.ts');
+    assert.equal(runNo, 2);
+  } finally { rmSync(root, { recursive: true, force: true }); rmSync(tt.manifestDir(root), { recursive: true, force: true }); }
+});
+
+test('audit: listed cases absent from the baseline report are quarantined', async () => {
+  const root = miniRepo();
+  const logs = [];
+  const inner = fakeRunner(root, [
+    { report: 'reporter/green.json' },
+    { report: 'reporter/tautology-m01.json', status: 1 },
+    { report: 'reporter/green.json' },
+  ]);
+  const run = (args, cwd) => {
+    if (args[0] === 'list') {
+      const base = JSON.parse(inner(args, cwd).stdout);
+      base.push({ file: join(root, '__tests__', 'sum.test.ts'), name: 'sum > never reported', location: { line: 99 } });
+      return { status: 0, stdout: JSON.stringify(base), stderr: '' };
+    }
+    return inner(args, cwd);
+  };
+  try {
+    const result = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: (message) => logs.push(message) });
+    const missing = result.verdicts.find((verdict) => verdict.name === 'sum > never reported');
+    assert.equal(missing.result, 'not matched in reporter output');
+    assert.equal(missing.deletion, 'not verified: not matched in reporter output');
+    assert.deepEqual(logs.filter((message) => /listed cases not matched/.test(message)), ['test-teeth: 1 listed cases not matched in reporter output']);
+  } finally { rmSync(root, { recursive: true, force: true }); rmSync(tt.manifestDir(root), { recursive: true, force: true }); }
+});
+
+test('audit: detects a spec edit after every case killed the mutant', async () => {
+  const root = miniRepo();
+  const spec = join(root, '__tests__', 'sum.test.ts');
+  const inner = fakeRunner(root, [{ report: 'reporter/green.json' }]);
+  let runNo = 0;
+  const run = (args, cwd) => {
+    if (args[0] === 'list' || runNo++ === 0) return inner(args, cwd);
+    const out = args.find((arg) => arg.startsWith('--outputFile=')).slice(13);
+    const report = fixture('reporter/tautology-m01.json');
+    report.testResults[0].name = spec;
+    for (const assertion of report.testResults[0].assertionResults) {
+      assertion.status = 'failed';
+      assertion.failureMessages = ['AssertionError: boom'];
+    }
+    report.numFailedTests = 2;
+    report.numPassedTests = 0;
+    writeFileSync(out, JSON.stringify(report));
+    writeFileSync(spec, readFileSync(spec, 'utf8') + '// concurrent edit\n');
+    return { status: 1, stdout: '', stderr: '' };
+  };
+  try {
+    await assert.rejects(
+      () => tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} }),
+      (error) => error.code === 3 && /concurrent edit: .*sum\.test\.ts changed during the audit/.test(error.message),
+    );
+    assert.match(readFileSync(spec, 'utf8'), /\/\/ concurrent edit\n$/);
+  } finally { rmSync(root, { recursive: true, force: true }); rmSync(tt.manifestDir(root), { recursive: true, force: true }); }
 });
 
 test('audit: no mutants planned skips deletion verification with a distinct reason', async () => {
@@ -695,7 +861,7 @@ test('audit: recover restores a file left mutated by an earlier run', async () =
   const originalBytes = readFileSync(join(FIX, 'mini', 'sum.ts'));
   const logs = [];
   try {
-    mkdirSync(join(dir, 'originals'), { recursive: true });
+    mkdirSync(join(dir, 'originals'), { recursive: true, mode: 0o700 });
     writeFileSync(join(dir, 'originals', 'k1'), originalBytes);
     writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ entries: [{
       path: join(root, 'sum.ts'),
@@ -728,7 +894,7 @@ test('audit: recovery runs before the vitest binary check', async () => {
   const dir = tt.manifestDir(root);
   const original = readFileSync(join(root, 'sum.ts'));
   try {
-    mkdirSync(join(dir, 'originals'), { recursive: true });
+    mkdirSync(join(dir, 'originals'), { recursive: true, mode: 0o700 });
     writeFileSync(join(dir, 'originals', 'k'), original);
     writeFileSync(join(root, 'sum.ts'), 'MUTANT');
     writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ entries: [{ path: join(root, 'sum.ts'), key: 'k', originalHash: tt.sha256(original), mutatedHash: tt.sha256(Buffer.from('MUTANT')) }] }));
@@ -743,7 +909,7 @@ test('audit: recover throws code 3 on a conflicting edit', async () => {
   const dir = tt.manifestDir(root);
   const originalBytes = readFileSync(join(FIX, 'mini', 'sum.ts'));
   try {
-    mkdirSync(join(dir, 'originals'), { recursive: true });
+    mkdirSync(join(dir, 'originals'), { recursive: true, mode: 0o700 });
     writeFileSync(join(dir, 'originals', 'k1'), originalBytes);
     writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ entries: [{
       path: join(root, 'sum.ts'),
@@ -773,7 +939,7 @@ test('recover restores safe entries before reporting conflicts and keeps only co
   const originalA = readFileSync(a);
   const originalB = Buffer.from('ORIGINAL');
   writeFileSync(b, 'EDITED');
-  mkdirSync(join(dir, 'originals'), { recursive: true });
+  mkdirSync(join(dir, 'originals'), { recursive: true, mode: 0o700 });
   writeFileSync(join(dir, 'originals', 'a'), originalA);
   writeFileSync(join(dir, 'originals', 'b'), originalB);
   writeFileSync(a, 'MUTANT');
@@ -812,7 +978,7 @@ test('audit: live lock blocks recovery; stale lock permits recovery and successf
     const dir = tt.manifestDir(root);
     const lock = `${dir}.lock`;
     const original = readFileSync(join(root, 'sum.ts'));
-    mkdirSync(join(dir, 'originals'), { recursive: true });
+    mkdirSync(join(dir, 'originals'), { recursive: true, mode: 0o700 });
     writeFileSync(join(dir, 'originals', 'k'), original);
     writeFileSync(join(root, 'sum.ts'), 'MUTANT');
     writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ entries: [{ path: join(root, 'sum.ts'), key: 'k', originalHash: tt.sha256(original), mutatedHash: tt.sha256(Buffer.from('MUTANT')) }] }));
@@ -835,7 +1001,7 @@ test('audit: live lock blocks recovery; stale lock permits recovery and successf
 test('audit: an empty lock file is held until the user removes it', async () => {
   const root = miniRepo();
   const lock = `${tt.manifestDir(root)}.lock`;
-  mkdirSync(dirname(lock), { recursive: true });
+  mkdirSync(dirname(lock), { recursive: true, mode: 0o700 });
   writeFileSync(lock, '');
   try {
     await assert.rejects(
@@ -902,7 +1068,7 @@ test('audit: interrupted run throws 130 and restores', async () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('audit: restoreAll leaves untouched files alone', async () => {
+test('audit: detects edits to tracked implementations it did not mutate', async () => {
   const root = miniRepo();
   const other = join(root, 'other.ts');
   writeFileSync(other, 'export const o = 1\n');
@@ -915,7 +1081,10 @@ test('audit: restoreAll leaves untouched files alone', async () => {
       if (args[0] !== 'list' && ++runCalls === 2) writeFileSync(other, 'export const o = 2\n');
       return inner(args, cwd);
     };
-    await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    await assert.rejects(
+      () => tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} }),
+      (error) => error.code === 3 && error.message.includes(other),
+    );
     assert.equal(readFileSync(other, 'utf8'), 'export const o = 2\n');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
