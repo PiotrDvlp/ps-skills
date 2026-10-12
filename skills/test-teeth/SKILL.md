@@ -5,7 +5,7 @@ description: Use when existing vitest unit tests under one feature should be aud
 
 # test-teeth
 
-Reports which sampled production-code mutants each test case killed, then checks whether zero-kill cases can be removed while the feature suite stays green without new warning fingerprints. The report is evidence for a developer, not an instruction to delete tests.
+Reports which sampled production-code mutants each test case killed. With a Stryker report as kill evidence, it then checks whether cases with zero Stryker assertion kills can be removed while the feature suite stays green without new warning fingerprints. The report is evidence for a developer, not an instruction to delete tests.
 
 ## Run
 
@@ -20,11 +20,12 @@ Flags:
 - `--max-mutations N`: total mutation budget, default 30. Hand-authored mutations always run in full, even when their count exceeds the budget; generated mutations fill any slots left.
 - `--mutations file.json`: hand-authored `[{file, find, replace, note}]`; `file` is repo-relative. These run first.
 - `--report PATH`: write the report and create its parent directory.
+- `--stryker-report mutation.json`: a Stryker JSON report run from `--root` on the same feature. Without it, no case gets a deletion check. A Stryker kill counts unless its only killer crashed (`Cannot read properties`, `is not a function`, and similar).
 - `--timeout-ms N`: timeout for each vitest run, default 120000.
 - `--vitest-bin PATH`: override `<root>/node_modules/.bin/vitest`.
 - `--list-only`: print the mutation plan without running vitest.
 
-Exit 0 means a report was produced; 2 means the baseline was not green; 3 means usage failure, manifest conflict, concurrent edit, another audit on the root, an unsafe manifest directory, `--feature` outside `--root`, or missing/broken vitest discovery; 130 means SIGINT or SIGTERM interrupted vitest.
+Exit 0 means a report was produced; 2 means the baseline was not green; 3 means usage failure, manifest conflict, concurrent edit, another audit on the root, an unsafe manifest directory, a Stryker report whose killed mutants lack `killedBy`, `--feature` outside `--root`, or missing/broken vitest discovery; 130 means SIGINT or SIGTERM interrupted vitest.
 
 ## Read the report
 
@@ -35,7 +36,10 @@ Exit 0 means a report was produced; 2 means the baseline was not green; 3 means 
 - `skipped at baseline`: vitest skipped, pended, or marked the case todo before mutation.
 - `not matched in reporter output`: vitest listed the case but the baseline reporter never mentioned it.
 - `keep`: the case killed a mutant or was skipped at baseline.
-- `removable: suite green, no new warnings`: removal kept the suite green without a new warning fingerprint.
+- `keep (Stryker: N assertion kills)`: the sample missed it, but the Stryker report credits it with N kills.
+- `not verified: sampled evidence only (N mutants); pass --stryker-report`: a sample cannot show a case is toothless, so the deletion check did not run.
+- `not verified: not in Stryker report`: the case is absent from the report, or its name is ambiguous there.
+- `removable: suite green, no new warnings`: the case has zero Stryker assertion kills, and removal kept the suite green without a new warning fingerprint.
 - `; not together with [ids]: <not removable reason>`: every member was removable alone, but the smallest batch containing them failed for the stated reason.
 - `not removable: <case or warning>`: removal caused the named case failure or a new warning fingerprint.
 - `not removable: vitest exit <status>, <N> failed`: removal failed without a named failed case.
@@ -61,7 +65,7 @@ Exit 0 means a report was produced; 2 means the baseline was not green; 3 means 
 
 ## Before deleting
 
-At the default budget a feature with 20 implementation files gets 1–2 mutants per file. `.vue` files get template mutants before script mutants. `removable` means only that no other test and no warning observed by this run depends on the case. Rerun with a larger `--max-mutations` or targeted `--mutations` before deleting anything.
+At the default budget a feature with 20 implementation files gets 1–2 mutants per file, so `killed none` from the sample alone is weak evidence; that is why the deletion check needs `--stryker-report`. `.vue` files get template mutants before script mutants. Stryker mutates only `<script>`, so a case that pins template output can have zero Stryker kills and still guard the template; read such a case before deleting it. `removable` means only that Stryker credits the case with no assertion kill and that no other test and no warning observed by this run depends on it.
 
 ## While it runs
 

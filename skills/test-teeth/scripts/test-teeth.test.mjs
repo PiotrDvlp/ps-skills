@@ -295,11 +295,71 @@ function fakeRunner(root, perRun) {
   };
 }
 
-test('audit: tautology case killed none, real case killed M01, deletion removable', async () => {
+test('stryker: assertion kills counted per test, a crash with a lone killer is not', () => {
+  const report = fixture('stryker/mini.json');
+  const kills = tt.strykerKills(report);
+  assert.equal(kills({ spec: '__tests__/sum.test.ts', name: 'sum > adds' }), 1);
+  assert.equal(kills({ spec: '__tests__/sum.test.ts', name: 'sum > tautology' }), 0);
+  assert.equal(kills({ spec: '__tests__/sum.test.ts', name: 'sum > missing' }), undefined);
+  report.files['sum.ts'].mutants[1].statusReason = 'expected 1 to be 2 // Object.is equality';
+  assert.equal(tt.strykerKills(report)({ spec: '__tests__/sum.test.ts', name: 'sum > tautology' }), 1);
+});
+
+test('stryker: a killed mutant without killedBy rejects the report', () => {
+  const report = fixture('stryker/mini.json');
+  delete report.files['sum.ts'].mutants[0].killedBy;
+  assert.throws(() => tt.strykerKills(report), (e) => e.code === 3 && /killedBy/.test(e.message));
+  report.files['sum.ts'].mutants[0].killedBy = [];
+  assert.throws(() => tt.strykerKills(report), (e) => e.code === 3);
+});
+
+test('stryker: a crash shared by several killers still credits each of them', () => {
+  const report = fixture('stryker/mini.json');
+  report.files['sum.ts'].mutants[1].killedBy = ['1', '2'];
+  const kills = tt.strykerKills(report);
+  assert.equal(kills({ spec: '__tests__/sum.test.ts', name: 'sum > tautology' }), 1);
+  assert.equal(kills({ spec: '__tests__/sum.test.ts', name: 'sum > adds' }), 2);
+});
+
+test('audit: without Stryker evidence no case is called removable and nothing is trimmed', async () => {
   const root = miniRepo();
   try {
     const green = { report: 'reporter/green.json' };
     const r = await tt.audit({ root, feature: '.', maxMutations: 1, run: fakeRunner(root, [green, { report: 'reporter/tautology-m01.json', status: 1 }, green]), log: () => {} });
+    const taut = r.verdicts.find((v) => v.id.endsWith('::sum > tautology::5'));
+    assert.equal(taut.deletion, 'not verified: sampled evidence only (1 mutants); pass --stryker-report');
+    assert.equal(r.runs, 2);
+    assert.equal(r.verdicts.some((v) => v.deletion.includes('removable')), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('audit: Stryker assertion kills keep a case the sample missed', async () => {
+  const root = miniRepo();
+  try {
+    const green = { report: 'reporter/green.json' };
+    const strykerKills = (c) => (c.name === 'sum > tautology' ? 3 : 0);
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills, run: fakeRunner(root, [green, { report: 'reporter/tautology-m01.json', status: 1 }, green]), log: () => {} });
+    const taut = r.verdicts.find((v) => v.id.endsWith('::sum > tautology::5'));
+    assert.equal(taut.deletion, 'keep (Stryker: 3 assertion kills)');
+    assert.equal(r.runs, 2);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('audit: a case missing from the Stryker report is not verified', async () => {
+  const root = miniRepo();
+  try {
+    const green = { report: 'reporter/green.json' };
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => undefined, run: fakeRunner(root, [green, { report: 'reporter/tautology-m01.json', status: 1 }, green]), log: () => {} });
+    const taut = r.verdicts.find((v) => v.id.endsWith('::sum > tautology::5'));
+    assert.equal(taut.deletion, 'not verified: not in Stryker report');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('audit: tautology case killed none, real case killed M01, deletion removable', async () => {
+  const root = miniRepo();
+  try {
+    const green = { report: 'reporter/green.json' };
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run: fakeRunner(root, [green, { report: 'reporter/tautology-m01.json', status: 1 }, green]), log: () => {} });
     assert.equal(r.baseline, 'green');
     assert.equal(r.mutants.length, 1);
     const adds = r.verdicts.find((v) => v.id.endsWith('::sum > adds::4'));
@@ -321,7 +381,7 @@ test('audit: works on an empty TMPDIR', async () => {
   const lock = `${tt.manifestDir(root)}.lock`;
   try {
     const green = { report: 'reporter/green.json' };
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run: fakeRunner(root, [green, { report: 'reporter/tautology-m01.json', status: 1 }, green]), log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run: fakeRunner(root, [green, { report: 'reporter/tautology-m01.json', status: 1 }, green]), log: () => {} });
     assert.equal(r.baseline, 'green');
     assert.equal(existsSync(lock), false);
   } finally {
@@ -336,7 +396,7 @@ test('audit: creates owner-only manifest directories', async () => {
   const root = miniRepo();
   try {
     const green = { report: 'reporter/green.json' };
-    await tt.audit({ root, feature: '.', maxMutations: 1, run: fakeRunner(root, [green, { report: 'reporter/tautology-m01.json', status: 1 }, green]), log: () => {} });
+    await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run: fakeRunner(root, [green, { report: 'reporter/tautology-m01.json', status: 1 }, green]), log: () => {} });
     const dir = tt.manifestDir(root);
     assert.equal(statSync(dirname(dir)).mode & 0o777, 0o700);
     assert.equal(statSync(dir).mode & 0o777, 0o700);
@@ -403,7 +463,7 @@ test('audit: treats a restorable manifest entry outside the root as a conflict',
 test('audit: runtime failures appear on case and mutant rows', async () => {
   const root = miniRepo();
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run: fakeRunner(root, [{ report: 'reporter/green.json' }, { report: 'reporter/runtime-m01.json', status: 1 }]), log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run: fakeRunner(root, [{ report: 'reporter/green.json' }, { report: 'reporter/runtime-m01.json', status: 1 }]), log: () => {} });
     const adds = r.verdicts.find((v) => v.name.endsWith('adds'));
     assert.equal(adds.result, 'killed none of 1 sampled mutants (1 in sum.ts); runtime failure on [M01]');
     assert.equal(adds.deletion, 'not verified: runtime failure on [M01]');
@@ -424,7 +484,7 @@ test('audit: orphan zero-kill case reports zero mapped mutants and is not verifi
     return { status: 0, stdout: '', stderr: '' };
   };
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     const v = r.verdicts[0];
     assert.equal(v.result, 'killed none of 1 sampled mutants (0 in mapped impl)');
     assert.equal(v.deletion, 'not verified: no impl mapped');
@@ -445,7 +505,7 @@ test('audit: feature filter is repo-relative with slash, and root or its absolut
     const calls = [];
     const inner = fakeRunner(featureDir, [{ report: 'reporter/green.json' }, { report: 'reporter/tautology-m01.json', status: 1 }, { report: 'reporter/green.json' }]);
     try {
-      await tt.audit({ root, feature, maxMutations: 1, run: (args, cwd) => { calls.push(args); return inner(args, cwd); }, log: () => {} });
+      await tt.audit({ root, feature, maxMutations: 1, strykerKills: () => 0, run: (args, cwd) => { calls.push(args); return inner(args, cwd); }, log: () => {} });
       for (const args of calls) assert.equal(args[1], feature === 'src/x' ? 'src/x/' : '--root');
     } finally { rmSync(root, { recursive: true, force: true }); }
   }
@@ -498,7 +558,7 @@ test('discovery: walk visits a real directory only once through cyclic symlinks'
 test('audit: SIGKILL timeout is caught unattributed', async () => {
   const root = miniRepo();
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run: fakeRunner(root, [{ report: 'reporter/green.json' }, { report: 'reporter/green.json', status: null, signal: 'SIGKILL' }, { report: 'reporter/green.json' }]), log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run: fakeRunner(root, [{ report: 'reporter/green.json' }, { report: 'reporter/green.json', status: null, signal: 'SIGKILL' }, { report: 'reporter/green.json' }]), log: () => {} });
     assert.equal(r.mutants[0].state, 'caught, unattributed');
     assert.equal(r.verdicts.every((v) => v.deletion === 'not verified: no valid mutants on sum.ts'), true);
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -513,7 +573,7 @@ test('audit: SIGKILL without reporter output is caught unattributed and defaultR
     return { status: null, stdout: '', stderr: '', signal: 'SIGKILL' };
   };
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     assert.equal(r.mutants[0].state, 'caught, unattributed');
     assert.match(r.verdicts[0].result, /0 sampled mutants/);
     assert.equal(r.verdicts[0].deletion, 'not verified: no valid mutants on sum.ts');
@@ -528,7 +588,7 @@ test('audit: SIGKILL without reporter output is caught unattributed and defaultR
 test('audit: kills stay keep despite later runtime failures or no mapped implementation', async () => {
   const root = miniRepo();
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 2, run: fakeRunner(root, [
+    const r = await tt.audit({ root, feature: '.', maxMutations: 2, strykerKills: () => 0, run: fakeRunner(root, [
       { report: 'reporter/green.json' },
       { report: 'reporter/tautology-m01.json', status: 1 },
       { report: 'reporter/runtime-m01.json', status: 1 },
@@ -550,7 +610,7 @@ test('audit: kills stay keep despite later runtime failures or no mapped impleme
     return { status: killed ? 1 : 0, stdout: '', stderr: '' };
   };
   try {
-    const r = await tt.audit({ root: orphanRoot, feature: '.', maxMutations: 1, run, log: () => {} });
+    const r = await tt.audit({ root: orphanRoot, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     assert.equal(r.verdicts[0].result, 'killed [M01]');
     assert.equal(r.verdicts[0].deletion, 'keep');
   } finally { rmSync(orphanRoot, { recursive: true, force: true }); }
@@ -565,7 +625,7 @@ test('audit: trimmed run without reporter output is not removable even on exit z
     return { status: 0, stdout: '', stderr: '' };
   };
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     assert.equal(r.verdicts.find((v) => v.name.endsWith('tautology')).deletion, 'not removable: no reporter output (vitest exit 0)');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -579,7 +639,7 @@ test('audit: a timed-out trimmed run is not removable with the configured durati
     return { status: null, stdout: '', stderr: '', signal: 'SIGKILL' };
   };
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, timeoutMs: 321, run, log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, timeoutMs: 321, run, log: () => {} });
     assert.equal(r.verdicts.find((v) => v.name.endsWith('tautology')).deletion, 'not removable: timed out after 321 ms');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -595,7 +655,7 @@ test('audit: a baseline edit is detected before the first mutant write', async (
     return r;
   };
   try {
-    await assert.rejects(() => tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} }), (e) => e.code === 3 && /concurrent edit/.test(e.message));
+    await assert.rejects(() => tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} }), (e) => e.code === 3 && /concurrent edit/.test(e.message));
     assert.match(readFileSync(sum, 'utf8'), /\/\/ appended\n$/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -612,7 +672,7 @@ test('audit: a mutant-run spec edit is detected before the trimmed write', async
   };
   try {
     await assert.rejects(
-      () => tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} }),
+      () => tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} }),
       (e) => e.code === 3 && /concurrent edit/.test(e.message),
     );
     assert.match(readFileSync(spec, 'utf8'), /\/\/ user edit\n$/);
@@ -629,7 +689,7 @@ test('audit: no valid mutants skips deletion verification', async () => {
     return { status: 1, stdout: '', stderr: '' };
   };
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     assert.equal(runCalls, 2);
     assert.equal(r.verdicts.every((v) => v.deletion === 'not verified: no valid mutants on sum.ts'), true);
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -665,7 +725,7 @@ test('audit: a mapped implementation without a valid mutant is never offered for
     return { status: mutant ? 1 : 0, stdout: '', stderr: '' };
   };
   try {
-    const result = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    const result = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     const b = result.verdicts.find((verdict) => verdict.name === 'b');
     assert.equal(b.result, 'killed none of 1 sampled mutants (0 in b.ts)');
     assert.equal(b.deletion, 'not verified: no valid mutants on b.ts');
@@ -690,7 +750,7 @@ test('audit: listed cases absent from the baseline report are quarantined', asyn
     return inner(args, cwd);
   };
   try {
-    const result = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: (message) => logs.push(message) });
+    const result = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: (message) => logs.push(message) });
     const missing = result.verdicts.find((verdict) => verdict.name === 'sum > never reported');
     assert.equal(missing.result, 'not matched in reporter output');
     assert.equal(missing.deletion, 'not verified: not matched in reporter output');
@@ -723,7 +783,7 @@ test('audit: an unmatched case in a shared each span keeps its quarantine reason
     return { status: 0, stdout: '', stderr: '' };
   };
   try {
-    const result = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    const result = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     assert.equal(
       result.verdicts.find((verdict) => verdict.name === 'row 2').deletion,
       'not verified: not matched in reporter output',
@@ -754,7 +814,7 @@ test('audit: detects a spec edit after every case killed the mutant', async () =
   };
   try {
     await assert.rejects(
-      () => tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} }),
+      () => tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} }),
       (error) => error.code === 3 && /concurrent edit: .*sum\.test\.ts changed during the audit/.test(error.message),
     );
     assert.match(readFileSync(spec, 'utf8'), /\/\/ concurrent edit\n$/);
@@ -767,7 +827,7 @@ test('audit: no mutants planned skips deletion verification with a distinct reas
   let runCalls = 0;
   const run = fakeRunner(root, [{ report: 'reporter/green.json' }]);
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run: (args, cwd) => {
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run: (args, cwd) => {
       if (args[0] === 'run') runCalls++;
       return run(args, cwd);
     }, log: () => {} });
@@ -791,7 +851,7 @@ test('audit: distinct tests sharing one source line are not trimmed', async () =
     return { status: 0, stdout: '', stderr: '' };
   };
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     assert.equal(r.verdicts.every((v) => v.deletion === 'not verified: shared call line'), true);
     assert.equal(runs, 2);
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -813,7 +873,7 @@ test('audit: missing or bad mutant JSON is invalid; unattributed nonzero exit is
       const r = inner(args, cwd); return { ...r, status: 1 };
     };
     try {
-      const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+      const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
       assert.equal(r.mutants[0].state, mode === 'exit' ? 'caught, unattributed' : 'invalid');
     } finally { rmSync(root, { recursive: true, force: true }); }
   }
@@ -830,7 +890,7 @@ test('audit: every vitest call carries --no-cache', async () => {
       return inner(args, cwd);
     };
 
-    await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
 
     assert.equal(calls.length, 4);
     assert.equal(calls.some((args) => args[0] === 'list'), true);
@@ -867,7 +927,7 @@ test('audit: manifest records the trimmed spec hash during the trimmed run', asy
       return { status: call.status ?? 0, stdout: '', stderr: call.stderr ?? '' };
     };
 
-    await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
 
     assert.equal(typeof recordedMutatedHash, 'string');
     assert.notEqual(recordedMutatedHash, null);
@@ -880,7 +940,7 @@ test('audit: red baseline stops with code 2', async () => {
   const root = miniRepo();
   try {
     await assert.rejects(
-      () => tt.audit({ root, feature: '.', maxMutations: 1, run: fakeRunner(root, [{ report: 'reporter/tautology-m01.json', status: 1 }]), log: () => {} }),
+      () => tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run: fakeRunner(root, [{ report: 'reporter/tautology-m01.json', status: 1 }]), log: () => {} }),
       (e) => e.code === 2 && /baseline not green/.test(e.message),
     );
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -890,7 +950,7 @@ test('audit: deletion not removable when the trimmed run fails, named by reporte
   const root = miniRepo();
   try {
     const green = { report: 'reporter/green.json' };
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run: fakeRunner(root, [green, { report: 'reporter/tautology-m01.json', status: 1 }, { report: 'reporter/tautology-m01.json', status: 1 }]), log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run: fakeRunner(root, [green, { report: 'reporter/tautology-m01.json', status: 1 }, { report: 'reporter/tautology-m01.json', status: 1 }]), log: () => {} });
     const taut = r.verdicts.find((v) => v.id.endsWith('::sum > tautology::5'));
     assert.equal(taut.deletion, 'not removable: sum > adds');
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -910,7 +970,7 @@ test('audit: duplicate identity is excluded from deletion and runs no trimmed su
       runCalls++;
       return inner(args, cwd);
     };
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     const dups = r.verdicts.filter((v) => v.id.endsWith('::sum > tautology::5'));
     assert.equal(dups.length, 2);
     assert.equal(dups[0].deletion, 'not verified: duplicate identity');
@@ -923,7 +983,7 @@ test('audit: deletion not removable when the trimmed run adds a warning', async 
   try {
     const green = { report: 'reporter/green.json' };
     const warn = { report: 'reporter/green.json', stderr: '[Vue warn]: Failed to resolve component: Foo\n' };
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run: fakeRunner(root, [green, { report: 'reporter/tautology-m01.json', status: 1 }, warn]), log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run: fakeRunner(root, [green, { report: 'reporter/tautology-m01.json', status: 1 }, warn]), log: () => {} });
     const taut = r.verdicts.find((v) => v.id.endsWith('::sum > tautology::5'));
     assert.equal(taut.deletion, 'not removable: [Vue warn]: Failed to resolve component: Foo');
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -994,7 +1054,7 @@ test('audit: recover throws code 3 on a conflicting edit', async () => {
     writeFileSync(join(root, 'sum.ts'), 'EDITED');
 
     await assert.rejects(
-      () => tt.audit({ root, feature: '.', maxMutations: 1, run: fakeRunner(root, []), log: () => {} }),
+      () => tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run: fakeRunner(root, []), log: () => {} }),
       (e) => e.code === 3 && /manifest conflict/.test(e.message),
     );
     assert.equal(readFileSync(join(root, 'sum.ts'), 'utf8'), 'EDITED');
@@ -1039,7 +1099,7 @@ test('audit: concurrent edit is preserved with manifest and code 3', async () =>
     return r;
   };
   try {
-    await assert.rejects(() => tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} }), (e) => e.code === 3 && /concurrent edit/.test(e.message));
+    await assert.rejects(() => tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} }), (e) => e.code === 3 && /concurrent edit/.test(e.message));
     assert.equal(readFileSync(join(root, 'sum.ts'), 'utf8'), 'EDITED');
     assert.equal(existsSync(join(dir, 'manifest.json')), true);
     assert.deepEqual(JSON.parse(readFileSync(join(dir, 'manifest.json'))).entries.map((e) => e.path), [join(root, 'sum.ts')]);
@@ -1058,7 +1118,7 @@ test('audit: live lock blocks recovery; stale lock permits recovery and successf
     writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ entries: [{ path: join(root, 'sum.ts'), key: 'k', originalHash: tt.sha256(original), mutatedHash: tt.sha256(Buffer.from('MUTANT')) }] }));
     writeFileSync(lock, String(pid));
     try {
-      const promise = tt.audit({ root, feature: '.', maxMutations: 1, run: fakeRunner(root, [{ report: 'reporter/green.json' }, { report: 'reporter/tautology-m01.json', status: 1 }, { report: 'reporter/green.json' }]), log: () => {} });
+      const promise = tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run: fakeRunner(root, [{ report: 'reporter/green.json' }, { report: 'reporter/tautology-m01.json', status: 1 }, { report: 'reporter/green.json' }]), log: () => {} });
       if (pid === process.pid) {
         await assert.rejects(() => promise, (e) => e.code === 3 && e.message === `another audit is running on this root (pid ${pid})`);
         assert.equal(readFileSync(join(root, 'sum.ts'), 'utf8'), 'MUTANT');
@@ -1079,7 +1139,7 @@ test('audit: an empty lock file is held until the user removes it', async () => 
   writeFileSync(lock, '');
   try {
     await assert.rejects(
-      () => tt.audit({ root, feature: '.', maxMutations: 1, run: fakeRunner(root, []), log: () => {} }),
+      () => tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run: fakeRunner(root, []), log: () => {} }),
       (e) => e.code === 3 && e.message === `lock file ${lock} has no PID; if no audit is running, delete it and rerun`,
     );
     assert.equal(existsSync(lock), true);
@@ -1094,7 +1154,7 @@ test('audit: logs manifest recovery hint once', async () => {
   const root = miniRepo();
   const logs = [];
   try {
-    await tt.audit({ root, feature: '.', maxMutations: 1, run: fakeRunner(root, [{ report: 'reporter/green.json' }, { report: 'reporter/tautology-m01.json', status: 1 }, { report: 'reporter/green.json' }]), log: (s) => logs.push(s) });
+    await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run: fakeRunner(root, [{ report: 'reporter/green.json' }, { report: 'reporter/tautology-m01.json', status: 1 }, { report: 'reporter/green.json' }]), log: (s) => logs.push(s) });
     assert.equal(logs.filter((s) => s.startsWith('test-teeth: manifest at ')).length, 1);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -1107,7 +1167,7 @@ test('audit: logs once when manual mutations exceed the budget', async () => {
     { file: 'sum.ts', find: 'a + b', replace: 'a - b', note: 'two' },
   ];
   try {
-    await tt.audit({ root, feature: '.', maxMutations: 1, manual, run: fakeRunner(root, [{ report: 'reporter/green.json' }, { report: 'reporter/green.json' }, { report: 'reporter/green.json' }, { report: 'reporter/green.json' }]), log: (s) => logs.push(s) });
+    await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, manual, run: fakeRunner(root, [{ report: 'reporter/green.json' }, { report: 'reporter/green.json' }, { report: 'reporter/green.json' }, { report: 'reporter/green.json' }]), log: (s) => logs.push(s) });
     assert.deepEqual(logs.filter((s) => s.startsWith('--mutations has')), ['--mutations has 2 entries, more than --max-mutations 1; all 2 run']);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -1123,7 +1183,7 @@ test('audit: baseline with vitest exit 1 and no failed case is red', async () =>
   const root = miniRepo();
   try {
     await assert.rejects(
-      () => tt.audit({ root, feature: '.', maxMutations: 1, run: fakeRunner(root, [{ report: 'reporter/green.json', status: 1 }]), log: () => {} }),
+      () => tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run: fakeRunner(root, [{ report: 'reporter/green.json', status: 1 }]), log: () => {} }),
       (e) => e.code === 2,
     );
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -1135,7 +1195,7 @@ test('audit: interrupted run throws 130 and restores', async () => {
   try {
     const green = { report: 'reporter/green.json' };
     await assert.rejects(
-      () => tt.audit({ root, feature: '.', maxMutations: 1, run: fakeRunner(root, [green, { report: 'reporter/green.json', status: null, signal: 'SIGINT' }]), log: () => {} }),
+      () => tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run: fakeRunner(root, [green, { report: 'reporter/green.json', status: null, signal: 'SIGINT' }]), log: () => {} }),
       (e) => e.code === 130,
     );
     assert.deepEqual(readFileSync(join(root, 'sum.ts')), originalBytes);
@@ -1156,7 +1216,7 @@ test('audit: detects edits to tracked implementations it did not mutate', async 
       return inner(args, cwd);
     };
     await assert.rejects(
-      () => tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} }),
+      () => tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} }),
       (error) => error.code === 3 && error.message.includes(other),
     );
     assert.equal(readFileSync(other, 'utf8'), 'export const o = 2\n');
@@ -1186,7 +1246,7 @@ test('audit: spec listed by vitest but outside the audited set is not verified',
     return { status: n === 2 ? 1 : 0, stdout: '', stderr: '' };
   };
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     const extra = r.verdicts.find((v) => v.spec === 'extra.test.tsx');
     assert.equal(extra.deletion, 'not verified: spec not in audited set');
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -1221,7 +1281,7 @@ test('audit: allGone excludes only when every case of the spec is removed', asyn
     return { status: 0, stdout: '', stderr: '' };
   };
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     assert.equal(calls.some((args) => args.includes('--exclude')), false);
     assert.equal(r.verdicts.find((v) => v.name === 'sum > a').deletion, 'not verified: every test in describe "sum" is zero-kill; delete the describe block and rerun');
     assert.equal(r.verdicts.find((v) => v.name === 'd 1 > b').deletion, 'not verified: unsupported call shape');
@@ -1249,7 +1309,7 @@ test('audit: shared each rows are removed once without removing the next test', 
     return { status: runNo++ === 1 ? 1 : 0, stdout: '', stderr: '' };
   };
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     const rows = r.verdicts.filter((v) => v.name.startsWith('row'));
     assert.equal(trimmed.includes("it('next'"), true);
     assert.equal(trimmed.includes('row %i'), false);
@@ -1272,7 +1332,7 @@ test('audit: on a mixed each span the killing row keeps keep and the others are 
     return { status: kill ? 1 : 0, stdout: '', stderr: '' };
   };
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     const row1 = r.verdicts.find((v) => v.name === 'row 1');
     const row2 = r.verdicts.find((v) => v.name === 'row 2');
     assert.equal(row1.deletion, 'keep');
@@ -1297,7 +1357,7 @@ test('audit: failed batch but green singles records not-together pair', async ()
     return { status: batchFail ? 1 : 0, stdout: '', stderr: '' };
   };
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     for (const v of r.verdicts) {
       const other = r.verdicts.find((x) => x.id !== v.id).id;
       assert.equal(v.deletion, `removable: suite green, no new warnings; not together with [${other}]: not removable: a`);
@@ -1328,7 +1388,7 @@ test('audit: whole zero-kill describe is explained and never trimmed', async () 
     return { status: mutant ? 1 : 0, stdout: '', stderr: '' };
   };
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     const empty = r.verdicts.filter((v) => v.name.startsWith('empty >'));
     assert.equal(empty.every((v) => v.deletion === 'not verified: every test in describe "empty" is zero-kill; delete the describe block and rerun'), true);
     assert.equal(trimmed.every((source) => source.includes("it('a'") && source.includes("it('b'")), true);
@@ -1352,7 +1412,7 @@ test('audit: a failed single prevents not-together notes on the rest of a three-
     return { status: fail ? 1 : 0, stdout: '', stderr: '' };
   };
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     assert.equal(r.verdicts.filter((v) => v.name !== 'a').every((v) => !v.deletion.includes('not together')), true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -1376,7 +1436,7 @@ test('audit: suite-only trimmed failure has a dedicated verdict', async () => {
         }
         return r;
       };
-      const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+      const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
       assert.equal(r.verdicts.find((v) => v.name.endsWith('tautology')).deletion, 'not removable: suite-level failure (likely a describe left with no tests)');
     } finally { rmSync(root, { recursive: true, force: true }); }
   }
@@ -1396,7 +1456,7 @@ test('audit: vue implementation with only no-op template attributes has no mutat
     return { status: 0, stdout: '', stderr: '' };
   };
   try {
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run, log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     assert.equal(r.mutants.length, 0);
     assert.equal(calls, 1);
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -1407,7 +1467,7 @@ test('report: banned words absent, tables present, unmapped spec listed', async 
   writeFileSync(join(root, '__tests__', 'orphan.test.ts'), "import { it, expect } from 'vitest'\nit('x', () => { expect(1).toBe(1) })\n");
   try {
     const green = { report: 'reporter/green.json' };
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, run: fakeRunner(root, [green, { report: 'reporter/tautology-m01.json', status: 1 }, green]), log: () => {} });
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run: fakeRunner(root, [green, { report: 'reporter/tautology-m01.json', status: 1 }, green]), log: () => {} });
     assert.deepEqual(r.unmapped, ['__tests__/orphan.test.ts']);
     const md = tt.renderReport(r);
     assert.equal(/no mutation reachable|obsolete|safe to delete/.test(md), false);
@@ -1435,7 +1495,10 @@ test('integration: vitest3 real run on the mini fixture', VITEST_TEST_OPTIONS, (
     const r = spawnSync(process.execPath, [SCRIPT, 'audit', '--root', root, '--feature', '.', '--max-mutations', '2'], { encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /sum > adds \| killed \[M0[12](, M0[12])?\]/);
-    assert.match(r.stdout, /sum > tautology \| killed none of 2 sampled mutants \(2 in sum\.ts\) \| removable: suite green, no new warnings/);
+    assert.match(r.stdout, /sum > tautology \| killed none of 2 sampled mutants \(2 in sum\.ts\) \| not verified: sampled evidence only \(2 mutants\); pass --stryker-report/);
+    const withStryker = spawnSync(process.execPath, [SCRIPT, 'audit', '--root', root, '--feature', '.', '--max-mutations', '2', '--stryker-report', join(FIX, 'stryker', 'mini.json')], { encoding: 'utf8' });
+    assert.equal(withStryker.status, 0, withStryker.stderr);
+    assert.match(withStryker.stdout, /sum > tautology \| killed none of 2 sampled mutants \(2 in sum\.ts\) \| removable: suite green, no new warnings/);
     assert.equal(readFileSync(join(root, 'sum.ts'), 'utf8'), readFileSync(join(FIX, 'mini', 'sum.ts'), 'utf8'));
     const listed = spawnSync(process.execPath, [SCRIPT, 'audit', '--root', root, '--feature', '.', '--max-mutations', '2', '--list-only'], { encoding: 'utf8' });
     assert.equal(listed.status, 0, listed.stderr);
