@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { main } from './relay-gate.mjs';
+import { main, stateDir } from './relay-gate.mjs';
 
 const CLI = fileURLToPath(new URL('./relay-gate.mjs', import.meta.url));
 const fx = (n) => readFileSync(new URL(`../fixtures/vitest/${n}.json`, import.meta.url), 'utf8');
@@ -87,4 +87,27 @@ test('baseline: the real run with a relative root and no vitest binary exits 3',
   const { run, ...d } = fakeDeps(r, mkdtempSync(join(tmpdir(), 'tb-s-')), lines, 'list-base', null, 0);
   assert.equal(await main(['baseline', '--root', relative(process.cwd(), r), '--task', 't1', '--feature', '.'], d), 3);
   assert.match(lines.join('\n'), /vitest failed to start/);
+});
+
+test('task: a path-like --task exits 3', async () => {
+  const r = repo();
+  const lines = [];
+  const a = ['baseline', '--root', r, '--task', '../x', '--feature', '.'];
+  assert.equal(await main(a, fakeDeps(r, mkdtempSync(join(tmpdir(), 'tb-s-')), lines, 'list-base', null, 0)), 3);
+  assert.match(lines.join('\n'), /invalid --task/);
+});
+
+test('state: a group-readable task dir is refused', async () => {
+  const r = repo();
+  const old = process.env.TMPDIR;
+  process.env.TMPDIR = mkdtempSync(join(tmpdir(), 'tb-base-'));
+  try {
+    chmodSync(stateDir(r, 't1'), 0o755);
+    const lines = [];
+    const { stateDir: _s, ...d } = fakeDeps(r, null, lines, 'list-base', null, 0);
+    assert.equal(await main(args(r, 'baseline'), d), 3);
+    assert.match(lines.join('\n'), /unsafe state directory/);
+  } finally {
+    process.env.TMPDIR = old;
+  }
 });

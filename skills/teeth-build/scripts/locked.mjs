@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, statSync, existsSync, unlinkSync } from 'node:fs';
-import { dirname, join, relative, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 const IS_TEST = /\.(test|spec)\.ts$/;
 const sha = (b) => createHash('sha256').update(b).digest('hex');
@@ -25,8 +25,19 @@ export function record(featureAbs, dir) {
   writeFileSync(join(dir, 'inventory.json'), JSON.stringify(inv, null, 1));
 }
 
-export function verify(featureAbs, dir) {
+function safeInventory(featureAbs, dir) {
   const inv = JSON.parse(readFileSync(join(dir, 'inventory.json'), 'utf8'));
+  const inside = (base, p) => resolve(base, p).startsWith(resolve(base) + sep);
+  for (const { path } of inv) {
+    if (typeof path !== 'string' || isAbsolute(path) || path.split(/[\\/]/).includes('..') || !inside(featureAbs, path) || !inside(join(dir, 'files'), path)) {
+      throw Object.assign(new Error(`unsafe inventory path ${path}`), { code: 3 });
+    }
+  }
+  return inv;
+}
+
+export function verify(featureAbs, dir) {
+  const inv = safeInventory(featureAbs, dir);
   const known = new Set(inv.map((e) => e.path));
   const r = { modified: [], deleted: [], added: tests(featureAbs).filter((p) => !known.has(p)) };
   for (const e of inv) {

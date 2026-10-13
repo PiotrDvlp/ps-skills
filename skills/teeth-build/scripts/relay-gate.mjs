@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -24,8 +24,23 @@ export function vitestMajor(root) {
   return 3;
 }
 
+function requireSafeDirectory(path) {
+  const unsafe = (reason) => fail(`unsafe state directory ${path}: ${reason}`);
+  const st = lstatSync(path);
+  if (st.isSymbolicLink()) throw unsafe('is a symlink');
+  if (!st.isDirectory()) throw unsafe('is not a directory');
+  if (typeof process.getuid !== 'function') throw unsafe('ownership cannot be checked on this platform (POSIX only)');
+  if (st.uid !== process.getuid()) throw unsafe('is not owned by the current user');
+  if ((st.mode & 0o077) !== 0) throw unsafe(`permissions are ${(st.mode & 0o777).toString(8).padStart(3, '0')}, not owner-only`);
+}
+
 export function stateDir(root, task) {
-  return join(tmpdir(), 'teeth-build', createHash('sha1').update(resolve(root)).digest('hex'), task);
+  const base = join(tmpdir(), 'teeth-build');
+  const hashed = join(base, createHash('sha1').update(resolve(root)).digest('hex'));
+  const dir = join(hashed, task);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  for (const p of [base, hashed, dir]) requireSafeDirectory(p);
+  return dir;
 }
 
 const realRun = (root) => (args, cwd = root) => {
@@ -95,6 +110,7 @@ export async function main(argv, deps = {}) {
     const task = flag(argv, 'task');
     const feature = flag(argv, 'feature');
     if (!root || !task || !feature) throw fail('--root, --task and --feature are required');
+    if (!/^[\w.-]+$/.test(task) || task === '.' || task === '..') throw fail('invalid --task');
     const d = {
       run: deps.run ?? realRun(root),
       stateDir: deps.stateDir ?? stateDir,
