@@ -1,0 +1,112 @@
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { record, verify, restore } from './locked.mjs';
+
+const fail = (message, code = 3) => Object.assign(new Error(message), { code });
+
+function flag(argv, name) {
+  const i = argv.indexOf(`--${name}`);
+  if (i < 0) return undefined;
+  const v = argv[i + 1];
+  if (v === undefined || String(v).startsWith('--')) throw fail(`--${name} needs a value`);
+  return v;
+}
+
+export function vitestMajor(root) {
+  const p = join(root, 'node_modules', 'vitest', 'package.json');
+  if (!existsSync(p)) throw fail(`vitest not found in ${root}/node_modules`);
+  const { version } = JSON.parse(readFileSync(p, 'utf8'));
+  if (version.split('.')[0] !== '3') throw fail(`vitest ${version} not verified`);
+  return 3;
+}
+
+export function stateDir(root, task) {
+  return join(tmpdir(), 'teeth-build', createHash('sha1').update(resolve(root)).digest('hex'), task);
+}
+
+const realRun = (root) => (args, cwd = root) => {
+  const r = spawnSync(join(root, 'node_modules', '.bin', 'vitest'), args, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', signal: r.signal };
+};
+
+const interrupted = (r) => r.signal === 'SIGINT' || r.signal === 'SIGTERM';
+const USAGE = 'usage: relay-gate.mjs setup|baseline|red|locked|mutants --root R ...';
+
+function git(root, ...a) {
+  const r = spawnSync('git', ['--no-optional-locks', '-C', root, ...a], { encoding: 'utf8' });
+  if (r.status !== 0) throw fail(`git ${a[0]} failed`);
+  return r.stdout.trim();
+}
+
+function baseline(ctx) {
+  const { root, feature, state, deps } = ctx;
+  if (git(root, 'status', '--porcelain')) throw fail('working tree not clean');
+  deps.vitestMajor(root);
+  const base = git(root, 'rev-parse', 'HEAD');
+  const list = deps.run(['list', feature, '--json', '--includeTaskLocation', '--no-cache'], root);
+  if (interrupted(list)) return 130;
+  if (list.status !== 0) return 2;
+  const suite = deps.run(['run', feature, '--no-cache'], root);
+  if (interrupted(suite)) return 130;
+  if (suite.status !== 0) return 2;
+  mkdirSync(state, { recursive: true });
+  writeFileSync(join(state, 'baseline.json.tmp'), JSON.stringify({ base, list: JSON.parse(list.stdout) }));
+  renameSync(join(state, 'baseline.json.tmp'), join(state, 'baseline.json'));
+  return 0;
+}
+
+function red(ctx) {
+  ctx.deps.vitestMajor(ctx.root);
+  if (!existsSync(join(ctx.state, 'baseline.json'))) throw fail('no baseline; run baseline');
+  ctx.deps.log('red: not implemented');
+  return 3;
+}
+
+function locked(ctx, argv) {
+  const featureAbs = resolve(ctx.root, ctx.feature);
+  const dir = join(ctx.state, 'locked');
+  if (argv.includes('--record')) {
+    mkdirSync(dir, { recursive: true });
+    record(featureAbs, dir);
+    return 0;
+  }
+  const result = argv.includes('--restore') ? restore(featureAbs, dir) : argv.includes('--verify') ? verify(featureAbs, dir) : null;
+  if (!result) throw fail(USAGE);
+  const lines = ['modified', 'deleted', 'added'].flatMap((k) => result[k].map((p) => `${k}: ${p}`));
+  for (const l of lines) ctx.deps.log(l);
+  return lines.length ? 1 : 0;
+}
+
+export async function main(argv, deps = {}) {
+  const log = deps.log ?? console.log;
+  try {
+    const cmd = argv[0];
+    if (!['baseline', 'red', 'locked'].includes(cmd)) {
+      log(USAGE);
+      return 3;
+    }
+    const root = flag(argv, 'root');
+    const task = flag(argv, 'task');
+    const feature = flag(argv, 'feature');
+    if (!root || !task || !feature) throw fail('--root, --task and --feature are required');
+    const d = {
+      run: deps.run ?? realRun(root),
+      stateDir: deps.stateDir ?? stateDir,
+      vitestMajor: deps.vitestMajor ?? vitestMajor,
+      log,
+    };
+    const ctx = { root, feature, state: d.stateDir(root, task), deps: d };
+    return { baseline, red, locked }[cmd](ctx, argv);
+  } catch (e) {
+    log(e.message);
+    return [2, 3, 130].includes(e.code) ? e.code : 3;
+  }
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
+  process.exitCode = await main(process.argv.slice(2));
+}
