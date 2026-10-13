@@ -2,10 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { main, stateDir, isGlob } from './relay-gate.mjs';
+import { main, stateDir, isGlob, tsRanges } from './relay-gate.mjs';
 
 const CLI = fileURLToPath(new URL('./relay-gate.mjs', import.meta.url));
 const fx = (n) => readFileSync(new URL(`../fixtures/vitest/${n}.json`, import.meta.url), 'utf8');
@@ -245,8 +245,9 @@ test('integration: the template-first withDefaults component compiles under Stry
   const p = join(root, 'components', 'Badge.vue');
   writeFileSync(p, readFileSync(p, 'utf8').replace('props.count > 9', '9 < props.count'));
   const r = await gate(root, base);
-  assert.equal([0, 1].includes(r.code), true, r.out);
   assert.doesNotMatch(r.out, /defineProps\(\) in <script setup>/);
+  assert.doesNotMatch(r.out, /not covered: components\/Badge\.vue:7/);
+  assert.equal(/components\/Badge\.vue:7 /.test(r.out) || /[1-9]\d* passed/.test(r.out), true, r.out);
 });
 
 test('integration: two runs give the same findings and change no file outside node_modules', IT, async () => {
@@ -275,7 +276,7 @@ async function unitGate(report, extra = {}) {
 test('mutants: a report with the file but no mutant on the line passes as not covered', async () => {
   const out = await unitGate(() => ({ files: { 'sum.ts': { mutants: [] } } }));
   assert.equal(out.code, 0, out.out);
-  assert.match(out.out, /not covered: sum\.ts:1 no mutants/);
+  assert.match(out.out, /not covered: sum\.ts:1 no mutant inside the changed lines/);
 });
 test('mutants: a report with an unknown matched count exits 3', async () => {
   const out = await unitGate(() => ({ files: {} }), { matched: null });
@@ -288,7 +289,7 @@ test('integration: a type-only change has no mutants and passes as not covered',
   writeFileSync(join(root, 'sum.ts'), `${readFileSync(join(root, 'sum.ts'), 'utf8')}export type N = number\n`);
   const r = await gate(root, base);
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /not covered: sum\.ts:4 no mutants/);
+  assert.match(r.out, /not covered: sum\.ts:4 no mutant inside the changed lines/);
 });
 
 const noReport = (extra) => ({ vitestMajor: () => 3, toolReady: () => true, linkTool: () => {}, runStryker: () => ({ status: 1, signal: null, report: null, firstError: null, ...extra }) });
@@ -300,7 +301,7 @@ async function unitNoReport(extra) {
 test('mutants: no tests plus zero instrumented mutants passes as not covered', async () => {
   const out = await unitNoReport({ noTests: true, instrumented: 0, matched: 1 });
   assert.equal(out.code, 0, out.out);
-  assert.match(out.out, /not covered: sum\.ts:1 no mutants/);
+  assert.match(out.out, /not covered: sum\.ts:1 no mutant inside the changed lines/);
 });
 test('mutants: no tests with instrumented mutants is a finding', async () => {
   const out = await unitNoReport({ noTests: true, instrumented: 3, matched: 1 });
@@ -338,4 +339,67 @@ test('integration: a route-group path with parentheses is mutated', IT, async ()
   const r = await gate(root, base);
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /pages\/\(g\)\/x\.ts:1 /);
+});
+
+test('baseline: the real vitest child runs with CI=1 so it writes no snapshots', async () => {
+  const r = repo();
+  writeFileSync(join(r, '.gitignore'), 'node_modules\nci.txt\n');
+  spawnSync('git', ['add', '.'], { cwd: r });
+  spawnSync('git', ['commit', '-qm', 'ignore'], { cwd: r });
+  mkdirSync(join(r, 'node_modules', '.bin'), { recursive: true });
+  const bin = join(r, 'node_modules', '.bin', 'vitest');
+  writeFileSync(bin, `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(join(r, 'ci.txt'))}, String(process.env.CI))\nif (process.argv[2] === 'list') console.log('[]')\n`);
+  chmodSync(bin, 0o755);
+  const old = process.env.CI;
+  delete process.env.CI;
+  try {
+    const { run, ...d } = fakeDeps(r, mkdtempSync(join(tmpdir(), 'tb-s-')), [], 'list-base', null, 0);
+    assert.equal(await main(args(r, 'baseline'), d), 0);
+  } finally {
+    if (old !== undefined) process.env.CI = old;
+  }
+  assert.equal(readFileSync(join(r, 'ci.txt'), 'utf8'), '1');
+});
+
+test('ranges: a blank line between changed lines stays inside one Stryker range but is not mutable', () => {
+  const r = tsRanges('a\nb\nc(a,\n\nb)\n', [3, 4, 5]);
+  assert.deepEqual(r.mutate, [{ start: 3, end: 5 }]);
+  assert.deepEqual(r.mutable, [3, 5]);
+  assert.deepEqual(tsRanges('a\n\n\nb\n', [2, 3]).mutate, []);
+});
+
+test('mutants: a Stryker signal other than SIGINT and SIGTERM exits 2, SIGINT exits 130', async () => {
+  const kill = (signal) => ({ vitestMajor: () => 3, toolReady: () => true, linkTool: () => {}, runStryker: () => ({ status: null, signal, report: null }) });
+  const run = async (signal) => {
+    const r = repo();
+    writeFileSync(join(r, 'sum.ts'), 'export const sum = (a, b) => b + a\n');
+    return gate(r, 'HEAD', kill(signal));
+  };
+  const k = await run('SIGKILL');
+  assert.equal(k.code, 2);
+  assert.match(k.out, /stryker killed by SIGKILL/);
+  assert.equal((await run('SIGINT')).code, 130);
+  assert.equal((await run('SIGTERM')).code, 130);
+});
+
+test('mutants: a relative --cache-dir reaches the work copy and the tool as absolute paths', async () => {
+  const r = repo();
+  writeFileSync(join(r, 'sum.ts'), 'export const sum = (a, b) => b + a\n');
+  const seen = [];
+  const deps = { vitestMajor: () => 3, toolReady: (t) => { seen.push(t); return true; }, syncWork: (_r, w) => { seen.push(w); throw new Error('stop'); } };
+  const rel = relative(process.cwd(), mkdtempSync(join(tmpdir(), 'tb-rel-')));
+  await main(['mutants', '--root', r, '--task', 'it', '--feature', '.', '--base', 'HEAD', '--cache-dir', rel], { log: () => {}, ...deps });
+  assert.equal(seen.length, 2);
+  for (const p of seen) assert.equal(isAbsolute(p), true, p);
+});
+
+test('mutants: the not covered count includes template, macro and glob lines that were printed', async () => {
+  const r = mkdtempSync(join(tmpdir(), 'tb-cnt-'));
+  writeFileSync(join(r, 'a.ts'), 'export const a = 1\n');
+  const base = gitRepo(r);
+  writeFileSync(join(r, 'a.ts'), 'export const a = 2\n');
+  writeFileSync(join(r, '[id].ts'), 'export const id = 1\nexport const j = 2\n');
+  const deps = { vitestMajor: () => 3, toolReady: () => true, linkTool: () => {}, runStryker: () => ({ status: 0, signal: null, report: { files: { 'a.ts': { mutants: [] } } }, matched: 1 }) };
+  const out = await gate(r, base, deps);
+  assert.match(out.out, /0 findings, 0 passed, 0 timed out, 0 invalid, 3 not covered/);
 });
