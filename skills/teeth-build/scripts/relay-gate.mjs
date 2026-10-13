@@ -198,8 +198,8 @@ async function mutants(ctx, argv) {
   ensureSafeDir(cacheRoot, 'cache directory');
   ensureSafeDir(hashDir, 'cache directory');
   return withRepoLock(hashDir, () => {
-    syncWork(root, workDir);
-    linkTool(toolDir, root);
+    deps.syncWork(root, workDir);
+    deps.linkTool(toolDir, root);
     writeConfig(workDir, mutate, { hasVitestConfig: existsSync(join(root, 'vitest.config.ts')) });
     const res = deps.runStryker(toolDir, workDir);
     if (res.signal) return 130;
@@ -207,8 +207,8 @@ async function mutants(ctx, argv) {
       deps.log(res.firstError ?? 'Stryker wrote no report');
       return 2;
     }
+    if (!mutable.keys().some((f) => res.report.files?.[f])) throw fail('empty Stryker report: none of the mutated files appear in the report');
     const c = classifyMutants(res.report, mutable);
-    if (!c.findings.length && !c.timedOut.length && !c.invalid.length && !c.passed.length) throw fail('empty Stryker report');
     const row = (r) => `${r.file}:${r.line} ${r.mutator} → ${r.replacement} (${r.reason})`;
     for (const r of c.findings) deps.log(row(r));
     for (const r of c.notCovered) deps.log(`not covered: ${r.file}:${r.line} ${r.reason}`);
@@ -243,10 +243,12 @@ export async function main(argv, deps = {}) {
       vitestMajor: deps.vitestMajor ?? vitestMajor,
       runStryker: deps.runStryker ?? runStryker,
       toolReady: deps.toolReady ?? toolReady,
+      syncWork: deps.syncWork ?? syncWork,
+      linkTool: deps.linkTool ?? linkTool,
       log,
     };
     const ctx = { root, feature, state: d.stateDir(root, task), deps: d };
-    return { baseline, red, locked, mutants }[cmd](ctx, argv);
+    return await { baseline, red, locked, mutants }[cmd](ctx, argv);
   } catch (e) {
     log(e.message);
     return [2, 3, 130].includes(e.code) ? e.code : 3;

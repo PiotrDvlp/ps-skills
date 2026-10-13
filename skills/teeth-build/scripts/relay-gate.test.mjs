@@ -260,3 +260,20 @@ test('integration: two runs give the same findings and change no file outside no
   assert.equal(findings(a.out), findings(b.out));
   assert.deepEqual(snapshot(root), before);
 });
+
+const fakeStryker = (report) => ({ vitestMajor: () => 3, toolReady: () => true, linkTool: () => {}, runStryker: () => ({ status: 0, signal: null, report }) });
+async function unitGate(report) {
+  const r = repo();
+  writeFileSync(join(r, 'sum.ts'), 'export const sum = (a, b) => b + a\n');
+  return { r, ...(await gate(r, 'HEAD', fakeStryker(report(r)))) };
+}
+test('mutants: a report with the file but no mutant on the line passes as not covered', async () => {
+  const out = await unitGate(() => ({ files: { 'sum.ts': { mutants: [] } } }));
+  assert.equal(out.code, 0, out.out);
+  assert.match(out.out, /not covered: sum\.ts:1 no mutants/);
+});
+test('mutants: a report with none of the mutated files exits 3', async () => {
+  const out = await unitGate(() => ({ files: {} }));
+  assert.equal(out.code, 3);
+  assert.match(out.out, /empty Stryker report/);
+});
