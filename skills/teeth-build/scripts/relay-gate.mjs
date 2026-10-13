@@ -30,6 +30,7 @@ export function stateDir(root, task) {
 
 const realRun = (root) => (args, cwd = root) => {
   const r = spawnSync(join(root, 'node_modules', '.bin', 'vitest'), args, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  if (r.error) throw fail(`vitest failed to start: ${r.error.message}`);
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', signal: r.signal };
 };
 
@@ -89,7 +90,8 @@ export async function main(argv, deps = {}) {
       log(USAGE);
       return 3;
     }
-    const root = flag(argv, 'root');
+    const rootArg = flag(argv, 'root');
+    const root = rootArg && resolve(rootArg);
     const task = flag(argv, 'task');
     const feature = flag(argv, 'feature');
     if (!root || !task || !feature) throw fail('--root, --task and --feature are required');

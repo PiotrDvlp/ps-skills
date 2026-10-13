@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { main } from './relay-gate.mjs';
@@ -79,4 +79,12 @@ test('signals: an interrupted vitest child returns 130', async () => {
   const r = repo();
   const d = { ...fakeDeps(r, mkdtempSync(join(tmpdir(), 'tb-s-')), [], 'list-base', null, 0), run: () => ({ status: null, signal: 'SIGINT', stdout: '', stderr: '' }) };
   assert.equal(await main(args(r, 'baseline'), d), 130);
+});
+
+test('baseline: the real run with a relative root and no vitest binary exits 3', async () => {
+  const r = repo();
+  const lines = [];
+  const { run, ...d } = fakeDeps(r, mkdtempSync(join(tmpdir(), 'tb-s-')), lines, 'list-base', null, 0);
+  assert.equal(await main(['baseline', '--root', relative(process.cwd(), r), '--task', 't1', '--feature', '.'], d), 3);
+  assert.match(lines.join('\n'), /vitest failed to start/);
 });
