@@ -30,10 +30,10 @@ Exit codes:
 - `0`: pass.
 - `1`: findings.
 - `2`: the code under test is not green (vitest failed, or Stryker wrote no report).
-- `3`: usage or setup problem. Messages include `--root, --task and --feature are required`, `invalid --task`, `no baseline; run baseline or pass --base`, `working tree not clean`, `vitest <version> not verified`, `root must be the git top-level`, `run: relay-gate.mjs setup --root <root>`, `run npx nuxi prepare`, `Stryker matched <n> of <m> changed files` (or `an unknown number of`), `unsafe inventory path`, `work directory overlaps the repo`, `another mutants run on this repo`, and `base <sha> is not an ancestor of HEAD; rerun baseline`.
+- `3`: usage or setup problem. Messages include `--root, --task and --feature are required`, `invalid --task`, `no baseline; run baseline` (from `red`), `no baseline; run baseline or pass --base` (from `mutants`), `vitest wrote no report`, `working tree not clean`, `vitest <version> not verified`, `root must be the git top-level`, `run: relay-gate.mjs setup --root <root>`, `run npx nuxi prepare`, `Stryker matched <n> of <m> changed files` (or `an unknown number of`), `unsafe inventory path`, `work directory overlaps the repo`, `another mutants run on this repo`, and `base <sha> is not an ancestor of HEAD; rerun baseline`.
 - `130`: SIGINT or SIGTERM interrupted vitest or Stryker.
 
-`unsafe ... directory` also exits 3. The state, cache, tool and work directories must be owned by you and set to owner-only 0700, and must not be symlinks. Delete the directory the message names and rerun.
+`setup` exits 3 when the install is incomplete after `npm` ran. `unsafe ... directory` also exits 3. The state, cache, tool and work directories must be owned by you and set to owner-only 0700, and must not be symlinks. Delete the directory the message names, or `chmod 700` it if only the permissions are wrong, then rerun.
 
 ## Read the output
 
@@ -45,9 +45,9 @@ Exit codes:
 - `skipped`: the new test is skipped, pending, or todo.
 - `import error`: the spec file failed to load, so none of its tests ran.
 - `not reported`: vitest listed the test but its report omitted it.
-- `duplicate identity`: two tests share a spec, name, and line.
+- `duplicate identity`: two tests share a spec and name.
 
-`locked --verify` and `--restore` print `modified: <path>`, `deleted: <path>` and `added: <path>`; exit 1 when any line prints.
+`locked --verify` prints `modified: <path>`, `deleted: <path>` and `added: <path>`; exit 1 when any line prints. `--restore` prints only the differences that remain after restoring; normally nothing, exit 0.
 
 `mutants` prints findings as `<file>:<line> <mutator> → <replacement> (<reason>)`, then the other lists, then a summary: `N findings, N passed, N timed out, N invalid, N not covered`.
 
@@ -68,17 +68,18 @@ Other lines:
   - `two script blocks`: the `.vue` file has both `<script>` and `<script setup>`.
   - `glob characters in path`: the file path contains minimatch magic (for example Nuxt `pages/[id].vue`), so it is not mutated.
   - `no mutants`: Stryker made no mutant for the line. A comment-only or type-only change passes this way, with its lines listed here.
-- `timed out: <file>:<line> <mutator>`: the mutant ran past its timeout. It counts as killed and does not fail the gate.
+- `timed out: <file>:<line> <mutator>`: the mutant ran past its timeout. It is listed as `timed out`; it is not a finding and does not fail the gate.
 - `invalid: <file>:<line> <mutator>`: the mutant did not compile or crashed at start-up. It is not evidence either way.
 - `no changed mutable lines`: nothing to mutate; exit 0.
 
 ## Prerequisites
 
-1. Run `setup` once per repo, after the user approves the install.
-2. In a Nuxt repo, run `npx nuxi prepare` first. `mutants` exits 3 with `run npx nuxi prepare` when `tsconfig.json` extends `.nuxt/` and that directory is missing.
-3. The repo must have vitest 3 in `node_modules`. Any other major version exits 3. `.vue` files also need `@vue/compiler-sfc` and `@babel/parser` there.
-4. `--root` must be the git top-level, and `--base` (or the baseline sha) must be an ancestor of HEAD.
-5. Vite writes `.vite-temp` into the repo's `node_modules` during `mutants`. A sandbox that makes that `node_modules` read-only blocks the gate.
+1. `npm` (used by `setup`) and `rsync` (used by `mutants`) must be on the PATH.
+2. Run `setup` once per repo, after the user approves the install.
+3. In a Nuxt repo, run `npx nuxi prepare` first. `mutants` exits 3 with `run npx nuxi prepare` when `tsconfig.json` extends `.nuxt/` and that directory is missing.
+4. The repo must have vitest 3 in `node_modules`. Any other major version exits 3. `.vue` files also need `@vue/compiler-sfc` and `@babel/parser` there.
+5. `--root` must be the git top-level, and `--base` (or the baseline sha) must be an ancestor of HEAD.
+6. Vite writes `.vite-temp` into the repo's `node_modules` during `mutants`. A sandbox that makes that `node_modules` read-only blocks the gate.
 
 Do not edit files under `--feature` while a command runs. Stop `nuxt dev` and vitest watchers first. Run one `mutants` at a time per repo; a lock left by a killed run is replaced on the next run.
 
