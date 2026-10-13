@@ -158,3 +158,105 @@ test('red: an import error in one spec does not taint another spec', async () =>
   assert.match(r.out, /other\.test\.ts > other > works: import error/);
   assert.doesNotMatch(r.out, /sum > doubles/);
 });
+
+import { cpSync, rmSync, symlinkSync, readdirSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+const VROOT = process.env.TEETH_BUILD_VITEST_ROOT;
+const CACHE = process.env.TEETH_BUILD_CACHE;
+const NEEDS_ROOT = VROOT ? {} : { skip: 'set TEETH_BUILD_VITEST_ROOT' };
+const IT = VROOT && CACHE ? {} : { skip: 'set TEETH_BUILD_VITEST_ROOT and TEETH_BUILD_CACHE' };
+const sh = (cwd, cmd, ...a) => spawnSync(cmd, a, { cwd, encoding: 'utf8' });
+
+function gitRepo(root) {
+  writeFileSync(join(root, '.gitignore'), 'node_modules\n');
+  for (const a of [['init', '-q'], ['config', 'user.email', 't@t'], ['config', 'user.name', 't'], ['add', '.'], ['commit', '-qm', 'b']]) sh(root, 'git', ...a);
+  return sh(root, 'git', 'rev-parse', 'HEAD').stdout.trim();
+}
+function itRepo() {
+  const root = join(CACHE, 'it repo');
+  rmSync(root, { recursive: true, force: true });
+  cpSync(new URL('../fixtures/mini', import.meta.url), root, { recursive: true });
+  symlinkSync(join(VROOT, 'node_modules'), join(root, 'node_modules'));
+  return { root, base: gitRepo(root) };
+}
+async function gate(root, base, deps = {}) {
+  const lines = [];
+  const code = await main(['mutants', '--root', root, '--task', 'it', '--feature', '.', '--base', base, '--cache-dir', join(CACHE ?? tmpdir(), 'cache')], { log: (s) => lines.push(s), ...deps });
+  return { code, out: lines.join('\n') };
+}
+function snapshot(root) {
+  const out = {};
+  const walk = (d) => { for (const n of readdirSync(d)) { const p = join(d, n); if (n === 'node_modules') continue; if (statSync(p).isDirectory()) walk(p); else out[p] = createHash('sha256').update(readFileSync(p)).digest('hex'); } };
+  walk(root);
+  return out;
+}
+const TAUT = "import { it, expect } from 'vitest'\nit('t', () => { expect(true).toBe(true) })\n";
+const SUM2 = 'export function sum(a: number, b: number): number {\n  return b + a\n}\n';
+
+test('mutants: deletions only skip Stryker and exit 0', async () => {
+  const r = repo();
+  writeFileSync(join(r, 'sum.ts'), '');
+  const out = await gate(r, 'HEAD', { vitestMajor: () => 3, runStryker: () => { throw new Error('must not run'); } });
+  assert.equal(out.code, 0);
+  assert.match(out.out, /no changed mutable lines/);
+});
+
+test('mutants: a template-only change lists every changed line and exits 0', NEEDS_ROOT, async () => {
+  const r = mkdtempSync(join(tmpdir(), 'tb-tpl-'));
+  symlinkSync(join(VROOT, 'node_modules'), join(r, 'node_modules'));
+  writeFileSync(join(r, 'T.vue'), '<template>\n  <p>a</p>\n</template>\n');
+  const base = gitRepo(r);
+  writeFileSync(join(r, 'T.vue'), '<template>\n  <p>b</p>\n</template>\n');
+  const out = await gate(r, base, { vitestMajor: () => 3 });
+  assert.equal(out.code, 0);
+  assert.match(out.out, /not covered: T\.vue:2 template/);
+});
+
+test('integration: a real assertion test passes the gate', IT, async () => {
+  const { root, base } = itRepo();
+  writeFileSync(join(root, 'sum.ts'), SUM2);
+  const r = await gate(root, base);
+  assert.equal(r.code, 0, r.out);
+});
+
+test('integration: a tautology-only test fails the gate naming the survivor', IT, async () => {
+  const { root, base } = itRepo();
+  writeFileSync(join(root, '__tests__', 'sum.test.ts'), TAUT);
+  writeFileSync(join(root, 'sum.ts'), SUM2);
+  const r = await gate(root, base);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /sum\.ts:2 /);
+});
+
+test('integration: a new untracked helper with a tautology test fails the gate', IT, async () => {
+  const { root, base } = itRepo();
+  mkdirSync(join(root, 'helpers', '__tests__'), { recursive: true });
+  writeFileSync(join(root, 'helpers', 'double.ts'), 'export const double = (n: number) => n * 2\n');
+  writeFileSync(join(root, 'helpers', '__tests__', 'double.test.ts'), "import { it, expect } from 'vitest'\nimport { double } from '../double'\nit('t', () => { double(1); expect(true).toBe(true) })\n");
+  const r = await gate(root, base);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /helpers\/double\.ts:1 /);
+});
+
+test('integration: the template-first withDefaults component compiles under Stryker', IT, async () => {
+  const { root, base } = itRepo();
+  const p = join(root, 'components', 'Badge.vue');
+  writeFileSync(p, readFileSync(p, 'utf8').replace('props.count > 9', '9 < props.count'));
+  const r = await gate(root, base);
+  assert.equal([0, 1].includes(r.code), true, r.out);
+  assert.doesNotMatch(r.out, /defineProps\(\) in <script setup>/);
+});
+
+test('integration: two runs give the same findings and change no file outside node_modules', IT, async () => {
+  const { root, base } = itRepo();
+  writeFileSync(join(root, '__tests__', 'sum.test.ts'), TAUT);
+  writeFileSync(join(root, 'sum.ts'), SUM2);
+  const before = snapshot(root);
+  const findings = (o) => o.split('\n').filter((l) => l.includes(' → ')).join('\n');
+  const a = await gate(root, base);
+  const b = await gate(root, base);
+  assert.equal(a.code, 1, a.out);
+  assert.equal(b.code, 1, b.out);
+  assert.equal(findings(a.out), findings(b.out));
+  assert.deepEqual(snapshot(root), before);
+});

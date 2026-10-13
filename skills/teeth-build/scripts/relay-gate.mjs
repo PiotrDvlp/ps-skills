@@ -1,11 +1,15 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ensureSafeDir, assertSafeDir } from './safe-dir.mjs';
 import { record, verify, restore } from './locked.mjs';
+import { classifyMutants } from './classify.mjs';
+import { loadVueParsers, vueRanges } from './vue-ranges.mjs';
+import { changedLines } from './git-changes.mjs';
+import { withRepoLock, syncWork, toolReady, setupTool, linkTool, writeConfig, runStryker } from './stryker.mjs';
 import { parseList, reporterName, caseId } from '../../test-teeth/scripts/test-teeth.mjs';
 
 const fail = (message, code = 3) => Object.assign(new Error(message), { code });
@@ -131,16 +135,104 @@ function locked(ctx, argv) {
   return lines.length ? 1 : 0;
 }
 
+function cachePaths(root, argv) {
+  const cacheRoot = flag(argv, 'cache-dir') ?? join(homedir(), '.cache', 'teeth-build');
+  const hashDir = join(cacheRoot, createHash('sha1').update(root).digest('hex'));
+  return { cacheRoot, hashDir, toolDir: join(hashDir, 'tool'), workDir: join(hashDir, 'work') };
+}
+
+function setup(root, argv) {
+  const { cacheRoot, hashDir, toolDir } = cachePaths(root, argv);
+  ensureSafeDir(cacheRoot, 'cache directory');
+  ensureSafeDir(hashDir, 'cache directory');
+  return setupTool(toolDir);
+}
+
+function mutateEntries(root, changed) {
+  const mutate = [];
+  const mutable = new Map();
+  const notCovered = [];
+  let parsers = null;
+  for (const [file, lines] of changed) {
+    const source = readFileSync(join(root, file), 'utf8');
+    if (file.endsWith('.vue')) {
+      parsers ??= loadVueParsers(root);
+      const r = vueRanges(source, lines, parsers);
+      for (const m of r.mutate) mutate.push(`${file}:${m.start}-${m.end}`);
+      if (r.mutable.length) mutable.set(file, r.mutable);
+      for (const n of r.notCovered) notCovered.push(`${file}:${n.line} ${n.reason}`);
+      continue;
+    }
+    const fileLines = source.split('\n');
+    const keep = lines.filter((l) => fileLines[l - 1]?.trim());
+    if (!keep.length) continue;
+    mutable.set(file, keep);
+    let start = keep[0];
+    keep.forEach((l, i) => {
+      if (keep[i + 1] === l + 1) return;
+      mutate.push(`${file}:${start}-${l}`);
+      start = keep[i + 1];
+    });
+  }
+  return { mutate, mutable, notCovered };
+}
+
+async function mutants(ctx, argv) {
+  const { root, state, deps } = ctx;
+  const { cacheRoot, hashDir, toolDir, workDir } = cachePaths(root, argv);
+  const top = git(root, 'rev-parse', '--show-toplevel');
+  if (realpathSync(top) !== realpathSync(root)) throw fail('root must be the git top-level');
+  const base = flag(argv, 'base') ?? (existsSync(join(state, 'baseline.json')) ? JSON.parse(readFileSync(join(state, 'baseline.json'), 'utf8')).base : null);
+  if (!base) throw fail('no baseline; run baseline or pass --base');
+  deps.vitestMajor(root);
+  const changed = changedLines(root, base, ctx.feature);
+  const { mutate, mutable, notCovered } = mutateEntries(root, changed);
+  for (const n of notCovered) deps.log(`not covered: ${n}`);
+  if (!mutable.size) {
+    deps.log('no changed mutable lines');
+    return 0;
+  }
+  if (!deps.toolReady(toolDir)) throw fail(`run: relay-gate.mjs setup --root ${root}`);
+  const tsconfig = join(root, 'tsconfig.json');
+  if (existsSync(tsconfig) && /"extends"\s*:\s*"\.\/\.nuxt\//.test(readFileSync(tsconfig, 'utf8')) && !existsSync(join(root, '.nuxt'))) throw fail('run npx nuxi prepare');
+  ensureSafeDir(cacheRoot, 'cache directory');
+  ensureSafeDir(hashDir, 'cache directory');
+  return withRepoLock(hashDir, () => {
+    syncWork(root, workDir);
+    linkTool(toolDir, root);
+    writeConfig(workDir, mutate, { hasVitestConfig: existsSync(join(root, 'vitest.config.ts')) });
+    const res = deps.runStryker(toolDir, workDir);
+    if (res.signal) return 130;
+    if (!res.report) {
+      deps.log(res.firstError ?? 'Stryker wrote no report');
+      return 2;
+    }
+    const c = classifyMutants(res.report, mutable);
+    if (!c.findings.length && !c.timedOut.length && !c.invalid.length && !c.passed.length) throw fail('empty Stryker report');
+    const row = (r) => `${r.file}:${r.line} ${r.mutator} → ${r.replacement} (${r.reason})`;
+    for (const r of c.findings) deps.log(row(r));
+    for (const r of c.notCovered) deps.log(`not covered: ${r.file}:${r.line} ${r.reason}`);
+    for (const r of c.timedOut) deps.log(`timed out: ${r.file}:${r.line} ${r.mutator}`);
+    for (const r of c.invalid) deps.log(`invalid: ${r.file}:${r.line} ${r.mutator}`);
+    deps.log(`${c.findings.length} findings, ${c.passed.length} passed, ${c.timedOut.length} timed out, ${c.invalid.length} invalid, ${c.notCovered.length} not covered`);
+    return c.findings.length ? 1 : 0;
+  });
+}
+
 export async function main(argv, deps = {}) {
   const log = deps.log ?? console.log;
   try {
     const cmd = argv[0];
-    if (!['baseline', 'red', 'locked'].includes(cmd)) {
+    if (!['setup', 'baseline', 'red', 'locked', 'mutants'].includes(cmd)) {
       log(USAGE);
       return 3;
     }
     const rootArg = flag(argv, 'root');
     const root = rootArg && resolve(rootArg);
+    if (cmd === 'setup') {
+      if (!root) throw fail('--root is required');
+      return setup(root, argv);
+    }
     const task = flag(argv, 'task');
     const feature = flag(argv, 'feature');
     if (!root || !task || !feature) throw fail('--root, --task and --feature are required');
@@ -149,10 +241,12 @@ export async function main(argv, deps = {}) {
       run: deps.run ?? realRun(root),
       stateDir: deps.stateDir ?? stateDir,
       vitestMajor: deps.vitestMajor ?? vitestMajor,
+      runStryker: deps.runStryker ?? runStryker,
+      toolReady: deps.toolReady ?? toolReady,
       log,
     };
     const ctx = { root, feature, state: d.stateDir(root, task), deps: d };
-    return { baseline, red, locked }[cmd](ctx, argv);
+    return { baseline, red, locked, mutants }[cmd](ctx, argv);
   } catch (e) {
     log(e.message);
     return [2, 3, 130].includes(e.code) ? e.code : 3;
