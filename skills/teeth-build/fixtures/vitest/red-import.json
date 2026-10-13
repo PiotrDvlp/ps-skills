@@ -1,0 +1,9 @@
+{
+  "testResults": [
+    {
+      "name": "/repo/__tests__/sum.test.ts",
+      "status": "failed",
+      "assertionResults": []
+    }
+  ]
+}

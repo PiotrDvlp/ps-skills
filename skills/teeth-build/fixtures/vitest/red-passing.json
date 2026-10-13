@@ -1,0 +1,36 @@
+{
+  "testResults": [
+    {
+      "name": "/repo/__tests__/sum.test.ts",
+      "status": "passed",
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "sum"
+          ],
+          "title": "adds",
+          "fullName": "sum adds",
+          "status": "passed",
+          "failureMessages": [],
+          "location": {
+            "line": 3,
+            "column": 1
+          }
+        },
+        {
+          "ancestorTitles": [
+            "sum"
+          ],
+          "title": "doubles",
+          "fullName": "sum doubles",
+          "status": "passed",
+          "failureMessages": [],
+          "location": {
+            "line": 4,
+            "column": 1
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -111,3 +111,31 @@ test('state: a group-readable task dir is refused', async () => {
     process.env.TMPDIR = old;
   }
 });
+
+async function redWith(report, list = 'list-new') {
+  const r = repo();
+  const state = mkdtempSync(join(tmpdir(), 'tb-state-'));
+  const lines = [];
+  assert.equal(await main(args(r, 'baseline'), fakeDeps(r, state, lines, 'list-base', null, 0)), 0);
+  const code = await main(args(r, 'red'), fakeDeps(r, state, lines, list, report));
+  return { code, out: lines.join('\n') };
+}
+
+test('red: an assertion failure on every new case passes', async () => {
+  assert.equal((await redWith('red-assert')).code, 0);
+});
+test('red: a TypeError is a finding naming the case', async () => {
+  const r = await redWith('red-typeerror');
+  assert.equal(r.code, 1);
+  assert.match(r.out, /sum\.test\.ts > sum > doubles: crashed \(TypeError/);
+});
+test('red: an import error, a skip and an already-passing case are findings', async () => {
+  assert.match((await redWith('red-import')).out, /sum > doubles: import error/);
+  assert.match((await redWith('red-skipped')).out, /sum > doubles: skipped/);
+  assert.match((await redWith('red-passing')).out, /sum > doubles: already passing/);
+});
+test('red: a renamed spec makes its old cases new, and they are already passing', async () => {
+  const r = await redWith('red-renamed', 'list-renamed');
+  assert.equal(r.code, 1);
+  assert.match(r.out, /sum-renamed\.test\.ts > sum > adds: already passing/);
+});

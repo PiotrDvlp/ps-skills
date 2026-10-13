@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { record, verify, restore } from './locked.mjs';
+import { parseList, attribute } from '../../test-teeth/scripts/test-teeth.mjs';
 
 const fail = (message, code = 3) => Object.assign(new Error(message), { code });
 
@@ -75,11 +76,44 @@ function baseline(ctx) {
   return 0;
 }
 
+const keyed = (cases) => cases.map((c) => ({ ...c, key: `${c.spec}::${c.name}` }));
+const REASONS = { passed: 'already passing', skipped: 'skipped', missing: 'not reported' };
+
 function red(ctx) {
-  ctx.deps.vitestMajor(ctx.root);
-  if (!existsSync(join(ctx.state, 'baseline.json'))) throw fail('no baseline; run baseline');
-  ctx.deps.log('red: not implemented');
-  return 3;
+  const { root, feature, state, deps } = ctx;
+  deps.vitestMajor(root);
+  const basePath = join(state, 'baseline.json');
+  if (!existsSync(basePath)) throw fail('no baseline; run baseline');
+  const before = new Set(keyed(parseList(JSON.parse(readFileSync(basePath, 'utf8')).list, root)).map((c) => c.key));
+  const findings = [];
+  const run = deps.run(['list', feature, '--json', '--includeTaskLocation', '--no-cache'], root);
+  if (interrupted(run)) return 130;
+  if (run.status !== 0) return 2;
+  const now = keyed(parseList(JSON.parse(run.stdout), root));
+  const seen = new Set();
+  for (const c of now) {
+    if (seen.has(c.key)) findings.push(`${c.spec} > ${c.name}: duplicate identity`);
+    seen.add(c.key);
+  }
+  const fresh = now.filter((c) => !before.has(c.key));
+  if (!fresh.length) {
+    deps.log('no new tests');
+    return 1;
+  }
+  const out = join(state, 'red.json');
+  const res = deps.run(['run', feature, '--reporter=json', `--outputFile=${out}`, '--includeTaskLocation', '--no-color', '--no-cache'], root);
+  if (interrupted(res)) return 130;
+  if (!existsSync(out)) throw fail('vitest wrote no report');
+  const { mutantState, byCase } = attribute(JSON.parse(readFileSync(out, 'utf8')), fresh, root);
+  for (const c of fresh) {
+    const { status, message } = byCase.get(c.id);
+    if (status === 'killed') continue;
+    const reason = status === 'runtime' ? `crashed (${message.split('\n')[0]})`
+      : status === 'missing' && mutantState === 'invalid' ? 'import error' : REASONS[status];
+    findings.push(`${c.spec} > ${c.name}: ${reason}`);
+  }
+  for (const f of findings) deps.log(f);
+  return findings.length ? 1 : 0;
 }
 
 function locked(ctx, argv) {
