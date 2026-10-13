@@ -37,6 +37,7 @@ test('vue-ranges: a line shared with a macro is excluded whole', opts, () => {
 test('vue-ranges: an unparsable script marks its changed lines unparsed', opts, () => {
   const r = vueRanges(src('Broken'), range(1, 5), loadVueParsers(ROOT));
   assert.deepEqual(r.mutate, []);
+  assert.deepEqual(r.notCovered.filter((n) => n.reason === 'unparsed').map((n) => n.line), [2]);
   assert.equal(r.notCovered.every((n) => n.reason === 'unparsed' || n.reason === 'template'), true);
 });
 
