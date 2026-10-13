@@ -139,3 +139,22 @@ test('red: a renamed spec makes its old cases new, and they are already passing'
   assert.equal(r.code, 1);
   assert.match(r.out, /sum-renamed\.test\.ts > sum > adds: already passing/);
 });
+
+test('red: a stale red.json is not accepted when vitest writes no report', async () => {
+  const r = repo();
+  const state = mkdtempSync(join(tmpdir(), 'tb-state-'));
+  const lines = [];
+  assert.equal(await main(args(r, 'baseline'), fakeDeps(r, state, lines, 'list-base', null, 0)), 0);
+  assert.equal(await main(args(r, 'red'), fakeDeps(r, state, lines, 'list-new', 'red-assert')), 0);
+  const silent = { ...fakeDeps(r, state, lines, 'list-new', 'red-assert') };
+  const listRun = silent.run;
+  silent.run = (a) => (a[0] === 'list' ? listRun(a) : { status: 1, stdout: '', stderr: '' });
+  assert.equal(await main(args(r, 'red'), silent), 3);
+  assert.match(lines.join('\n'), /vitest wrote no report/);
+});
+test('red: an import error in one spec does not taint another spec', async () => {
+  const r = await redWith('red-two-spec', 'list-two');
+  assert.equal(r.code, 1);
+  assert.match(r.out, /other\.test\.ts > other > works: import error/);
+  assert.doesNotMatch(r.out, /sum > doubles/);
+});

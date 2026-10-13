@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { record, verify, restore } from './locked.mjs';
-import { parseList, attribute } from '../../test-teeth/scripts/test-teeth.mjs';
+import { parseList, reporterName, caseId } from '../../test-teeth/scripts/test-teeth.mjs';
 
 const fail = (message, code = 3) => Object.assign(new Error(message), { code });
 
@@ -77,7 +77,6 @@ function baseline(ctx) {
 }
 
 const keyed = (cases) => cases.map((c) => ({ ...c, key: `${c.spec}::${c.name}` }));
-const REASONS = { passed: 'already passing', skipped: 'skipped', missing: 'not reported' };
 
 function red(ctx) {
   const { root, feature, state, deps } = ctx;
@@ -101,16 +100,26 @@ function red(ctx) {
     return 1;
   }
   const out = join(state, 'red.json');
+  rmSync(out, { force: true });
   const res = deps.run(['run', feature, '--reporter=json', `--outputFile=${out}`, '--includeTaskLocation', '--no-color', '--no-cache'], root);
   if (interrupted(res)) return 130;
   if (!existsSync(out)) throw fail('vitest wrote no report');
-  const { mutantState, byCase } = attribute(JSON.parse(readFileSync(out, 'utf8')), fresh, root);
+  const report = JSON.parse(readFileSync(out, 'utf8'));
+  const specOf = (f) => relative(root, f.name).split(sep).join('/');
+  const broken = new Set(report.testResults.filter((f) => f.status === 'failed' && !f.assertionResults?.length).map(specOf));
+  const results = new Map();
+  for (const f of report.testResults) {
+    for (const a of f.assertionResults ?? []) results.set(caseId(specOf(f), reporterName(a), a.location?.line ?? 0), a);
+  }
   for (const c of fresh) {
-    const { status, message } = byCase.get(c.id);
-    if (status === 'killed') continue;
-    const reason = status === 'runtime' ? `crashed (${message.split('\n')[0]})`
-      : status === 'missing' && mutantState === 'invalid' ? 'import error' : REASONS[status];
-    findings.push(`${c.spec} > ${c.name}: ${reason}`);
+    const a = results.get(c.id);
+    const message = a?.failureMessages?.[0] ?? '';
+    let reason = null;
+    if (!a) reason = broken.has(c.spec) ? 'import error' : 'not reported';
+    else if (a.status === 'passed') reason = 'already passing';
+    else if (['skipped', 'pending', 'todo'].includes(a.status)) reason = 'skipped';
+    else if (a.status !== 'failed' || !message.startsWith('AssertionError:')) reason = `crashed (${message.split('\n')[0]})`;
+    if (reason) findings.push(`${c.spec} > ${c.name}: ${reason}`);
   }
   for (const f of findings) deps.log(f);
   return findings.length ? 1 : 0;
