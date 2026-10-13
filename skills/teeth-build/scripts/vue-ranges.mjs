@@ -49,14 +49,17 @@ export function vueRanges(source, changedLines, { parseSfc, parseTs }) {
       for (const line of inBlock) res.notCovered.push({ line, reason: 'unparsed' });
       continue;
     }
+    const text = b.content.split('\n');
+    const runs = [];
     for (const line of inBlock) {
       const rel = line - off;
       if (macros.has(rel)) { res.notCovered.push({ line, reason: 'macro' }); continue; }
-      if (!b.content.split('\n')[rel - 1]?.trim()) continue;
-      res.mutable.push(line);
-      const last = res.mutate.at(-1);
-      if (last && last.end === rel - 1) last.end = rel; else res.mutate.push({ start: rel, end: rel });
+      const live = Boolean(text[rel - 1]?.trim());
+      if (live) res.mutable.push(line);
+      const last = runs.at(-1);
+      if (last && last.end === rel - 1) { last.end = rel; last.live ||= live; } else runs.push({ start: rel, end: rel, live });
     }
+    for (const { start, end, live } of runs) if (live) res.mutate.push({ start, end });
   }
   res.notCovered.sort((a, b) => a.line - b.line);
   return res;

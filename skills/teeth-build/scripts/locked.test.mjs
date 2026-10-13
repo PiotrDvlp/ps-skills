@@ -46,3 +46,15 @@ test('locked: an inventory path that escapes the feature makes restore throw cod
   assert.throws(() => restore(f, d), (e) => e.code === 3 && /unsafe inventory path/.test(e.message));
   assert.equal(existsSync(join(f, '..', 'evil.test.ts')), false);
 });
+
+test('locked: vitest-default test names and snapshot files are locked', () => {
+  const { f, d } = setup();
+  mkdirSync(join(f, '__snapshots__'));
+  writeFileSync(join(f, '__snapshots__', 'a.test.ts.snap'), 'S');
+  record(f, d);
+  assert.deepEqual(verify(f, d), empty);
+  writeFileSync(join(f, 'x.test.js'), '1');
+  writeFileSync(join(f, 'y.spec.tsx'), '1');
+  writeFileSync(join(f, '__snapshots__', 'a.test.ts.snap'), 'S2');
+  assert.deepEqual(verify(f, d), { modified: ['__snapshots__/a.test.ts.snap'], deleted: [], added: ['x.test.js', 'y.spec.tsx'] });
+});

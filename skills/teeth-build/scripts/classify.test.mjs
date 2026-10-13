@@ -19,7 +19,7 @@ test('classify: positive assertion evidence passes, everything else is a finding
 
 test('classify: changed lines without a valid mutant are not covered', () => {
   const r = classifyMutants(fx(), all);
-  assert.deepEqual(r.notCovered.map((n) => [n.line, n.reason]), [[9, 'no mutants'], [11, 'no mutants']]);
+  assert.deepEqual(r.notCovered.map((n) => [n.line, n.reason]), [[9, 'no mutant inside the changed lines'], [11, 'no mutant inside the changed lines']]);
 });
 
 test('classify: mutants outside the changed lines are ignored', () => {

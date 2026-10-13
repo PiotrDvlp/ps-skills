@@ -60,3 +60,11 @@ test('changed-lines: a git failure throws code 3 instead of returning empty', ()
     assert.throws(() => changedLines(r, base, '../outside'), (e) => e.code === 3 && /git diff failed/.test(e.message));
   } finally { rmSync(r, { recursive: true, force: true }); }
 });
+
+test('changed-lines: vitest-default test files are not production files', () => {
+  const { r, base } = repo();
+  try {
+    for (const n of ['x.test.js', 'y.spec.tsx', 'z.test.mts', 'w.test.ts']) writeFileSync(join(r, 'f', n), 'export const x = 1\n');
+    assert.deepEqual([...changedLines(r, base, 'f').entries()], []);
+  } finally { rmSync(r, { recursive: true, force: true }); }
+});

@@ -45,3 +45,11 @@ test('vue-ranges: no script means every changed line is template', opts, () => {
   const r = vueRanges(src('NoScript'), range(1, 3), loadVueParsers(ROOT));
   assert.deepEqual(r.notCovered.map((n) => n.reason), ['template', 'template', 'template']);
 });
+
+test('vue-ranges: a blank line between changed lines stays in one range but is not mutable', opts, () => {
+  const p = loadVueParsers(ROOT);
+  const source = '<script setup lang="ts">\nconst a = f(1,\n\n  2)\n</script>\n';
+  const r = vueRanges(source, [2, 3, 4], p);
+  assert.deepEqual(r.mutate, [{ start: 2, end: 4 }]);
+  assert.deepEqual(r.mutable, [2, 4]);
+});

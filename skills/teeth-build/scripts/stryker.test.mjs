@@ -98,3 +98,33 @@ test('run: a spawn failure throws, and a stale report is not trusted', () => {
   assert.throws(() => runStryker(t, w), (e) => e.code === 3 && /failed to start/.test(e.message));
   assert.equal(existsSync(join(w, 'reports', 'mutation.json')), false);
 });
+
+test('work: a failed rsync still leaves the work copy owner-only', () => {
+  const base = mkdtempSync(join(tmpdir(), 'tb-rs-'));
+  const root = join(base, 'repo');
+  mkdirSync(join(root, 'node_modules'), { recursive: true });
+  chmodSync(root, 0o755);
+  writeFileSync(join(root, 'a.ts'), 'x');
+  writeFileSync(join(root, 'locked.ts'), 'y');
+  chmodSync(join(root, 'locked.ts'), 0o000);
+  const work = join(base, 'work');
+  try {
+    assert.throws(() => syncWork(root, work), (e) => e.code === 3 && /rsync failed/.test(e.message));
+  } finally {
+    chmodSync(join(root, 'locked.ts'), 0o644);
+  }
+  assert.equal(statSync(work).mode & 0o777, 0o700);
+});
+
+test('work: only top-level reports, .output and .stryker-tmp are excluded', () => {
+  const base = mkdtempSync(join(tmpdir(), 'tb-an-'));
+  const root = join(base, 'repo');
+  for (const d of ['node_modules', 'src/reports', 'src/.output', 'reports', '.output']) mkdirSync(join(root, d), { recursive: true });
+  for (const f of ['src/reports/a.ts', 'src/.output/b.ts', 'reports/x', '.output/y']) writeFileSync(join(root, f), 'x');
+  const work = join(base, 'work');
+  syncWork(root, work);
+  assert.equal(existsSync(join(work, 'src', 'reports', 'a.ts')), true);
+  assert.equal(existsSync(join(work, 'src', '.output', 'b.ts')), true);
+  assert.equal(existsSync(join(work, 'reports')), false);
+  assert.equal(existsSync(join(work, '.output')), false);
+});

@@ -40,7 +40,7 @@ export function stateDir(root, task) {
 }
 
 const realRun = (root) => (args, cwd = root) => {
-  const r = spawnSync(join(root, 'node_modules', '.bin', 'vitest'), args, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  const r = spawnSync(join(root, 'node_modules', '.bin', 'vitest'), args, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, env: { ...process.env, CI: '1' } });
   if (r.error) throw fail(`vitest failed to start: ${r.error.message}`);
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', signal: r.signal };
 };
@@ -136,7 +136,7 @@ function locked(ctx, argv) {
 }
 
 function cachePaths(root, argv) {
-  const cacheRoot = flag(argv, 'cache-dir') ?? join(homedir(), '.cache', 'teeth-build');
+  const cacheRoot = resolve(flag(argv, 'cache-dir') ?? join(homedir(), '.cache', 'teeth-build'));
   const hashDir = join(cacheRoot, createHash('sha1').update(root).digest('hex'));
   return { cacheRoot, hashDir, toolDir: join(hashDir, 'tool'), workDir: join(hashDir, 'work') };
 }
@@ -152,6 +152,17 @@ const GLOB = /[*?[\]]|[?*+@!]\(|\{[^}]*(,|\.\.)/;
 export const isGlob = (f) => GLOB.test(f);
 
 const matchedMessage = (n, m) => `Stryker matched ${n == null ? 'an unknown number of' : `${n} of`} ${m} changed files`;
+
+export function tsRanges(source, lines) {
+  const fileLines = source.split('\n');
+  const mutable = lines.filter((l) => fileLines[l - 1]?.trim());
+  const mutate = [];
+  for (const l of lines) {
+    const last = mutate.at(-1);
+    if (last && last.end === l - 1) last.end = l; else mutate.push({ start: l, end: l });
+  }
+  return { mutate: mutate.filter((m) => mutable.some((l) => l >= m.start && l <= m.end)), mutable };
+}
 
 function mutateEntries(root, changed) {
   const mutate = [];
@@ -172,16 +183,10 @@ function mutateEntries(root, changed) {
       for (const n of r.notCovered) notCovered.push(`${file}:${n.line} ${n.reason}`);
       continue;
     }
-    const fileLines = source.split('\n');
-    const keep = lines.filter((l) => fileLines[l - 1]?.trim());
-    if (!keep.length) continue;
-    mutable.set(file, keep);
-    let start = keep[0];
-    keep.forEach((l, i) => {
-      if (keep[i + 1] === l + 1) return;
-      mutate.push(`${file}:${start}-${l}`);
-      start = keep[i + 1];
-    });
+    const r = tsRanges(source, lines);
+    if (!r.mutable.length) continue;
+    mutable.set(file, r.mutable);
+    for (const m of r.mutate) mutate.push(`${file}:${m.start}-${m.end}`);
   }
   return { mutate, mutable, notCovered };
 }
@@ -212,17 +217,20 @@ async function mutants(ctx, argv) {
     writeConfig(workDir, mutate, { hasVitestConfig: existsSync(join(root, 'vitest.config.ts')) });
     const res = deps.runStryker(toolDir, workDir);
     const row = (r) => `${r.file}:${r.line} ${r.mutator} → ${r.replacement} (${r.reason})`;
-    if (res.signal) return 130;
+    if (res.signal) {
+      if (res.signal === 'SIGINT' || res.signal === 'SIGTERM') return 130;
+      throw fail(`stryker killed by ${res.signal}`, 2);
+    }
     if (!res.report && res.noTests && res.instrumented !== 0) {
       const rows = [...mutable].flatMap(([file, lines]) => lines.map((line) => ({ file, line, mutator: 'NoCoverage', replacement: 'no test reaches this file', reason: 'NoCoverage' })));
       for (const r of rows) deps.log(row(r));
-      deps.log(`${rows.length} findings, 0 passed, 0 timed out, 0 invalid, 0 not covered`);
+      deps.log(`${rows.length} findings, 0 passed, 0 timed out, 0 invalid, ${notCovered.length} not covered`);
       return 1;
     }
     if (!res.report && res.noTests && res.instrumented === 0) {
       if (!(res.matched >= mutable.size)) throw fail(matchedMessage(res.matched, mutable.size));
-      const n = [...mutable.values()].reduce((a, l) => a + l.length, 0);
-      for (const [file, lines] of mutable) for (const line of lines) deps.log(`not covered: ${file}:${line} no mutants`);
+      const n = [...mutable.values()].reduce((a, l) => a + l.length, 0) + notCovered.length;
+      for (const [file, lines] of mutable) for (const line of lines) deps.log(`not covered: ${file}:${line} no mutant inside the changed lines`);
       deps.log(`0 findings, 0 passed, 0 timed out, 0 invalid, ${n} not covered`);
       return 0;
     }
@@ -236,7 +244,7 @@ async function mutants(ctx, argv) {
     for (const r of c.notCovered) deps.log(`not covered: ${r.file}:${r.line} ${r.reason}`);
     for (const r of c.timedOut) deps.log(`timed out: ${r.file}:${r.line} ${r.mutator}`);
     for (const r of c.invalid) deps.log(`invalid: ${r.file}:${r.line} ${r.mutator}`);
-    deps.log(`${c.findings.length} findings, ${c.passed.length} passed, ${c.timedOut.length} timed out, ${c.invalid.length} invalid, ${c.notCovered.length} not covered`);
+    deps.log(`${c.findings.length} findings, ${c.passed.length} passed, ${c.timedOut.length} timed out, ${c.invalid.length} invalid, ${notCovered.length + c.notCovered.length} not covered`);
     return c.findings.length ? 1 : 0;
   });
 }

@@ -45,9 +45,13 @@ export function syncWork(root, workDir) {
   ensureSafeDir(workDir, 'work directory');
   rmSync(join(workDir, 'reports'), { recursive: true, force: true });
   rmSync(join(workDir, '.stryker-tmp'), { recursive: true, force: true });
-  const r = spawnSync('rsync', ['-a', '--delete', '--exclude=.git', '--exclude=node_modules', '--exclude=.env*', '--exclude=.output', '--exclude=.stryker-tmp', '--exclude=reports', `${root}/`, `${workDir}/`]);
+  let r;
+  try {
+    r = spawnSync('rsync', ['-a', '--delete', '--exclude=.git', '--exclude=node_modules', '--exclude=.env*', '--exclude=/.output', '--exclude=/.stryker-tmp', '--exclude=/reports', `${root}/`, `${workDir}/`]);
+  } finally {
+    chmodSync(workDir, 0o700);
+  }
   if (r.error || r.status !== 0) throw fail(`rsync failed${r.error ? `: ${r.error.message}` : ` (${r.status})`}`);
-  chmodSync(workDir, 0o700);
   assertSafeDir(workDir, 'work directory');
   const nm = join(workDir, 'node_modules');
   rmSync(nm, { recursive: true, force: true });

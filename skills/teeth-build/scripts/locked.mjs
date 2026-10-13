@@ -2,14 +2,14 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, statSync, existsSync, unlinkSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
-const IS_TEST = /\.(test|spec)\.ts$/;
+import { TEST_FILE } from './git-changes.mjs';
 const sha = (b) => createHash('sha256').update(b).digest('hex');
 function tests(root, d = root, out = []) {
   for (const n of readdirSync(d)) {
     const p = join(d, n);
     if (n === 'node_modules') continue;
     if (statSync(p).isDirectory()) tests(root, p, out);
-    else if (IS_TEST.test(n)) out.push(relative(root, p).split(sep).join('/'));
+    else if (TEST_FILE.test(n) || relative(root, d).split(sep).includes('__snapshots__')) out.push(relative(root, p).split(sep).join('/'));
   }
   return out.sort();
 }

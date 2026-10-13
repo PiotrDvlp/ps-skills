@@ -19,7 +19,7 @@ export function classifyMutants(report, changed) {
       else if (ASSERTION.test(reason)) out.passed.push(row);
       else out.findings.push({ ...row, reason: 'no assertion evidence' });
     }
-    for (const line of wanted) if (!validLines.has(line)) out.notCovered.push({ file, line, reason: 'no mutants' });
+    for (const line of wanted) if (!validLines.has(line)) out.notCovered.push({ file, line, reason: 'no mutant inside the changed lines' });
   }
   for (const k of ['findings', 'timedOut', 'invalid', 'passed']) out[k].sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
   return out;
