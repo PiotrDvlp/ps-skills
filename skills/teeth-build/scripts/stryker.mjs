@@ -1,10 +1,11 @@
-import { closeSync, existsSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { chmodSync, closeSync, existsSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { ensureSafeDir } from './safe-dir.mjs';
+import { assertSafeDir, ensureSafeDir } from './safe-dir.mjs';
 
 const VERSION = '10.0.0';
 const PKGS = ['@stryker-mutator/core', '@stryker-mutator/vitest-runner'];
+const outside = (rel) => rel === '..' || rel.startsWith(`..${sep}`);
 const fail = (message) => Object.assign(new Error(message), { code: 3 });
 
 function acquire(lock) {
@@ -20,7 +21,7 @@ function acquire(lock) {
 }
 
 export async function withRepoLock(cacheRoot, fn) {
-  ensureSafeDir(cacheRoot);
+  ensureSafeDir(cacheRoot, 'cache directory');
   const lock = join(cacheRoot, 'lock');
   if (!acquire(lock)) {
     const pid = Number(readFileSync(lock, 'utf8'));
@@ -38,11 +39,16 @@ export async function withRepoLock(cacheRoot, fn) {
 }
 
 export function syncWork(root, workDir) {
-  ensureSafeDir(workDir);
+  const r0 = resolve(root);
+  const w0 = resolve(workDir);
+  if (!outside(relative(r0, w0)) || !outside(relative(w0, r0))) throw fail('work directory overlaps the repo');
+  ensureSafeDir(workDir, 'work directory');
   rmSync(join(workDir, 'reports'), { recursive: true, force: true });
   rmSync(join(workDir, '.stryker-tmp'), { recursive: true, force: true });
   const r = spawnSync('rsync', ['-a', '--delete', '--exclude=.git', '--exclude=node_modules', '--exclude=.env*', '--exclude=.output', '--exclude=.stryker-tmp', '--exclude=reports', `${root}/`, `${workDir}/`]);
   if (r.error || r.status !== 0) throw fail(`rsync failed${r.error ? `: ${r.error.message}` : ` (${r.status})`}`);
+  chmodSync(workDir, 0o700);
+  assertSafeDir(workDir, 'work directory');
   const nm = join(workDir, 'node_modules');
   rmSync(nm, { recursive: true, force: true });
   symlinkSync(join(root, 'node_modules'), nm);
@@ -56,11 +62,11 @@ export function toolReady(toolDir) {
 }
 
 export function setupTool(toolDir) {
-  ensureSafeDir(dirname(toolDir));
-  ensureSafeDir(toolDir);
+  ensureSafeDir(dirname(toolDir), 'cache directory');
+  ensureSafeDir(toolDir, 'tool directory');
   if (toolReady(toolDir)) return 0;
   rmSync(toolDir, { recursive: true, force: true });
-  ensureSafeDir(toolDir);
+  ensureSafeDir(toolDir, 'tool directory');
   const npm = (...args) => spawnSync('npm', args, { cwd: toolDir, stdio: 'inherit' });
   npm('init', '-y');
   npm('i', '--no-audit', '--no-fund', '--legacy-peer-deps', ...PKGS.map((p) => `${p}@${VERSION}`));
@@ -92,9 +98,14 @@ export function writeConfig(workDir, mutate, { hasVitestConfig }) {
 }
 
 export function runStryker(toolDir, workDir) {
-  const r = spawnSync(join(toolDir, 'node_modules', '.bin', 'stryker'), ['run', 'stryker.config.json'], { cwd: workDir, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   const file = join(workDir, 'reports', 'mutation.json');
-  const report = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
+  rmSync(file, { force: true });
+  const r = spawnSync(join(toolDir, 'node_modules', '.bin', 'stryker'), ['run', 'stryker.config.json'], { cwd: workDir, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  if (r.error) throw fail(`stryker failed to start: ${r.error.message}`);
+  let report = null;
+  if (existsSync(file)) {
+    try { report = JSON.parse(readFileSync(file, 'utf8')); } catch { throw fail('unreadable Stryker report'); }
+  }
   const firstError = `${r.stdout ?? ''}\n${r.stderr ?? ''}`.split('\n').find((l) => l.includes(' ERROR ')) ?? null;
   return { status: r.status, signal: r.signal, report, firstError };
 }

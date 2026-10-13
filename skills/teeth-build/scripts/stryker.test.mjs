@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, lstatSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, lstatSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { withRepoLock, syncWork, toolReady, writeConfig } from './stryker.mjs';
+import { withRepoLock, syncWork, toolReady, writeConfig, runStryker } from './stryker.mjs';
 
 test('lock: a live PID refuses, a dead PID is replaced, the lock is released', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'tb-lk-'));
@@ -63,4 +63,38 @@ test('config: the written config carries the gate settings and the ranges', () =
   assert.equal(c.disableBail, true);
   assert.deepEqual(c.ignorePatterns, ['!.nuxt']);
   assert.deepEqual(c.vitest, { related: true, configFile: 'vitest.config.ts' });
+});
+
+test('work: two syncs from a 0o755 repo root leave the work copy owner-only', () => {
+  const base = mkdtempSync(join(tmpdir(), 'tb-w2-'));
+  const root = join(base, 'repo');
+  mkdirSync(join(root, 'node_modules'), { recursive: true });
+  chmodSync(root, 0o755);
+  writeFileSync(join(root, 'a.ts'), 'x');
+  const work = join(base, 'work');
+  syncWork(root, work);
+  syncWork(root, work);
+  assert.equal(statSync(work).mode & 0o777, 0o700);
+});
+
+test('work: a work directory equal to, inside or above the repo is refused and nothing is deleted', () => {
+  const base = mkdtempSync(join(tmpdir(), 'tb-ov-'));
+  const root = join(base, 'repo');
+  mkdirSync(join(root, 'node_modules'), { recursive: true, mode: 0o700 });
+  writeFileSync(join(root, 'a.ts'), 'x');
+  for (const w of [root, join(root, 'w'), base]) {
+    assert.throws(() => syncWork(root, w), (e) => e.code === 3 && /overlaps the repo/.test(e.message));
+  }
+  assert.equal(readFileSync(join(root, 'a.ts'), 'utf8'), 'x');
+  assert.equal(existsSync(join(root, 'node_modules')), true);
+  assert.equal(existsSync(join(root, 'w')), false);
+});
+
+test('run: a spawn failure throws, and a stale report is not trusted', () => {
+  const t = mkdtempSync(join(tmpdir(), 'tb-run-'));
+  const w = join(t, 'work');
+  mkdirSync(join(w, 'reports'), { recursive: true });
+  writeFileSync(join(w, 'reports', 'mutation.json'), '{"stale":true}');
+  assert.throws(() => runStryker(t, w), (e) => e.code === 3 && /failed to start/.test(e.message));
+  assert.equal(existsSync(join(w, 'reports', 'mutation.json')), false);
 });
