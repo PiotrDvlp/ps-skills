@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { main, stateDir } from './relay-gate.mjs';
+import { main, stateDir, isGlob } from './relay-gate.mjs';
 
 const CLI = fileURLToPath(new URL('./relay-gate.mjs', import.meta.url));
 const fx = (n) => readFileSync(new URL(`../fixtures/vitest/${n}.json`, import.meta.url), 'utf8');
@@ -263,7 +263,7 @@ test('integration: two runs give the same findings and change no file outside no
   assert.deepEqual(snapshot(root), before);
 });
 
-const fakeStryker = (report) => ({ vitestMajor: () => 3, toolReady: () => true, linkTool: () => {}, runStryker: () => ({ status: 0, signal: null, report }) });
+const fakeStryker = (report) => ({ vitestMajor: () => 3, toolReady: () => true, linkTool: () => {}, runStryker: () => ({ status: 0, signal: null, report, matched: 1 }) });
 async function unitGate(report, extra = {}) {
   const r = repo();
   writeFileSync(join(r, 'sum.ts'), 'export const sum = (a, b) => b + a\n');
@@ -277,10 +277,10 @@ test('mutants: a report with the file but no mutant on the line passes as not co
   assert.equal(out.code, 0, out.out);
   assert.match(out.out, /not covered: sum\.ts:1 no mutants/);
 });
-test('mutants: a report with none of the mutated files exits 3', async () => {
-  const out = await unitGate(() => ({ files: {} }));
+test('mutants: a report with an unknown matched count exits 3', async () => {
+  const out = await unitGate(() => ({ files: {} }), { matched: null });
   assert.equal(out.code, 3);
-  assert.match(out.out, /empty Stryker report/);
+  assert.match(out.out, /Stryker matched an unknown number of 1 changed files/);
 });
 
 test('integration: a type-only change has no mutants and passes as not covered', IT, async () => {
@@ -324,5 +324,18 @@ test('integration: a glob-character path is skipped as not covered, not rejected
 test('mutants: no tests, zero mutants and an unknown match count exits 3', async () => {
   const out = await unitNoReport({ noTests: true, instrumented: 0, matched: null });
   assert.equal(out.code, 3);
-  assert.match(out.out, /Stryker matched 0 of 1 changed files/);
+  assert.match(out.out, /Stryker matched an unknown number of 1 changed files/);
+});
+test('glob filter: only minimatch magic is excluded', () => {
+  for (const f of ['a{b}.ts', 'a@b.ts', 'c++.ts', 'a!b.ts', 'pages/(admin)/x.vue']) assert.equal(isGlob(f), false, f);
+  for (const f of ['[id].ts', 'x{a,b}.ts', 'a*.ts', 'foo+(x).ts', 'a?.ts']) assert.equal(isGlob(f), true, f);
+});
+test('integration: a route-group path with parentheses is mutated', IT, async () => {
+  const { root, base } = itRepo();
+  mkdirSync(join(root, 'pages', '(g)', '__tests__'), { recursive: true });
+  writeFileSync(join(root, 'pages', '(g)', 'x.ts'), 'export const id = (n: number) => n + 1\n');
+  writeFileSync(join(root, 'pages', '(g)', '__tests__', 'x.test.ts'), "import { it, expect } from 'vitest'\nimport { id } from '../x'\nit('t', () => { id(1); expect(true).toBe(true) })\n");
+  const r = await gate(root, base);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /pages\/\(g\)\/x\.ts:1 /);
 });

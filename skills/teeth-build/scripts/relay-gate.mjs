@@ -148,7 +148,10 @@ function setup(root, argv) {
   return setupTool(toolDir);
 }
 
-const GLOB = /[[\]{}()*?!+@]/;
+const GLOB = /[*?[\]]|[?*+@!]\(|\{[^}]*(,|\.\.)/;
+export const isGlob = (f) => GLOB.test(f);
+
+const matchedMessage = (n, m) => `Stryker matched ${n == null ? 'an unknown number of' : `${n} of`} ${m} changed files`;
 
 function mutateEntries(root, changed) {
   const mutate = [];
@@ -156,7 +159,7 @@ function mutateEntries(root, changed) {
   const notCovered = [];
   let parsers = null;
   for (const [file, lines] of changed) {
-    if (GLOB.test(file)) {
+    if (isGlob(file)) {
       for (const l of lines) notCovered.push(`${file}:${l} glob characters in path`);
       continue;
     }
@@ -217,7 +220,7 @@ async function mutants(ctx, argv) {
       return 1;
     }
     if (!res.report && res.noTests && res.instrumented === 0) {
-      if (!(res.matched >= mutable.size)) throw fail(`Stryker matched ${res.matched ?? 0} of ${mutable.size} changed files`);
+      if (!(res.matched >= mutable.size)) throw fail(matchedMessage(res.matched, mutable.size));
       const n = [...mutable.values()].reduce((a, l) => a + l.length, 0);
       for (const [file, lines] of mutable) for (const line of lines) deps.log(`not covered: ${file}:${line} no mutants`);
       deps.log(`0 findings, 0 passed, 0 timed out, 0 invalid, ${n} not covered`);
@@ -227,9 +230,7 @@ async function mutants(ctx, argv) {
       deps.log(res.firstError ?? 'Stryker wrote no report');
       return 2;
     }
-    if (res.matched != null) {
-      if (res.matched < mutable.size) throw fail(`Stryker matched ${res.matched} of ${mutable.size} changed files`);
-    } else if (!mutable.keys().some((f) => res.report.files?.[f])) throw fail('empty Stryker report: none of the mutated files appear in the report');
+    if (!(res.matched >= mutable.size)) throw fail(matchedMessage(res.matched, mutable.size));
     const c = classifyMutants(res.report, mutable);
     for (const r of c.findings) deps.log(row(r));
     for (const r of c.notCovered) deps.log(`not covered: ${r.file}:${r.line} ${r.reason}`);
