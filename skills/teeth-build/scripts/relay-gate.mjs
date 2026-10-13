@@ -202,14 +202,20 @@ async function mutants(ctx, argv) {
     deps.linkTool(toolDir, root);
     writeConfig(workDir, mutate, { hasVitestConfig: existsSync(join(root, 'vitest.config.ts')) });
     const res = deps.runStryker(toolDir, workDir);
+    const row = (r) => `${r.file}:${r.line} ${r.mutator} → ${r.replacement} (${r.reason})`;
     if (res.signal) return 130;
+    if (!res.report && res.noTests) {
+      const rows = [...mutable].flatMap(([file, lines]) => lines.map((line) => ({ file, line, mutator: 'NoCoverage', replacement: 'no test reaches this file', reason: 'NoCoverage' })));
+      for (const r of rows) deps.log(row(r));
+      deps.log(`${rows.length} findings, 0 passed, 0 timed out, 0 invalid, 0 not covered`);
+      return 1;
+    }
     if (!res.report) {
       deps.log(res.firstError ?? 'Stryker wrote no report');
       return 2;
     }
-    if (!mutable.keys().some((f) => res.report.files?.[f])) throw fail('empty Stryker report: none of the mutated files appear in the report');
+    if (!res.matched && !mutable.keys().some((f) => res.report.files?.[f])) throw fail('empty Stryker report: none of the mutated files appear in the report');
     const c = classifyMutants(res.report, mutable);
-    const row = (r) => `${r.file}:${r.line} ${r.mutator} → ${r.replacement} (${r.reason})`;
     for (const r of c.findings) deps.log(row(r));
     for (const r of c.notCovered) deps.log(`not covered: ${r.file}:${r.line} ${r.reason}`);
     for (const r of c.timedOut) deps.log(`timed out: ${r.file}:${r.line} ${r.mutator}`);

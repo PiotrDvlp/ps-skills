@@ -106,6 +106,8 @@ export function runStryker(toolDir, workDir) {
   if (existsSync(file)) {
     try { report = JSON.parse(readFileSync(file, 'utf8')); } catch { throw fail('unreadable Stryker report'); }
   }
-  const firstError = `${r.stdout ?? ''}\n${r.stderr ?? ''}`.split('\n').find((l) => l.includes(' ERROR ')) ?? null;
-  return { status: r.status, signal: r.signal, report, firstError };
+  const out = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
+  const firstError = out.split('\n').find((l) => l.includes(' ERROR ')) ?? null;
+  const found = out.match(/Found (\d+) of \d+ file\(s\) to be mutated/);
+  return { status: r.status, signal: r.signal, report, firstError, matched: Number(found?.[1] ?? 0), noTests: out.includes('No tests were found') };
 }

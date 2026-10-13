@@ -176,7 +176,9 @@ function itRepo() {
   const root = join(CACHE, 'it repo');
   rmSync(root, { recursive: true, force: true });
   cpSync(new URL('../fixtures/mini', import.meta.url), root, { recursive: true });
-  symlinkSync(join(VROOT, 'node_modules'), join(root, 'node_modules'));
+  const nm = join(root, 'node_modules');
+  mkdirSync(nm);
+  for (const n of readdirSync(join(VROOT, 'node_modules'))) if (n !== '.vite-temp') symlinkSync(join(VROOT, 'node_modules', n), join(nm, n));
   return { root, base: gitRepo(root) };
 }
 async function gate(root, base, deps = {}) {
@@ -276,4 +278,12 @@ test('mutants: a report with none of the mutated files exits 3', async () => {
   const out = await unitGate(() => ({ files: {} }));
   assert.equal(out.code, 3);
   assert.match(out.out, /empty Stryker report/);
+});
+
+test('integration: a type-only change has no mutants and passes as not covered', IT, async () => {
+  const { root, base } = itRepo();
+  writeFileSync(join(root, 'sum.ts'), `${readFileSync(join(root, 'sum.ts'), 'utf8')}export type N = number\n`);
+  const r = await gate(root, base);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /not covered: sum\.ts:4 no mutants/);
 });
