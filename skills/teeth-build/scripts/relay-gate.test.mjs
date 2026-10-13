@@ -264,10 +264,13 @@ test('integration: two runs give the same findings and change no file outside no
 });
 
 const fakeStryker = (report) => ({ vitestMajor: () => 3, toolReady: () => true, linkTool: () => {}, runStryker: () => ({ status: 0, signal: null, report }) });
-async function unitGate(report) {
+async function unitGate(report, extra = {}) {
   const r = repo();
   writeFileSync(join(r, 'sum.ts'), 'export const sum = (a, b) => b + a\n');
-  return { r, ...(await gate(r, 'HEAD', fakeStryker(report(r)))) };
+  const deps = fakeStryker(report(r));
+  const inner = deps.runStryker;
+  deps.runStryker = () => ({ ...inner(), ...extra });
+  return { r, ...(await gate(r, 'HEAD', deps)) };
 }
 test('mutants: a report with the file but no mutant on the line passes as not covered', async () => {
   const out = await unitGate(() => ({ files: { 'sum.ts': { mutants: [] } } }));
@@ -286,4 +289,40 @@ test('integration: a type-only change has no mutants and passes as not covered',
   const r = await gate(root, base);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /not covered: sum\.ts:4 no mutants/);
+});
+
+const noReport = (extra) => ({ vitestMajor: () => 3, toolReady: () => true, linkTool: () => {}, runStryker: () => ({ status: 1, signal: null, report: null, firstError: null, ...extra }) });
+async function unitNoReport(extra) {
+  const r = repo();
+  writeFileSync(join(r, 'sum.ts'), 'export const sum = (a, b) => b + a\n');
+  return gate(r, 'HEAD', noReport(extra));
+}
+test('mutants: no tests plus zero instrumented mutants passes as not covered', async () => {
+  const out = await unitNoReport({ noTests: true, instrumented: 0, matched: 1 });
+  assert.equal(out.code, 0, out.out);
+  assert.match(out.out, /not covered: sum\.ts:1 no mutants/);
+});
+test('mutants: no tests with instrumented mutants is a finding', async () => {
+  const out = await unitNoReport({ noTests: true, instrumented: 3, matched: 1 });
+  assert.equal(out.code, 1, out.out);
+  assert.match(out.out, /sum\.ts:1 NoCoverage/);
+});
+test('mutants: fewer matched files than changed files exits 3', async () => {
+  const out = await unitGate(() => ({ files: { 'sum.ts': { mutants: [] } } }), { matched: 0 });
+  assert.equal(out.code, 3);
+  assert.match(out.out, /Stryker matched 0 of 1 changed files/);
+});
+test('integration: a glob-character path is skipped as not covered, not rejected', IT, async () => {
+  const { root, base } = itRepo();
+  mkdirSync(join(root, 'helpers', '__tests__'), { recursive: true });
+  writeFileSync(join(root, 'helpers', '[id].ts'), 'export const id = (n: number) => n + 1\n');
+  writeFileSync(join(root, 'helpers', '__tests__', 'id.test.ts'), "import { it, expect } from 'vitest'\nimport { id } from '../[id]'\nit('t', () => { id(1); expect(true).toBe(true) })\n");
+  const r = await gate(root, base);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /not covered: helpers\/\[id\]\.ts:1 glob characters in path/);
+});
+test('mutants: no tests, zero mutants and an unknown match count exits 3', async () => {
+  const out = await unitNoReport({ noTests: true, instrumented: 0, matched: null });
+  assert.equal(out.code, 3);
+  assert.match(out.out, /Stryker matched 0 of 1 changed files/);
 });

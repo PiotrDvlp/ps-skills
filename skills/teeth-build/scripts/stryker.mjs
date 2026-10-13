@@ -108,6 +108,7 @@ export function runStryker(toolDir, workDir) {
   }
   const out = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
   const firstError = out.split('\n').find((l) => l.includes(' ERROR ')) ?? null;
+  const inst = out.match(/Instrumented \d+ source file\(s\) with (\d+) mutant\(s\)/);
   const found = out.match(/Found (\d+) of \d+ file\(s\) to be mutated/);
-  return { status: r.status, signal: r.signal, report, firstError, matched: Number(found?.[1] ?? 0), noTests: out.includes('No tests were found') };
+  return { status: r.status, signal: r.signal, report, firstError, matched: found ? Number(found[1]) : null, instrumented: inst ? Number(inst[1]) : null, noTests: out.includes('No tests were found') };
 }

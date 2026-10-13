@@ -148,12 +148,18 @@ function setup(root, argv) {
   return setupTool(toolDir);
 }
 
+const GLOB = /[[\]{}()*?!+@]/;
+
 function mutateEntries(root, changed) {
   const mutate = [];
   const mutable = new Map();
   const notCovered = [];
   let parsers = null;
   for (const [file, lines] of changed) {
+    if (GLOB.test(file)) {
+      for (const l of lines) notCovered.push(`${file}:${l} glob characters in path`);
+      continue;
+    }
     const source = readFileSync(join(root, file), 'utf8');
     if (file.endsWith('.vue')) {
       parsers ??= loadVueParsers(root);
@@ -204,17 +210,26 @@ async function mutants(ctx, argv) {
     const res = deps.runStryker(toolDir, workDir);
     const row = (r) => `${r.file}:${r.line} ${r.mutator} → ${r.replacement} (${r.reason})`;
     if (res.signal) return 130;
-    if (!res.report && res.noTests) {
+    if (!res.report && res.noTests && res.instrumented !== 0) {
       const rows = [...mutable].flatMap(([file, lines]) => lines.map((line) => ({ file, line, mutator: 'NoCoverage', replacement: 'no test reaches this file', reason: 'NoCoverage' })));
       for (const r of rows) deps.log(row(r));
       deps.log(`${rows.length} findings, 0 passed, 0 timed out, 0 invalid, 0 not covered`);
       return 1;
     }
+    if (!res.report && res.noTests && res.instrumented === 0) {
+      if (!(res.matched >= mutable.size)) throw fail(`Stryker matched ${res.matched ?? 0} of ${mutable.size} changed files`);
+      const n = [...mutable.values()].reduce((a, l) => a + l.length, 0);
+      for (const [file, lines] of mutable) for (const line of lines) deps.log(`not covered: ${file}:${line} no mutants`);
+      deps.log(`0 findings, 0 passed, 0 timed out, 0 invalid, ${n} not covered`);
+      return 0;
+    }
     if (!res.report) {
       deps.log(res.firstError ?? 'Stryker wrote no report');
       return 2;
     }
-    if (!res.matched && !mutable.keys().some((f) => res.report.files?.[f])) throw fail('empty Stryker report: none of the mutated files appear in the report');
+    if (res.matched != null) {
+      if (res.matched < mutable.size) throw fail(`Stryker matched ${res.matched} of ${mutable.size} changed files`);
+    } else if (!mutable.keys().some((f) => res.report.files?.[f])) throw fail('empty Stryker report: none of the mutated files appear in the report');
     const c = classifyMutants(res.report, mutable);
     for (const r of c.findings) deps.log(row(r));
     for (const r of c.notCovered) deps.log(`not covered: ${r.file}:${r.line} ${r.reason}`);
