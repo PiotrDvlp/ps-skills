@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ensureSafeDir, assertSafeDir } from './safe-dir.mjs';
@@ -62,7 +62,7 @@ function baseline(ctx) {
   const list = deps.run(['list', feature, '--json', '--includeTaskLocation', '--no-cache'], root);
   if (interrupted(list)) return 130;
   if (list.status !== 0) return 2;
-  const suite = deps.run(['run', feature, '--no-cache'], root);
+  const suite = deps.run(['run', feature, '--no-cache', '--passWithNoTests'], root);
   if (interrupted(suite)) return 130;
   if (suite.status !== 0) return 2;
   mkdirSync(state, { recursive: true });
@@ -266,6 +266,12 @@ export async function main(argv, deps = {}) {
     const task = flag(argv, 'task');
     const feature = flag(argv, 'feature');
     if (!root || !task || !feature) throw fail('--root, --task and --feature are required');
+    const outside = (base, p) => {
+      const r = relative(base, p);
+      return r === '..' || r.startsWith(`..${sep}`) || isAbsolute(r);
+    };
+    const featureAbs = resolve(root, feature);
+    if (outside(root, featureAbs) || (existsSync(featureAbs) && outside(realpathSync(root), realpathSync(featureAbs)))) throw fail('--feature must be inside --root');
     if (!/^[\w.-]+$/.test(task) || task === '.' || task === '..') throw fail('invalid --task');
     const d = {
       run: deps.run ?? realRun(root),

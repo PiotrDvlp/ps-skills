@@ -18,12 +18,12 @@ node ${CLAUDE_SKILL_DIR}/scripts/relay-gate.mjs <command> --root /path/to/your/r
 Commands:
 
 - `setup --root R [--cache-dir D]`: install Stryker 10.0.0 once per repo into `<cache>/<sha1 of root>/tool`. A complete install is kept; a partial one is deleted and reinstalled. `--cache-dir` overrides `~/.cache/teeth-build`. Needs network access to the npm registry and write access to the cache directory. Run it only after the user approves the install. `--task` and `--feature` are not needed.
-- `baseline`: needs a clean working tree. Runs the feature suite, and writes `baseline.json` (HEAD sha and test list) only when the suite is green.
+- `baseline`: needs a clean working tree. Runs the feature suite, and writes `baseline.json` (HEAD sha and test list) only when the suite is green. A feature with no tests yet counts as green.
 - `red`: lists the tests now, compares with the baseline, and checks that every new test fails with an assertion.
 - `locked --record | --verify | --restore`: records the feature's test files (`*.test.*` and `*.spec.*` with a `js`, `ts`, `jsx`, `tsx`, `mjs`, `cjs`, `mts` or `cts` extension) and every file under a `__snapshots__` directory, reports changes to them, or rewrites them to the recorded bytes. `--restore` is the only command that writes to the target repo's working tree: it overwrites modified and deleted test files and deletes added ones.
 - `mutants [--base SHA] [--cache-dir D]`: copies the repo to a work directory, runs Stryker on the changed lines of `.ts` and `.vue` files under `--feature`, and prints one line per finding. `--base` defaults to the sha stored by `baseline`.
 
-Required for every command except `setup`: `--root`, `--task` (letters, digits, `_`, `.`, `-`; names the state directory), `--feature` (repo-relative path). The state directory is `<os temp>/teeth-build/<sha1 of root>/<task>`.
+Required for every command except `setup`: `--root`, `--task` (letters, digits, `_`, `.`, `-`; names the state directory), `--feature` (repo-relative path; a path outside `--root`, also through a symlink, exits 3 with `--feature must be inside --root`). The state directory is `<os temp>/teeth-build/<sha1 of root>/<task>`.
 
 Exit codes:
 
@@ -93,6 +93,7 @@ Do not edit files under `--feature` while a command runs. Stop `nuxt dev` and vi
 - Only `.ts` and `.vue` files that are not test files (`*.test.*`, `*.spec.*`) are checked.
 - A mutant is created only when its whole node lies inside the changed lines. A mutant whose node starts or ends on an unchanged line is not generated (for example a change inside a multi-line chain), and its line shows `no mutant inside the changed lines`. Whole-file mutation is a phase-2 decision.
 - For `mutants`, a test that fails with a message starting `expected ` (for example a thrown plain `expected 1` error) counts as assertion evidence, the same as `AssertionError`.
+- `locked` skips symlinked directories, `node_modules` and `.git` when it walks `--feature`; a symlinked test file exits 3 (`symlinked test file <path>`).
 - Only test files under `--feature` are locked. Tests outside it and shared test shims are not; phase 2 closes this because the controller will reject any changed path outside the task's planned files.
 - Phase 2 (the controller loop) is not built.
 

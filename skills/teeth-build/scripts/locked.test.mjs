@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, unlinkSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, unlinkSync, existsSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { record, verify, restore } from './locked.mjs';
@@ -57,4 +57,24 @@ test('locked: vitest-default test names and snapshot files are locked', () => {
   writeFileSync(join(f, 'y.spec.tsx'), '1');
   writeFileSync(join(f, '__snapshots__', 'a.test.ts.snap'), 'S2');
   assert.deepEqual(verify(f, d), { modified: ['__snapshots__/a.test.ts.snap'], deleted: [], added: ['x.test.js', 'y.spec.tsx'] });
+});
+
+test('locked: dangling symlinks, symlinks to the feature root and .git are skipped', () => {
+  const { f, d } = setup();
+  symlinkSync(join(f, 'nope'), join(f, 'dangling'));
+  symlinkSync(f, join(f, '__tests__', 'loop'));
+  mkdirSync(join(f, '.git'));
+  writeFileSync(join(f, '.git', 'x.test.ts'), 'G');
+  record(f, d);
+  const inv = JSON.parse(readFileSync(join(d, 'inventory.json'), 'utf8')).map((e) => e.path);
+  assert.deepEqual(inv, ['__tests__/a.test.ts', '__tests__/b.test.ts']);
+  assert.deepEqual(verify(f, d), empty);
+});
+
+test('locked: a symlinked test file makes record throw code 3', () => {
+  const { f, d } = setup();
+  const target = join(mkdtempSync(join(tmpdir(), 'tb-tgt-')), 't.ts');
+  writeFileSync(target, 'T');
+  symlinkSync(target, join(f, 'y.test.ts'));
+  assert.throws(() => record(f, d), (e) => e.code === 3 && /symlinked test file y\.test\.ts/.test(e.message));
 });

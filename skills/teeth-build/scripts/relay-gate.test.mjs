@@ -403,3 +403,38 @@ test('mutants: the not covered count includes template, macro and glob lines tha
   const out = await gate(r, base, deps);
   assert.match(out.out, /0 findings, 0 passed, 0 timed out, 0 invalid, 3 not covered/);
 });
+
+test('baseline: a feature with no tests yet passes when vitest is given --passWithNoTests', async () => {
+  const r = repo();
+  const state = mkdtempSync(join(tmpdir(), 'tb-s-'));
+  const d = {
+    stateDir: () => state,
+    vitestMajor: () => 3,
+    log: () => {},
+    run: (a) => (a[0] === 'list' ? { status: 0, stdout: '[]', stderr: '' } : { status: a.includes('--passWithNoTests') ? 0 : 1, stdout: '', stderr: '' }),
+  };
+  assert.equal(await main(args(r, 'baseline'), d), 0);
+  assert.deepEqual(JSON.parse(readFileSync(join(state, 'baseline.json'), 'utf8')).list, []);
+});
+
+test('locked: --feature outside --root exits 3 and --feature . still works', async () => {
+  const r = repo();
+  const outside = mkdtempSync(join(tmpdir(), 'tb-out-'));
+  for (const feature of ['../x', outside]) {
+    const lines = [];
+    const state = mkdtempSync(join(tmpdir(), 'tb-s-'));
+    const a = ['locked', '--root', r, '--task', 't1', '--feature', feature, '--record'];
+    assert.equal(await main(a, fakeDeps(r, state, lines, 'list-base', null, 0)), 3);
+    assert.match(lines.join('\n'), /--feature must be inside --root/);
+  }
+  symlinkSync(outside, join(r, 'link'));
+  const lines = [];
+  const linkArgs = ['locked', '--root', r, '--task', 't1', '--feature', 'link', '--record'];
+  assert.equal(await main(linkArgs, fakeDeps(r, mkdtempSync(join(tmpdir(), 'tb-s-')), lines, 'list-base', null, 0)), 3);
+  assert.match(lines.join('\n'), /--feature must be inside --root/);
+  mkdirSync(join(r, '..foo'));
+  for (const feature of ['.', '..foo']) {
+    const a = ['locked', '--root', r, '--task', 't1', '--feature', feature, '--record'];
+    assert.equal(await main(a, fakeDeps(r, mkdtempSync(join(tmpdir(), 'tb-s-')), [], 'list-base', null, 0)), 0);
+  }
+});
