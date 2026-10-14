@@ -23,7 +23,7 @@ Commands:
 - `locked --record | --verify | --restore`: records the feature's test files (`*.test.*` and `*.spec.*` with a `js`, `ts`, `jsx`, `tsx`, `mjs`, `cjs`, `mts` or `cts` extension) and every file under a `__snapshots__` directory, reports changes to them, or rewrites them to the recorded bytes. `--restore` is the only command that writes to the target repo's working tree: it overwrites modified and deleted test files and deletes added ones.
 - `mutants [--base SHA] [--cache-dir D]`: copies the repo to a work directory, runs Stryker on the changed lines of `.ts` and `.vue` files under `--feature`, and prints one line per finding. `--base` defaults to the sha stored by `baseline`.
 
-Required for every command except `setup`: `--root`, `--task` (letters, digits, `_`, `.`, `-`; names the state directory), `--feature` (repo-relative path; a path outside `--root`, also through a symlink, exits 3 with `--feature must be inside --root`). The state directory is `<os temp>/teeth-build/<sha1 of root>/<task>`.
+Required for every command except `setup`: `--root`, `--task` (letters, digits, `_`, `.`, `-`; names the state directory), `--feature` (repo-relative path; a path outside `--root`, also through a symlink, exits 3 with `--feature must be inside --root`). The state directory is `<cache>/<sha1 of root>/state/<task>`, where `<cache>` is `--cache-dir` or `~/.cache/teeth-build`. Every command accepts `--cache-dir`; give all commands of one task the same value.
 
 Exit codes:
 

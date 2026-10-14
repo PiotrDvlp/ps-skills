@@ -99,19 +99,33 @@ test('task: a path-like --task exits 3', async () => {
   assert.match(lines.join('\n'), /invalid --task/);
 });
 
-test('state: a group-readable task dir is refused', async () => {
+const hashOf = (r) => createHash('sha1').update(r).digest('hex');
+
+test('state: the task state lives under --cache-dir and survives a different TMPDIR', async () => {
   const r = repo();
+  const cache = tmp('tb-cache-');
+  const { stateDir: _s, ...d } = fakeDeps(r, null, [], 'list-base', null, 0);
+  assert.equal(await main([...args(r, 'baseline'), '--cache-dir', cache], d), 0);
+  assert.equal(existsSync(join(cache, hashOf(r), 'state', 't1', 'baseline.json')), true);
   const old = process.env.TMPDIR;
-  process.env.TMPDIR = tmp('tb-base-');
+  process.env.TMPDIR = tmp('tb-other-');
   try {
-    chmodSync(stateDir(r, 't1'), 0o755);
     const lines = [];
-    const { stateDir: _s, ...d } = fakeDeps(r, null, lines, 'list-base', null, 0);
-    assert.equal(await main(args(r, 'baseline'), d), 3);
-    assert.match(lines.join('\n'), /unsafe state directory/);
+    const { stateDir: _t, ...d2 } = fakeDeps(r, null, lines, 'list-new', 'red-assert');
+    assert.equal(await main([...args(r, 'red'), '--cache-dir', cache], d2), 0, lines.join('\n'));
   } finally {
     process.env.TMPDIR = old;
   }
+});
+
+test('state: a group-readable task dir is refused', async () => {
+  const r = repo();
+  const cache = tmp('tb-cache-');
+  chmodSync(stateDir({ cacheRoot: cache, hashDir: join(cache, hashOf(r)) }, 't1'), 0o755);
+  const lines = [];
+  const { stateDir: _s, ...d } = fakeDeps(r, null, lines, 'list-base', null, 0);
+  assert.equal(await main([...args(r, 'baseline'), '--cache-dir', cache], d), 3);
+  assert.match(lines.join('\n'), /unsafe state directory/);
 });
 
 async function redWith(report, list = 'list-new') {

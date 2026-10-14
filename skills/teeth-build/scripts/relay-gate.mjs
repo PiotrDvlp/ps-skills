@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -28,12 +28,12 @@ export function vitestMajor(root) {
   return 3;
 }
 
-export function stateDir(root, task) {
-  const base = join(tmpdir(), 'teeth-build');
-  const hashed = join(base, createHash('sha1').update(resolve(root)).digest('hex'));
-  const dir = join(hashed, task);
+export function stateDir({ cacheRoot, hashDir }, task) {
+  ensureSafeDir(cacheRoot, 'cache directory');
+  ensureSafeDir(hashDir, 'cache directory');
+  const dir = join(hashDir, 'state', task);
   ensureSafeDir(dir);
-  for (const p of [base, hashed]) assertSafeDir(p);
+  assertSafeDir(join(hashDir, 'state'));
   return dir;
 }
 
@@ -187,7 +187,7 @@ function mutateEntries(root, changed) {
 
 async function mutants(ctx, argv) {
   const { root, state, deps } = ctx;
-  const { cacheRoot, hashDir, toolDir, workDir } = cachePaths(root, argv);
+  const { hashDir, toolDir, workDir } = ctx.paths;
   const top = git(root, 'rev-parse', '--show-toplevel');
   if (realpathSync(top) !== realpathSync(root)) throw fail('root must be the git top-level');
   const base = flag(argv, 'base') ?? (existsSync(join(state, 'baseline.json')) ? JSON.parse(readFileSync(join(state, 'baseline.json'), 'utf8')).base : null);
@@ -203,8 +203,6 @@ async function mutants(ctx, argv) {
   if (!deps.toolReady(toolDir)) throw fail(`run: relay-gate.mjs setup --root ${root}`);
   const tsconfig = join(root, 'tsconfig.json');
   if (existsSync(tsconfig) && /"extends"\s*:\s*"\.\/\.nuxt\//.test(readFileSync(tsconfig, 'utf8')) && !existsSync(join(root, '.nuxt'))) throw fail('run npx nuxi prepare');
-  ensureSafeDir(cacheRoot, 'cache directory');
-  ensureSafeDir(hashDir, 'cache directory');
   return withRepoLock(hashDir, () => {
     deps.syncWork(root, workDir);
     deps.linkTool(toolDir, root);
@@ -277,7 +275,8 @@ export async function main(argv, deps = {}) {
       linkTool: deps.linkTool ?? linkTool,
       log,
     };
-    const ctx = { root, feature, state: d.stateDir(root, task), deps: d };
+    const paths = cachePaths(root, argv);
+    const ctx = { root, feature, paths, state: d.stateDir(paths, task), deps: d };
     return await { baseline, red, locked, mutants }[cmd](ctx, argv);
   } catch (e) {
     log(e.message);
