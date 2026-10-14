@@ -79,7 +79,15 @@ const snapshot = await page.snapshotForAI({
   timeout: 5000    // Timeout in ms
 });
 console.log(snapshot.full);
+
+// Act on a ref from the snapshot, then print only what changed
+const tracked = await page.snapshotForAI({ track: "main", timeout: 5000 });
+// tracked.full contains lines like: - button "Continue" [ref=e12]
+await page.getByRef("e12").click({ timeout: 5000 });
+console.log((await page.snapshotForAI({ track: "main", timeout: 5000 })).incremental);
 ```
+
+Refs (`eN`, `fNeN` inside iframes) come from the latest snapshot. Re-snapshot after navigation.
 
 **When to use snapshotForAI vs screenshot:**
 - `snapshotForAI()` → when you need structure (selectors, text, interactive elements)
