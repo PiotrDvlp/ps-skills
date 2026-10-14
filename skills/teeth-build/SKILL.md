@@ -17,7 +17,7 @@ Below, `G` stands for `node ${CLAUDE_SKILL_DIR}/scripts/relay-gate.mjs` and `F` 
 4. The working tree is clean. Otherwise stop and ask the user to commit, stash or stop.
 5. Cache: `~/.cache/teeth-build` unless the user names another directory. If the sandbox blocks writes there, every command exits 3; ask the user to allow the directory or name a writable one.
 6. In a Nuxt repo, `.nuxt/` exists. Otherwise ask the user to run `npx nuxi prepare`.
-7. Resume: read the plan. Skip a task whose `teeth-build result` block says `done` or `done, waiver pending`. For a `blocked` task, ask the user whether to retry it. A task with no result block and a dirty working tree: show `git status --short` and ask the user to discard those edits or stop.
+7. Resume: read the plan. Skip a task whose `teeth-build result` block says `done`, `done, waiver pending` or `done, not mutation-checked`. For a `blocked` task, ask the user whether to retry it. A task with no result block and a dirty working tree: show `git status --short` and ask the user to discard those edits or stop.
 
 ## Per task
 
@@ -85,12 +85,14 @@ You may propose a surviving mutant as `equivalent` when its replacement cannot c
    - rounds: red 0, green 1, mutants 1
    ```
 
-   The `tests` line depends on the path: relay `N red-proven, M mutation-proven repair`; gate `N written by implementer, M mutation-proven repair`; refactor `N new, M mutation-proven repair`. `planned removals` lists each `cases` line the plan task names, or `none`. The status is `done`, `done, waiver pending` or `blocked`. `killed of N` counts `passed` against `passed` plus findings plus `timed out` from the last `mutants` summary.
+   The `tests` line depends on the path: relay `N red-proven, M mutation-proven repair`; gate `N written by implementer, M mutation-proven repair`; refactor `N new, M mutation-proven repair`. `planned removals` lists each `cases` line the plan task names, or `none`. The status is `done`, `done, waiver pending`, `done, not mutation-checked` or `blocked`. Use `done, not mutation-checked` when N in `killed of N` is 0 and the block lists at least one `not covered` line: the gate tested none of the task's changes, for example a template-only change. `killed of N` counts `passed` against `passed` plus findings plus `timed out` from the last `mutants` summary.
 2. Commit the task's files through the `commit` skill; when the plan file lives inside the repo, commit it in the same commit, so the next `baseline` finds a clean tree. Never push. A `blocked` task writes its result block and commits nothing; the run stops there.
 
 ## After the last task: waiver review
 
-List every proposed equivalent from all result blocks (task, `file:line mutator → replacement`, reason) and ask the user to approve or reject each one. Mark an approved one `approved` in its result block. For a rejected one, reopen its task: the writer (relay, refactor) or the implementer (gate) gets the mutant. Run the feature suite, then `G mutants F --base <base from that task's result block>`. A fresh baseline would see no changed lines, because the task's code is already committed. The rejected mutant must no longer be a finding; findings on lines from later tasks belong to those tasks. Commit the follow-up as a new commit and update the result block. The run is done when no waiver is pending.
+List every proposed equivalent from all result blocks (task, `file:line mutator → replacement`, reason) and ask the user to approve or reject each one. Mark an approved one `approved` in its result block. For a rejected one, reopen its task: the writer (relay, refactor) or the implementer (gate) gets the mutant. Run the feature suite, then `G mutants F --base <base from that task's result block>`. A fresh baseline would see no changed lines, because the task's code is already committed. The rejected mutant must no longer be a finding; findings on lines from later tasks belong to those tasks. Commit the follow-up as a new commit and update the result block.
+
+Then list every task with status `done, not mutation-checked` and its `not covered` lines, and ask the user to accept each one. Append `, accepted` to an accepted status. For a rejected one, tell the user that no gate checks those lines and leave the follow-up to them. The run is done when no waiver is pending and the user has answered for every `done, not mutation-checked` task.
 
 ## Agents
 

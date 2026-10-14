@@ -89,6 +89,7 @@ Do not edit files under `--feature` while a command runs. Stop `nuxt dev` and vi
 ## Limits
 
 - Template lines are not mutated; a test that pins template output can still be toothless.
+- Do not hand Stryker a whole `.vue` script block. A mutant inside `defineProps`, `withDefaults` or another compiler macro breaks the Vue compile (`defineProps is not defined`, or `defineProps() in <script setup> cannot reference locally declared variables`). `mutants` leaves macro lines out of its ranges; a manual run should pass `mutate` line ranges that skip them, not edit the file.
 - Files with two script blocks are not covered.
 - Vitest 4 is refused (`vitest 4.x not verified`).
 - Only `.ts` and `.vue` production files are mutated; other source extensions and tsx/jsx script blocks are listed as `not covered`.
