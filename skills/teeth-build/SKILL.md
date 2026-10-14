@@ -7,17 +7,17 @@ description: Use when an approved implementation plan should be built task by ta
 
 You are the controller. You run an approved implementation plan one task at a time, dispatch a test writer and an implementer, and run the gates in `scripts/relay-gate.mjs`. You write no tests and no production code yourself, except the stubs in relay step 2. Read `references/cli.md` before the first command: it lists every subcommand, exit code and output line.
 
-Below, `G` stands for `node ${CLAUDE_SKILL_DIR}/scripts/relay-gate.mjs` and `F` for `--root <repo> --task <task id> --feature <feature> --cache-dir <cache>`, with the same `<cache>` for the whole run. Task id: `T` plus the plan's task number. Feature: the nearest existing directory, relative to the repo root, that contains every file the task lists.
+Below, `G` stands for `node ${CLAUDE_SKILL_DIR}/scripts/relay-gate.mjs` and `F` for `--root <repo> --task <task id> --feature <feature> --cache-dir <cache>`, with the same `<cache>` for the whole run. In a shell, define `G() { node ${CLAUDE_SKILL_DIR}/scripts/relay-gate.mjs "$@"; }` and pass `F` as separate arguments; zsh does not split one string variable into words. Task id: `T` plus the plan's task number. Feature: the nearest existing directory, relative to the repo root, that contains every file the task lists. When a task creates a new directory, that is often the repo root; `locked` and the feature suite then cover the whole repo, which is correct but slower.
 
 ## Before the first task
 
-1. The user approved the plan. If you cannot tell, ask.
+1. The user approved the plan. A `/teeth-build <plan>` invocation counts as approval; if the plan reached you another way and you cannot tell, ask.
 2. The repo has vitest 3 in `node_modules`; Node 22+; `npm` and `rsync` are on the PATH.
 3. `git branch --show-current` is not `main`, `master` or `develop`. Otherwise stop and ask for a branch.
 4. The working tree is clean. Otherwise stop and ask the user to commit, stash or stop.
 5. Cache: `~/.cache/teeth-build` unless the user names another directory. If the sandbox blocks writes there, every command exits 3; ask the user to allow the directory or name a writable one.
 6. In a Nuxt repo, `.nuxt/` exists. Otherwise ask the user to run `npx nuxi prepare`.
-7. Resume: read the plan. Skip a task whose `teeth-build result` block says `done` or `done, waiver pending`. For a `blocked` task, ask the user whether to retry it. A task with no result block and a dirty working tree: show `git status --short` and ask the user to discard those edits or stop.
+7. Resume: read the plan. Skip a task whose `teeth-build result` block says `done`, `done, waiver pending` or `done, not mutation-checked`. For a `blocked` task, ask the user whether to retry it. A task with no result block and a dirty working tree: show `git status --short` and ask the user to discard those edits or stop.
 
 ## Per task
 
@@ -46,7 +46,7 @@ Run `G baseline F`. Exit 2: the feature suite was red before the task; stop and 
    - `G cases F`. On exit 1, send the removed cases, unless the plan task names that removal.
 8. `G mutants F`.
    - Exit 0: go to Done.
-   - Exit 1: send the findings to the writer in repair mode (a mutants round). Run the feature suite; a failing repair test goes back to the writer once, and if the writer reports that the implementation is wrong, the task is `blocked`. Then rerun `G scope F --allow <list>` (the list from step 7 plus the repair test files) and `G cases F`; a failure goes back to the writer as a mutants round. Then `G locked --record F` and `G mutants F` again; the targeted mutants must be gone from the findings.
+   - Exit 1: send the findings to the writer in repair mode (a mutants round). For `no assertion evidence`, tell the writer that the gate reads only the first failing test of each mutant, so the repair case must come before any test that crashes on that mutant. Run the feature suite; a failing repair test goes back to the writer once, and if the writer reports that the implementation is wrong, the task is `blocked`. Then rerun `G scope F --allow <list>` (the list from step 7 plus the repair test files) and `G cases F`; a failure goes back to the writer as a mutants round. Then `G locked --record F` and `G mutants F` again; the targeted mutants must be gone from the findings.
    - Exit 2: send the output to the implementer (a green round).
    - Exit 3 with `run: relay-gate.mjs setup`: see Setup. Any other exit 3: stop and show the message.
 
@@ -78,18 +78,21 @@ You may propose a surviving mutant as `equivalent` when its replacement cannot c
    **teeth-build result (T3):** done
    - base: 1a2b3c4, route: relay
    - tests: 4 red-proven, 1 mutation-proven repair
+   - planned removals: none
    - mutants: 23 killed of 25; timed out: none; invalid: none
    - not covered: src/x/Badge.vue:3 template
    - proposed equivalents: src/x/clamp.ts:4 EqualityOperator → `n <= max` (n equal to max returns max either way)
    - rounds: red 0, green 1, mutants 1
    ```
 
-   The status is `done`, `done, waiver pending` or `blocked`. `killed of N` counts `passed` against `passed` plus findings plus `timed out` from the last `mutants` summary.
+   The `tests` line depends on the path: relay `N red-proven, M mutation-proven repair`; gate `N written by implementer, M mutation-proven repair`; refactor `N new, M mutation-proven repair`. `planned removals` lists each `cases` line the plan task names, or `none`. The status is `done`, `done, waiver pending`, `done, not mutation-checked` or `blocked`. Use `done, not mutation-checked` when N in `killed of N` is 0 and the block lists at least one `not covered` line: the gate tested none of the task's changes, for example a template-only change. `killed of N` counts `passed` against `passed` plus findings plus `timed out` from the last `mutants` summary.
 2. Commit the task's files through the `commit` skill; when the plan file lives inside the repo, commit it in the same commit, so the next `baseline` finds a clean tree. Never push. A `blocked` task writes its result block and commits nothing; the run stops there.
 
 ## After the last task: waiver review
 
-List every proposed equivalent from all result blocks (task, `file:line mutator → replacement`, reason) and ask the user to approve or reject each one. Mark an approved one `approved` in its result block. For a rejected one, reopen its task: the writer (relay, refactor) or the implementer (gate) gets the mutant. Run the feature suite, then `G mutants F --base <base from that task's result block>`. A fresh baseline would see no changed lines, because the task's code is already committed. The rejected mutant must no longer be a finding; findings on lines from later tasks belong to those tasks. Commit the follow-up as a new commit and update the result block. The run is done when no waiver is pending.
+List every proposed equivalent from all result blocks (task, `file:line mutator → replacement`, reason) and ask the user to approve or reject each one. Mark an approved one `approved` in its result block. For a rejected one, reopen its task: the writer (relay, refactor) or the implementer (gate) gets the mutant. Run the feature suite, then `G mutants F --base <base from that task's result block>`. A fresh baseline would see no changed lines, because the task's code is already committed. The rejected mutant must no longer be a finding; findings on lines from later tasks belong to those tasks. Commit the follow-up as a new commit and update the result block.
+
+Then list every task with status `done, not mutation-checked` and its `not covered` lines, and ask the user to accept each one. Append `, accepted` to an accepted status. For a rejected one, tell the user that no gate checks those lines and leave the follow-up to them. The run is done when no waiver is pending and the user has answered for every `done, not mutation-checked` task.
 
 ## Agents
 
