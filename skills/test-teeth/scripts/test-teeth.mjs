@@ -119,6 +119,36 @@ export function recover(root, log = console.error) {
 export const INVALID_RE = /SyntaxError|Failed to resolve import|Cannot find module|Failed to parse|Transform failed|Parse failure/;
 const ASSERTION_PREFIX = 'AssertionError:';
 
+const STRYKER_CRASH_RE = /Cannot read properties|Cannot destructure|is not a function|is not defined|is not valid JSON|^promise rejected "\w*Error|Cannot call vm/;
+
+/**
+ * Per-case assertion-kill counts from a Stryker mutation-testing-report JSON.
+ * @remarks Stryker stores one statusReason per mutant, so a crash reason is discounted only when the mutant has a single killer.
+ */
+export function strykerKills(report) {
+  const names = new Map();
+  for (const [spec, file] of Object.entries(report.testFiles ?? {})) for (const t of file.tests ?? []) {
+    const key = `${spec}::${t.name}`;
+    names.set(key, names.has(key) ? null : t.id);
+  }
+  const counts = new Map();
+  for (const file of Object.values(report.files ?? {})) for (const m of file.mutants ?? []) {
+    if (m.status !== 'Killed') continue;
+    if (!m.killedBy?.length) {
+      const err = new Error(`Stryker report has killed mutant ${m.id} without killedBy; rerun Stryker with coverageAnalysis "perTest"`);
+      err.code = 3;
+      throw err;
+    }
+    const reason = m.statusReason ?? '';
+    if (m.killedBy.length === 1 && !reason.startsWith('expected ') && STRYKER_CRASH_RE.test(reason)) continue;
+    for (const id of m.killedBy) counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return (c) => {
+    const id = c.titles && names.get(`${c.spec}::${c.titles.join(' ')}`);
+    return id == null ? undefined : counts.get(id) ?? 0;
+  };
+}
+
 export function caseId(specRel, name, line) {
   return `${specRel}::${name}::${line}`;
 }
@@ -162,12 +192,13 @@ export function attribute(report, cases, root) {
     for (const a of file.assertionResults ?? []) {
       const id = caseId(spec, reporterName(a), a.location?.line ?? 0);
       if (!byCase.has(id)) continue;
+      const titles = [...(a.ancestorTitles ?? []), a.title];
       const message = a.failureMessages?.[0] ?? '';
       if (!message.startsWith(ASSERTION_PREFIX) && INVALID_RE.test(message)) invalid = true;
-      if (a.status === 'passed') byCase.set(id, { status: 'passed', message: '' });
-      else if (a.status === 'skipped' || a.status === 'pending' || a.status === 'todo') byCase.set(id, { status: 'skipped', message: '' });
-      else if (a.status === 'failed' && message.startsWith(ASSERTION_PREFIX)) { byCase.set(id, { status: 'killed', message }); killed = true; }
-      else if (a.status === 'failed') { byCase.set(id, { status: 'runtime', message }); runtimeFailures.push(id); }
+      if (a.status === 'passed') byCase.set(id, { status: 'passed', message: '', titles });
+      else if (a.status === 'skipped' || a.status === 'pending' || a.status === 'todo') byCase.set(id, { status: 'skipped', message: '', titles });
+      else if (a.status === 'failed' && message.startsWith(ASSERTION_PREFIX)) { byCase.set(id, { status: 'killed', message, titles }); killed = true; }
+      else if (a.status === 'failed') { byCase.set(id, { status: 'runtime', message, titles }); runtimeFailures.push(id); }
     }
   }
   const mutantState = invalid ? 'invalid' : killed ? 'killed' : 'survived';
@@ -526,6 +557,12 @@ export async function audit(opts) {
       }
       return { id: c.id, spec: c.spec, name: c.name, line: c.line, result, deletion };
     });
+    for (const v of verdicts) if (v.deletion === null) {
+      const n = opts.strykerKills?.({ ...v, titles: baseAttr.byCase.get(v.id)?.titles });
+      if (!opts.strykerKills) v.deletion = `not verified: sampled evidence only (${sampled} mutants); pass --stryker-report`;
+      else if (n === undefined) v.deletion = 'not verified: not in Stryker report';
+      else if (n > 0) v.deletion = `keep (Stryker: ${n} assertion kills)`;
+    }
 
     const bySpec = new Map();
     for (const v of verdicts) if (v.deletion === null) {
@@ -693,7 +730,7 @@ function flag(argv, name) {
 }
 
 export async function main(argv) {
-  if (argv[0] !== 'audit') { process.stderr.write('usage: test-teeth.mjs audit --root R --feature F [--max-mutations N] [--mutations JSON] [--report PATH] [--timeout-ms N] [--list-only] [--vitest-bin PATH]\n'); return 3; }
+  if (argv[0] !== 'audit') { process.stderr.write('usage: test-teeth.mjs audit --root R --feature F [--max-mutations N] [--mutations JSON] [--report PATH] [--stryker-report JSON] [--timeout-ms N] [--list-only] [--vitest-bin PATH]\n'); return 3; }
   try {
     const rootArg = flag(argv, 'root');
     if (!rootArg) throw new Error('--root is required');
@@ -708,6 +745,8 @@ export async function main(argv) {
     const manual = mutations ? JSON.parse(readFileSync(mutations, 'utf8')) : [];
     const vitestBin = flag(argv, 'vitest-bin');
     const report = flag(argv, 'report');
+    const strykerReport = flag(argv, 'stryker-report');
+    const strykerKillsFn = strykerReport ? strykerKills(JSON.parse(readFileSync(strykerReport, 'utf8'))) : undefined;
     if (argv.includes('--list-only')) {
       if (manual.length > maxMutations) process.stderr.write(`--mutations has ${manual.length} entries, more than --max-mutations ${maxMutations}; all ${manual.length} run\n`);
       const featureAbs = resolve(root, feature);
@@ -717,7 +756,7 @@ export async function main(argv) {
       for (const m of planAll(files, { maxMutations, manual })) process.stdout.write(`${m.id} ${m.file} ${m.kind} ${m.note}\n`);
       return 0;
     }
-    const result = await audit({ root, feature, maxMutations, manual, timeoutMs, vitestBin, log: (s) => process.stderr.write(s + '\n') });
+    const result = await audit({ root, feature, maxMutations, manual, timeoutMs, vitestBin, strykerKills: strykerKillsFn, log: (s) => process.stderr.write(s + '\n') });
     const md = renderReport(result);
     if (report) {
       try {
