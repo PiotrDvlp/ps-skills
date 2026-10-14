@@ -298,11 +298,20 @@ function fakeRunner(root, perRun) {
 test('stryker: assertion kills counted per test, a crash with a lone killer is not', () => {
   const report = fixture('stryker/mini.json');
   const kills = tt.strykerKills(report);
-  assert.equal(kills({ spec: '__tests__/sum.test.ts', name: 'sum > adds' }), 1);
-  assert.equal(kills({ spec: '__tests__/sum.test.ts', name: 'sum > tautology' }), 0);
-  assert.equal(kills({ spec: '__tests__/sum.test.ts', name: 'sum > missing' }), undefined);
+  assert.equal(kills({ spec: '__tests__/sum.test.ts', titles: ['sum', 'adds'] }), 1);
+  assert.equal(kills({ spec: '__tests__/sum.test.ts', titles: ['sum', 'tautology'] }), 0);
+  assert.equal(kills({ spec: '__tests__/sum.test.ts', titles: ['sum', 'missing'] }), undefined);
   report.files['sum.ts'].mutants[1].statusReason = 'expected 1 to be 2 // Object.is equality';
-  assert.equal(tt.strykerKills(report)({ spec: '__tests__/sum.test.ts', name: 'sum > tautology' }), 1);
+  assert.equal(tt.strykerKills(report)({ spec: '__tests__/sum.test.ts', titles: ['sum', 'tautology'] }), 1);
+});
+
+test('stryker: a literal > in a title does not borrow another test\'s kills', () => {
+  const report = fixture('stryker/mini.json');
+  report.testFiles['__tests__/sum.test.ts'].tests = [{ id: '1', name: 'sum > adds' }, { id: '2', name: 'sum adds' }];
+  report.files['sum.ts'].mutants = [report.files['sum.ts'].mutants[0]];
+  const kills = tt.strykerKills(report);
+  assert.equal(kills({ spec: '__tests__/sum.test.ts', titles: ['sum > adds'] }), 1);
+  assert.equal(kills({ spec: '__tests__/sum.test.ts', titles: ['sum adds'] }), 0);
 });
 
 test('stryker: a killed mutant without killedBy rejects the report', () => {
@@ -317,8 +326,8 @@ test('stryker: a crash shared by several killers still credits each of them', ()
   const report = fixture('stryker/mini.json');
   report.files['sum.ts'].mutants[1].killedBy = ['1', '2'];
   const kills = tt.strykerKills(report);
-  assert.equal(kills({ spec: '__tests__/sum.test.ts', name: 'sum > tautology' }), 1);
-  assert.equal(kills({ spec: '__tests__/sum.test.ts', name: 'sum > adds' }), 2);
+  assert.equal(kills({ spec: '__tests__/sum.test.ts', titles: ['sum', 'tautology'] }), 1);
+  assert.equal(kills({ spec: '__tests__/sum.test.ts', titles: ['sum', 'adds'] }), 2);
 });
 
 test('audit: without Stryker evidence no case is called removable and nothing is trimmed', async () => {
@@ -337,10 +346,11 @@ test('audit: Stryker assertion kills keep a case the sample missed', async () =>
   const root = miniRepo();
   try {
     const green = { report: 'reporter/green.json' };
-    const strykerKills = (c) => (c.name === 'sum > tautology' ? 3 : 0);
-    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills, run: fakeRunner(root, [green, { report: 'reporter/tautology-m01.json', status: 1 }, green]), log: () => {} });
+    const report = fixture('stryker/mini.json');
+    report.files['sum.ts'].mutants[1].statusReason = 'expected 1 to be 2 // Object.is equality';
+    const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: tt.strykerKills(report), run: fakeRunner(root, [green, { report: 'reporter/tautology-m01.json', status: 1 }, green]), log: () => {} });
     const taut = r.verdicts.find((v) => v.id.endsWith('::sum > tautology::5'));
-    assert.equal(taut.deletion, 'keep (Stryker: 3 assertion kills)');
+    assert.equal(taut.deletion, 'keep (Stryker: 1 assertion kills)');
     assert.equal(r.runs, 2);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

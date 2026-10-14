@@ -144,7 +144,7 @@ export function strykerKills(report) {
     for (const id of m.killedBy) counts.set(id, (counts.get(id) ?? 0) + 1);
   }
   return (c) => {
-    const id = names.get(`${c.spec}::${c.name.split(' > ').join(' ')}`);
+    const id = c.titles && names.get(`${c.spec}::${c.titles.join(' ')}`);
     return id == null ? undefined : counts.get(id) ?? 0;
   };
 }
@@ -192,12 +192,13 @@ export function attribute(report, cases, root) {
     for (const a of file.assertionResults ?? []) {
       const id = caseId(spec, reporterName(a), a.location?.line ?? 0);
       if (!byCase.has(id)) continue;
+      const titles = [...(a.ancestorTitles ?? []), a.title];
       const message = a.failureMessages?.[0] ?? '';
       if (!message.startsWith(ASSERTION_PREFIX) && INVALID_RE.test(message)) invalid = true;
-      if (a.status === 'passed') byCase.set(id, { status: 'passed', message: '' });
-      else if (a.status === 'skipped' || a.status === 'pending' || a.status === 'todo') byCase.set(id, { status: 'skipped', message: '' });
-      else if (a.status === 'failed' && message.startsWith(ASSERTION_PREFIX)) { byCase.set(id, { status: 'killed', message }); killed = true; }
-      else if (a.status === 'failed') { byCase.set(id, { status: 'runtime', message }); runtimeFailures.push(id); }
+      if (a.status === 'passed') byCase.set(id, { status: 'passed', message: '', titles });
+      else if (a.status === 'skipped' || a.status === 'pending' || a.status === 'todo') byCase.set(id, { status: 'skipped', message: '', titles });
+      else if (a.status === 'failed' && message.startsWith(ASSERTION_PREFIX)) { byCase.set(id, { status: 'killed', message, titles }); killed = true; }
+      else if (a.status === 'failed') { byCase.set(id, { status: 'runtime', message, titles }); runtimeFailures.push(id); }
     }
   }
   const mutantState = invalid ? 'invalid' : killed ? 'killed' : 'survived';
@@ -557,7 +558,7 @@ export async function audit(opts) {
       return { id: c.id, spec: c.spec, name: c.name, line: c.line, result, deletion };
     });
     for (const v of verdicts) if (v.deletion === null) {
-      const n = opts.strykerKills?.(v);
+      const n = opts.strykerKills?.({ ...v, titles: baseAttr.byCase.get(v.id)?.titles });
       if (!opts.strykerKills) v.deletion = `not verified: sampled evidence only (${sampled} mutants); pass --stryker-report`;
       else if (n === undefined) v.deletion = 'not verified: not in Stryker report';
       else if (n > 0) v.deletion = `keep (Stryker: ${n} assertion kills)`;
