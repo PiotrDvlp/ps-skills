@@ -571,7 +571,7 @@ export async function audit(opts) {
         if (group.ids.some((id) => !vs.some((candidate) => candidate.id === id))) {
           for (const id of group.ids) {
             const target = verdicts.find((candidate) => candidate.id === id);
-            if (target && !target.deletion?.startsWith('not verified:')) {
+            if (target?.deletion === null) {
               target.deletion = 'not verified: shared each() call';
             }
           }
