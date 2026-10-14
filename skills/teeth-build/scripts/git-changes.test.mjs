@@ -84,3 +84,12 @@ test('changed-lines: a file name git has to quote exits 3', () => {
   spawnSync('git', ['mv', 'f/a.ts', 'f/t\tb.ts'], { cwd: t.r });
   assert.throws(() => changedLines(t.r, t.base, 'f'), (e) => e.code === 3 && /quoted/.test(e.message));
 });
+
+test('changed-lines: a removed content line starting with -- " is not a quoted path header', () => {
+  const { r } = repo();
+  writeFileSync(join(r, 'f', 'a.ts'), 'const a = 1\n-- "x"\nconst c = 3\n');
+  git(r, 'commit', '-qam', 'dash');
+  const head = git(r, 'rev-parse', 'HEAD').stdout.trim();
+  writeFileSync(join(r, 'f', 'a.ts'), 'const a = 1\n++ "y"\nconst c = 3\n');
+  assert.deepEqual([...changedLines(r, head, 'f').entries()], [['f/a.ts', [2]]]);
+});
