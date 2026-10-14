@@ -74,3 +74,13 @@ test('changed-lines: changed js, jsx and tsx production files are returned', () 
   for (const f of ['b.js', 'c.tsx', 'd.jsx']) writeFileSync(join(r, 'f', f), 'export const x = 1\n');
   assert.deepEqual([...changedLines(r, base, 'f').keys()], ['f/b.js', 'f/c.tsx', 'f/d.jsx']);
 });
+
+test('changed-lines: a file name git has to quote exits 3', () => {
+  const { r, base } = repo();
+  writeFileSync(join(r, 'f', 'q"b.ts'), 'export const x = 1\n');
+  assert.throws(() => changedLines(r, base, 'f'), (e) => e.code === 3 && /quoted/.test(e.message));
+  const t = repo();
+  writeFileSync(join(t.r, 'f', 'a.ts'), 'const a = 1\n');
+  spawnSync('git', ['mv', 'f/a.ts', 'f/t\tb.ts'], { cwd: t.r });
+  assert.throws(() => changedLines(t.r, t.base, 'f'), (e) => e.code === 3 && /quoted/.test(e.message));
+});

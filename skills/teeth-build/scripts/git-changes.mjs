@@ -19,7 +19,9 @@ export function changedLines(root, base, featureRel) {
   const add = (file, line) => { if (!out.has(file)) out.set(file, []); out.get(file).push(line); };
   const diff = gitOk(root, ['diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', base, '--', featureRel]);
   let file = null;
+  const quoted = (f) => { throw fail(`git quoted the path ${f}; rename it without quotes, tabs or newlines`); };
   for (const l of diff.split('\n')) {
+    if (/^(\+\+\+|---) "/.test(l)) quoted(l.slice(4));
     if (l.startsWith('+++ ')) file = l === '+++ /dev/null' ? null : l.slice(6).replace(/\t$/, '');
     const h = l.match(/^@@ -\S+ \+(\d+)(?:,(\d+))? @@/);
     if (h && file && SOURCE.test(file) && !TEST_FILE.test(file)) {
@@ -28,6 +30,7 @@ export function changedLines(root, base, featureRel) {
     }
   }
   for (const f of gitOk(root, ['ls-files', '--others', '--exclude-standard', '--', featureRel]).split('\n').filter(Boolean)) {
+    if (f.startsWith('"')) quoted(f);
     if (!SOURCE.test(f) || TEST_FILE.test(f)) continue;
     const n = readFileSync(join(root, f), 'utf8').replace(/\n$/, '').split('\n').length;
     for (let i = 1; i <= n; i++) add(f, i);

@@ -534,3 +534,20 @@ test('cases: only added cases exit 0', async () => {
   assert.equal(await main(args(r, 'cases'), fakeDeps(r, state, lines, 'list-new', null)), 0);
   assert.doesNotMatch(lines.join('\n'), /removed:/);
 });
+
+test('scope: a base test file edited after git rm --cached is still named', async () => {
+  const r = scopeRepo();
+  spawnSync('git', ['rm', '-q', '--cached', 'f/__tests__/old.test.ts'], { cwd: r });
+  writeFileSync(join(r, 'f', '__tests__', 'old.test.ts'), 'weakened\n');
+  const { code, lines } = await scopeRun(r, 'f/a.ts');
+  assert.equal(code, 1);
+  assert.deepEqual(lines, ['out of scope: f/__tests__/old.test.ts']);
+});
+
+test('scope: a root below the git top-level exits 3', async () => {
+  const r = scopeRepo();
+  const lines = [];
+  const code = await main(['scope', '--root', join(r, 'f'), '--task', 't1', '--feature', '.', '--base', 'HEAD', '--allow', 'x'], { stateDir: () => tmp('tb-s-'), log: (s) => lines.push(s) });
+  assert.equal(code, 3);
+  assert.match(lines.join('\n'), /root must be the git top-level/);
+});

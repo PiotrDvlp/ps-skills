@@ -230,12 +230,9 @@ function scope(ctx, argv) {
   const inFeature = (p) => featureRel === '' || p.startsWith(`${featureRel}/`);
   const isTest = (p) => TEST_FILE.test(p) || p.split('/').includes('__snapshots__');
   const paths = (...a) => git(root, ...a).split('\n').filter(Boolean);
-  const added = new Set([
-    ...paths('diff', '--name-only', '--no-renames', '--diff-filter=A', base),
-    ...paths('ls-files', '--others', '--exclude-standard'),
-  ]);
-  const changed = new Set([...paths('diff', '--name-only', '--no-renames', base), ...added]);
-  const out = [...changed].filter((p) => !allow.has(p) && !(added.has(p) && inFeature(p) && isTest(p))).sort();
+  const atBase = new Set(paths('ls-tree', '-r', '--name-only', base));
+  const changed = new Set([...paths('diff', '--name-only', '--no-renames', base), ...paths('ls-files', '--others', '--exclude-standard')]);
+  const out = [...changed].filter((p) => !allow.has(p) && !(!atBase.has(p) && inFeature(p) && isTest(p))).sort();
   for (const p of out) deps.log(`out of scope: ${p}`);
   return out.length ? 1 : 0;
 }
@@ -243,8 +240,6 @@ function scope(ctx, argv) {
 async function mutants(ctx, argv) {
   const { root, deps } = ctx;
   const { hashDir, toolDir, workDir } = ctx.paths;
-  const top = git(root, 'rev-parse', '--show-toplevel');
-  if (realpathSync(top) !== realpathSync(root)) throw fail('root must be the git top-level');
   const base = baseOf(ctx, argv);
   deps.vitestMajor(root);
   const changed = changedLines(root, base, ctx.feature);
@@ -319,6 +314,7 @@ export async function main(argv, deps = {}) {
     const featureAbs = resolve(root, feature);
     if (outside(root, featureAbs) || (existsSync(featureAbs) && outside(realpathSync(root), realpathSync(featureAbs)))) throw fail('--feature must be inside --root');
     if (!/^[\w.-]+$/.test(task) || task === '.' || task === '..') throw fail('invalid --task');
+    if (realpathSync(git(root, 'rev-parse', '--show-toplevel')) !== realpathSync(root)) throw fail('root must be the git top-level');
     const d = {
       run: deps.run ?? realRun(root),
       stateDir: deps.stateDir ?? stateDir,
