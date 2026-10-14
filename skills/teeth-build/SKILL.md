@@ -22,6 +22,7 @@ Commands:
 - `red`: lists the tests now, compares with the baseline, and checks that every new test fails with an assertion.
 - `locked --record | --verify | --restore`: records the feature's test files (`*.test.*` and `*.spec.*` with a `js`, `ts`, `jsx`, `tsx`, `mjs`, `cjs`, `mts` or `cts` extension) and every file under a `__snapshots__` directory, reports changes to them, or rewrites them to the recorded bytes. `--restore` is the only command that writes to the target repo's working tree: it overwrites modified and deleted test files and deletes added ones.
 - `scope --allow a.ts,b.vue [--base SHA]`: lists every path changed since the baseline (tracked, staged, deleted, renamed or untracked, anywhere in the repo) that is not in `--allow` and is not a new test file or snapshot under `--feature`. A test file that existed at the base must be in `--allow` to be changed. Use repo-relative paths in `--allow`.
+- `cases`: lists the tests now and prints every case from the baseline that is gone.
 - `mutants [--base SHA] [--cache-dir D]`: copies the repo to a work directory, runs Stryker on the changed lines of `.ts` and `.vue` files under `--feature`, and prints one line per finding. `--base` defaults to the sha stored by `baseline`.
 
 Required for every command except `setup`: `--root`, `--task` (letters, digits, `_`, `.`, `-`; names the state directory), `--feature` (repo-relative path; a path outside `--root`, also through a symlink, exits 3 with `--feature must be inside --root`). The state directory is `<cache>/<sha1 of root>/state/<task>`, where `<cache>` is `--cache-dir` or `~/.cache/teeth-build`. Every command accepts `--cache-dir`; give all commands of one task the same value.
@@ -51,6 +52,8 @@ Exit codes:
 `locked --verify` prints `modified: <path>`, `deleted: <path>` and `added: <path>`; exit 1 when any line prints. `--restore` prints only the differences that remain after restoring; normally nothing, exit 0.
 
 `scope` prints `out of scope: <path>` per unplanned path; exit 1 when any line prints.
+
+`cases` prints `removed: <spec> > <test name>`; exit 1 when any line prints. A renamed spec or test shows its old name as removed.
 
 `mutants` prints findings as `<file>:<line> <mutator> → <replacement> (<reason>)`, then the other lists, then a summary: `N findings, N passed, N timed out, N invalid, N not covered`.
 

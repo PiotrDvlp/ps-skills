@@ -44,7 +44,7 @@ const realRun = (root) => (args, cwd = root) => {
 };
 
 const interrupted = (r) => r.signal === 'SIGINT' || r.signal === 'SIGTERM';
-const USAGE = 'usage: relay-gate.mjs setup|baseline|red|locked|scope|mutants --root R ...';
+const USAGE = 'usage: relay-gate.mjs setup|baseline|red|locked|scope|cases|mutants --root R ...';
 
 const git = (root, ...a) => gitOk(root, a).trim();
 
@@ -67,17 +67,43 @@ function baseline(ctx) {
 
 const keyed = (cases) => cases.map((c) => ({ ...c, key: `${c.spec}::${c.name}` }));
 
+function baselineCases(ctx) {
+  const p = join(ctx.state, 'baseline.json');
+  if (!existsSync(p)) throw fail('no baseline; run baseline');
+  return keyed(parseList(JSON.parse(readFileSync(p, 'utf8')).list, ctx.root));
+}
+
+function listNow(ctx) {
+  const run = ctx.deps.run(['list', ctx.feature, '--json', '--includeTaskLocation', '--no-cache'], ctx.root);
+  if (interrupted(run)) return { code: 130 };
+  if (run.status !== 0) return { code: 2 };
+  return { cases: keyed(parseList(JSON.parse(run.stdout), ctx.root)) };
+}
+
+function cases(ctx) {
+  ctx.deps.vitestMajor(ctx.root);
+  const before = baselineCases(ctx);
+  const now = listNow(ctx);
+  if (now.code) return now.code;
+  const left = new Map();
+  for (const c of now.cases) left.set(c.key, (left.get(c.key) ?? 0) + 1);
+  const removed = before.filter((c) => {
+    const n = left.get(c.key) ?? 0;
+    if (n) left.set(c.key, n - 1);
+    return !n;
+  });
+  for (const c of removed) ctx.deps.log(`removed: ${c.spec} > ${c.name}`);
+  return removed.length ? 1 : 0;
+}
+
 function red(ctx) {
   const { root, feature, state, deps } = ctx;
   deps.vitestMajor(root);
-  const basePath = join(state, 'baseline.json');
-  if (!existsSync(basePath)) throw fail('no baseline; run baseline');
-  const before = new Set(keyed(parseList(JSON.parse(readFileSync(basePath, 'utf8')).list, root)).map((c) => c.key));
+  const before = new Set(baselineCases(ctx).map((c) => c.key));
   const findings = [];
-  const run = deps.run(['list', feature, '--json', '--includeTaskLocation', '--no-cache'], root);
-  if (interrupted(run)) return 130;
-  if (run.status !== 0) return 2;
-  const now = keyed(parseList(JSON.parse(run.stdout), root));
+  const listed = listNow(ctx);
+  if (listed.code) return listed.code;
+  const now = listed.cases;
   const seen = new Set();
   for (const c of now) {
     if (seen.has(c.key)) findings.push(`${c.spec} > ${c.name}: duplicate identity`);
@@ -273,7 +299,7 @@ export async function main(argv, deps = {}) {
   const log = deps.log ?? console.log;
   try {
     const cmd = argv[0];
-    if (!['setup', 'baseline', 'red', 'locked', 'scope', 'mutants'].includes(cmd)) {
+    if (!['setup', 'baseline', 'red', 'locked', 'scope', 'cases', 'mutants'].includes(cmd)) {
       log(USAGE);
       return 3;
     }
@@ -305,7 +331,7 @@ export async function main(argv, deps = {}) {
     };
     const paths = cachePaths(root, argv);
     const ctx = { root, feature, paths, state: d.stateDir(paths, task), deps: d };
-    return await { baseline, red, locked, scope, mutants }[cmd](ctx, argv);
+    return await { baseline, red, locked, scope, cases, mutants }[cmd](ctx, argv);
   } catch (e) {
     log(e.message);
     return [2, 3, 130].includes(e.code) ? e.code : 3;

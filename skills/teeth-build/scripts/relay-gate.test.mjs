@@ -507,3 +507,30 @@ test('scope: an edited existing test, a rename, a shared test shim, a test outsi
   assert.equal(code, 1);
   assert.deepEqual(lines, ['out of scope: f/__tests__/old.test.ts', 'out of scope: f/c.ts', 'out of scope: test/setup.ts', 'out of scope: test/shim.test.ts', 'out of scope: vitest.config.ts']);
 });
+
+test('cases: a case gone since the baseline is named', async () => {
+  const r = repo();
+  const state = tmp('tb-s-');
+  const lines = [];
+  assert.equal(await main(args(r, 'baseline'), fakeDeps(r, state, lines, 'list-base', null, 0)), 0);
+  assert.equal(await main(args(r, 'cases'), fakeDeps(r, state, lines, 'list-renamed', null)), 1);
+  assert.match(lines.join('\n'), /removed: __tests__\/sum\.test\.ts > sum > adds/);
+});
+
+test('cases: one of two same-named cases removed is named', async () => {
+  const r = repo();
+  const state = tmp('tb-s-');
+  const lines = [];
+  assert.equal(await main(args(r, 'baseline'), fakeDeps(r, state, lines, 'list-dup', null, 0)), 0);
+  assert.equal(await main(args(r, 'cases'), fakeDeps(r, state, lines, 'list-base', null)), 1);
+  assert.equal(lines.filter((l) => l.startsWith('removed:')).length, 1);
+});
+
+test('cases: only added cases exit 0', async () => {
+  const r = repo();
+  const state = tmp('tb-s-');
+  const lines = [];
+  assert.equal(await main(args(r, 'baseline'), fakeDeps(r, state, lines, 'list-base', null, 0)), 0);
+  assert.equal(await main(args(r, 'cases'), fakeDeps(r, state, lines, 'list-new', null)), 0);
+  assert.doesNotMatch(lines.join('\n'), /removed:/);
+});
