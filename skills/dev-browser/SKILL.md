@@ -1,6 +1,6 @@
 ---
 name: dev-browser
-description: "Use when a task needs a real browser — navigating, clicking, filling forms, screenshots, scraping, logging in, or testing a rendered page. Triggers on \"go to [url]\", \"take a screenshot\", \"check the page\", \"log in\". Skip when plain HTTP fetching suffices (WebFetch/curl)."
+description: "Use when a task needs a real browser — navigating, clicking, filling forms, screenshots, scraping, logging in, or testing a rendered page, including accessibility (a11y) audits. Triggers on \"go to [url]\", \"take a screenshot\", \"check the page\", \"log in\", \"check accessibility\", \"run axe\". Skip when plain HTTP fetching suffices (WebFetch/curl)."
 allowed-tools: Bash(dev-browser *)
 ---
 
@@ -25,16 +25,18 @@ Scripts run in a QuickJS sandbox (NOT Node.js). Available globals:
 
 ## Invocation methods
 
+Under the Claude Code sandbox, write the script to a file with the Write tool and run it bare (see Gotchas). Outside the sandbox, the heredoc and pipe forms also work.
+
 ```bash
-# Inline script (heredoc) — preferred method
+# From file — preferred: the only command in the Bash call
+dev-browser --headless --timeout 30 run ~/.dev-browser/check.js
+
+# Inline script (heredoc)
 dev-browser <<'EOF'
 const page = await browser.getPage("main");
 await page.goto("https://example.com");
 console.log(await page.title());
 EOF
-
-# From file
-dev-browser run script.js
 
 # From pipe
 echo 'console.log(await browser.listPages())' | dev-browser
@@ -86,7 +88,7 @@ Full API (pages, navigation, locators, snapshotForAI, screenshots, evaluate, san
 
 ## Common workflows
 
-Copy-paste recipes (scraping, screenshots, form filling, structure analysis) are in references/workflows.md.
+Copy-paste recipes (scraping, screenshots, form filling, structure analysis, mobile device emulation and LCP, real Lighthouse via the PageSpeed Insights API, accessibility audit with axe-core) are in references/workflows.md.
 
 ## Debugging and troubleshooting
 
@@ -120,6 +122,7 @@ EOF
 
 ## Gotchas
 
+- **Under the Claude Code sandbox, only a bare file run works.** `dev-browser:*` in `sandbox.excludedCommands` applies only when `dev-browser ... run <file>` is the whole Bash call. A heredoc, a pipe, or a second command in the same call (`cat > x.js <<EOF ...` then `dev-browser run x.js`) keeps it sandboxed, and it fails with `Daemon failed to start within 5 seconds`, even when the daemon is already up. Do not put the script under `$TMPDIR`: a run with the sandbox off gets a different `$TMPDIR` and reports `No such file or directory`. Write it to `~/.dev-browser/` with the Write tool. Verified 2026-10-08.
 - **Scripts run in a QuickJS sandbox, NOT Node.** `require`, `import`, `process`, `fs`, `fetch`, `WebSocket`, and `__dirname` are all undefined. Reaching for them is the most common failure — use the provided globals (`browser`, `saveScreenshot`, `readFile`/`writeFile`) instead.
 - **Named vs anonymous pages differ in lifetime.** `getPage("name")` persists cookies/localStorage between script runs; `newPage()` closes when the script ends. Use a named page when you need session state across invocations.
 - **`--timeout` is SECONDS (default 30); a millisecond-style value such as `10000` silently disarms it** — verify flags against `dev-browser --help`, not the Playwright API, whose timeouts are milliseconds.

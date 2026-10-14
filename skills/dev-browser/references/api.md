@@ -18,6 +18,17 @@ const tabs = await browser.listPages();  // [{id, url, title, name}]
 await browser.closePage("main");
 ```
 
+`browser` has only `getPage`, `newPage`, `listPages` and `closePage`. There is no `browser.newContext`, so the Playwright device options (`deviceScaleFactor`, `isMobile`, `userAgent`) are not available. Emulate a device per page through CDP:
+
+```javascript
+const page = await browser.newPage();
+const cdp = await page.context().newCDPSession(page);
+await cdp.send("Emulation.setDeviceMetricsOverride", { width: 412, height: 823, deviceScaleFactor: 1.75, mobile: true });
+await cdp.send("Emulation.setUserAgentOverride", { userAgent: "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36" });
+```
+
+This sets `innerWidth`, `devicePixelRatio`, the `User-Agent` request header and `navigator.userAgent`. It does not enable touch (`(pointer: coarse)` stays false). For viewport size alone, use `page.setViewportSize({ width, height })`.
+
 ### Navigation and interaction
 
 ```javascript
