@@ -124,3 +124,21 @@ console.log(JSON.stringify(result, null, 2));
 - To audit one component, pass a selector such as `"#checkout"` instead of `document`.
 
 Verified 2026-10-09 on known-bad HTML: 6 planted violations reported, gradient-background contrast reported under `incomplete`.
+
+### Cross-browser load check (Firefox and WebKit)
+
+dev-browser itself is Chromium-only: the daemon imports only `chromium` and relies on CDP. For Firefox and WebKit, use the standalone Node script `~/.dev-browser/xbrowser.mjs`. It is plain Node, not a dev-browser script, and uses the Playwright installed in `~/.dev-browser/node_modules`.
+
+```bash
+node ~/.dev-browser/xbrowser.mjs https://localhost:3000/p/example --ready '[data-testid="product-title"]' --ignore-https-errors
+```
+
+- Run it with the Claude Code sandbox off. Inside the sandbox, WebKit launch hangs with no error and Firefox fails on `newPage`; the script then reports `failure.stage: "launch"` after its 60 s per-engine deadline.
+- Output is JSON: per engine `browserVersion`, `finalUrl`, `screenshot` (under `~/.dev-browser/tmp/xbrowser/<timestamp>/`), `consoleErrors`, `pageErrors`, `failure`. Exit 0 clean, 1 errors captured, 2 an engine did not complete or an argument is invalid (unknown flag, `--ready` without a value, `--ready=<selector>`).
+- Pass `--ready <selector>` for any app that renders client-side. Without it the screenshot shows only that the page loaded (after `domcontentloaded` + 1 s), not that it hydrated.
+- Each run uses a fresh context: no cookies, login, consent or cart. Load checks only; interaction flows are not supported yet.
+- Playwright WebKit is not Safari and Playwright Firefox is a patched build. For a bug that shows only in real Safari, use `/usr/bin/safaridriver` (needs `sudo safaridriver --enable` and Safari "Allow Remote Automation").
+- The axe recipe above does not port: `Page.setBypassCSP` is CDP-only.
+- Missing browser after a reinstall (`npm install` in `~/.dev-browser` can bump Playwright within `^1.52.0`): `cd ~/.dev-browser && node node_modules/playwright/cli.js install firefox webkit`. Do not use `npx playwright install`, which can fetch a different Playwright version.
+
+Verified 2026-10-14 (Playwright 1.58.2, Firefox 146.0.1, WebKit 26.0) on local fixtures: clean page exit 0; page with a planted `console.error` and an uncaught throw exit 1 with both errors captured in each engine; missing `--ready` selector exit 2 with `stage: "ready"`; run inside the sandbox exit 2 after 61 s.

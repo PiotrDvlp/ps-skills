@@ -88,7 +88,7 @@ Full API (pages, navigation, locators, snapshotForAI, screenshots, evaluate, san
 
 ## Common workflows
 
-Copy-paste recipes (scraping, screenshots, form filling, structure analysis, mobile device emulation and LCP, real Lighthouse via the PageSpeed Insights API, accessibility audit with axe-core) are in references/workflows.md.
+Copy-paste recipes (scraping, screenshots, form filling, structure analysis, mobile device emulation and LCP, real Lighthouse via the PageSpeed Insights API, accessibility audit with axe-core, Firefox/WebKit load check via `~/.dev-browser/xbrowser.mjs`) are in references/workflows.md.
 
 ## Debugging and troubleshooting
 
