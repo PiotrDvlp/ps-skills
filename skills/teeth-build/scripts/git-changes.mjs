@@ -1,27 +1,20 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fail } from './safe-dir.mjs';
 
 const PROD = /\.(ts|vue)$/;
 export const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
 const git = (root, args) => spawnSync('git', ['--no-optional-locks', '-c', 'core.quotePath=false', '-C', root, ...args], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
 
-function gitOk(root, args) {
+export function gitOk(root, args) {
   const r = git(root, args);
-  if (r.status !== 0 || r.error) {
-    const err = new Error(`git ${args[0]} failed: ${(r.error?.message ?? r.stderr ?? '').split('\n')[0]}`);
-    err.code = 3;
-    throw err;
-  }
+  if (r.status !== 0 || r.error) throw fail(`git ${args[0]} failed: ${(r.error?.message ?? r.stderr ?? '').split('\n')[0]}`);
   return r.stdout;
 }
 
 export function changedLines(root, base, featureRel) {
-  if (git(root, ['merge-base', '--is-ancestor', base, 'HEAD']).status !== 0) {
-    const err = new Error(`base ${base} is not an ancestor of HEAD; rerun baseline`);
-    err.code = 3;
-    throw err;
-  }
+  if (git(root, ['merge-base', '--is-ancestor', base, 'HEAD']).status !== 0) throw fail(`base ${base} is not an ancestor of HEAD; rerun baseline`);
   const out = new Map();
   const add = (file, line) => { if (!out.has(file)) out.set(file, []); out.get(file).push(line); };
   const diff = gitOk(root, ['diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', base, '--', featureRel]);

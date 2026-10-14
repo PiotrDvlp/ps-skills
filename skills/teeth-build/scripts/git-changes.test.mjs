@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { changedLines } from './git-changes.mjs';
+import { tmp } from './test-tmp.mjs';
 
 const git = (cwd, ...a) => spawnSync('git', a, { cwd, encoding: 'utf8' });
 function repo() {
-  const r = mkdtempSync(join(tmpdir(), 'tb-git-'));
+  const r = tmp('tb-git-');
   git(r, 'init', '-q'); git(r, 'config', 'user.email', 't@t'); git(r, 'config', 'user.name', 't');
   mkdirSync(join(r, 'f', '__tests__'), { recursive: true });
   writeFileSync(join(r, 'f', 'a.ts'), 'const a = 1\nconst b = 2\nconst c = 3\n');

@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, lstatSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, mkdirSync, writeFileSync, readFileSync, existsSync, lstatSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { withRepoLock, syncWork, toolReady, writeConfig, runStryker } from './stryker.mjs';
+import { tmp } from './test-tmp.mjs';
 
 test('lock: a live PID refuses, a dead PID is replaced, the lock is released', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'tb-lk-'));
+  const dir = tmp('tb-lk-');
   writeFileSync(join(dir, 'lock'), String(process.pid));
   await assert.rejects(withRepoLock(dir, async () => 0), (e) => e.code === 3 && /another mutants run/.test(e.message));
   writeFileSync(join(dir, 'lock'), '999999');
@@ -15,13 +15,13 @@ test('lock: a live PID refuses, a dead PID is replaced, the lock is released', a
 });
 
 test('lock: a cache root with group/other access is refused', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'tb-unsafe-'));
+  const dir = tmp('tb-unsafe-');
   chmodSync(dir, 0o755);
   await assert.rejects(withRepoLock(dir, async () => 0), (e) => e.code === 3 && /unsafe/.test(e.message));
 });
 
 test('work: sync excludes secrets and git, removes stale reports, links node_modules, survives a space', () => {
-  const base = mkdtempSync(join(tmpdir(), 'tb-w '));
+  const base = tmp('tb-w ');
   const root = join(base, 'my repo');
   mkdirSync(join(root, 'node_modules'), { recursive: true });
   mkdirSync(join(root, '.git'));
@@ -41,7 +41,7 @@ test('work: sync excludes secrets and git, removes stale reports, links node_mod
 });
 
 test('tool: ready only with both pinned packages and the stryker binary', () => {
-  const t = mkdtempSync(join(tmpdir(), 'tb-tool-'));
+  const t = tmp('tb-tool-');
   const pkg = (name, version) => { mkdirSync(join(t, 'node_modules', name), { recursive: true }); writeFileSync(join(t, 'node_modules', name, 'package.json'), JSON.stringify({ version })); };
   pkg('@stryker-mutator/core', '10.0.0');
   assert.equal(toolReady(t), false);
@@ -55,7 +55,7 @@ test('tool: ready only with both pinned packages and the stryker binary', () => 
 });
 
 test('config: the written config carries the gate settings and the ranges', () => {
-  const w = mkdtempSync(join(tmpdir(), 'tb-cfg-'));
+  const w = tmp('tb-cfg-');
   writeConfig(w, ['a.ts:2-2', 'b.vue:3-4'], { hasVitestConfig: true });
   const c = JSON.parse(readFileSync(join(w, 'stryker.config.json'), 'utf8'));
   assert.deepEqual(c.mutate, ['a.ts:2-2', 'b.vue:3-4']);
@@ -66,7 +66,7 @@ test('config: the written config carries the gate settings and the ranges', () =
 });
 
 test('work: two syncs from a 0o755 repo root leave the work copy owner-only', () => {
-  const base = mkdtempSync(join(tmpdir(), 'tb-w2-'));
+  const base = tmp('tb-w2-');
   const root = join(base, 'repo');
   mkdirSync(join(root, 'node_modules'), { recursive: true });
   chmodSync(root, 0o755);
@@ -78,7 +78,7 @@ test('work: two syncs from a 0o755 repo root leave the work copy owner-only', ()
 });
 
 test('work: a work directory equal to, inside or above the repo is refused and nothing is deleted', () => {
-  const base = mkdtempSync(join(tmpdir(), 'tb-ov-'));
+  const base = tmp('tb-ov-');
   const root = join(base, 'repo');
   mkdirSync(join(root, 'node_modules'), { recursive: true, mode: 0o700 });
   writeFileSync(join(root, 'a.ts'), 'x');
@@ -91,7 +91,7 @@ test('work: a work directory equal to, inside or above the repo is refused and n
 });
 
 test('run: a spawn failure throws, and a stale report is not trusted', () => {
-  const t = mkdtempSync(join(tmpdir(), 'tb-run-'));
+  const t = tmp('tb-run-');
   const w = join(t, 'work');
   mkdirSync(join(w, 'reports'), { recursive: true });
   writeFileSync(join(w, 'reports', 'mutation.json'), '{"stale":true}');
@@ -100,7 +100,7 @@ test('run: a spawn failure throws, and a stale report is not trusted', () => {
 });
 
 test('work: a failed rsync still leaves the work copy owner-only', () => {
-  const base = mkdtempSync(join(tmpdir(), 'tb-rs-'));
+  const base = tmp('tb-rs-');
   const root = join(base, 'repo');
   mkdirSync(join(root, 'node_modules'), { recursive: true });
   chmodSync(root, 0o755);
@@ -117,7 +117,7 @@ test('work: a failed rsync still leaves the work copy owner-only', () => {
 });
 
 test('work: only top-level reports, .output and .stryker-tmp are excluded', () => {
-  const base = mkdtempSync(join(tmpdir(), 'tb-an-'));
+  const base = tmp('tb-an-');
   const root = join(base, 'repo');
   for (const d of ['node_modules', 'src/reports', 'src/.output', 'reports', '.output']) mkdirSync(join(root, d), { recursive: true });
   for (const f of ['src/reports/a.ts', 'src/.output/b.ts', 'reports/x', '.output/y']) writeFileSync(join(root, f), 'x');

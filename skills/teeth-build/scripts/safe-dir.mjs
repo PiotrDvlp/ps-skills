@@ -1,6 +1,6 @@
 import { lstatSync, mkdirSync } from 'node:fs';
 
-const fail = (message) => Object.assign(new Error(message), { code: 3 });
+export const fail = (message, code = 3) => Object.assign(new Error(message), { code });
 
 export function assertSafeDir(path, label = 'state directory') {
   const unsafe = (reason) => fail(`unsafe ${label} ${path}: ${reason}`);

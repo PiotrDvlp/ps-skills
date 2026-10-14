@@ -1,17 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, unlinkSync, existsSync, rmSync, symlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync, mkdirSync, readFileSync, unlinkSync, existsSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { record, verify, restore } from './locked.mjs';
+import { tmp } from './test-tmp.mjs';
 
 function setup() {
-  const f = mkdtempSync(join(tmpdir(), 'tb-lock-'));
+  const f = tmp('tb-lock-');
   mkdirSync(join(f, '__tests__'));
   writeFileSync(join(f, '__tests__', 'a.test.ts'), 'A');
   writeFileSync(join(f, '__tests__', 'b.test.ts'), 'B');
   writeFileSync(join(f, 'a.ts'), 'impl');
-  const d = mkdtempSync(join(tmpdir(), 'tb-lockdir-'));
+  const d = tmp('tb-lockdir-');
   record(f, d);
   return { f, d };
 }
@@ -71,7 +71,7 @@ test('locked: .git is skipped', () => {
 
 test('locked: a symlinked test file makes record throw code 3', () => {
   const { f, d } = setup();
-  const target = join(mkdtempSync(join(tmpdir(), 'tb-tgt-')), 't.ts');
+  const target = join(tmp('tb-tgt-'), 't.ts');
   writeFileSync(target, 'T');
   symlinkSync(target, join(f, 'y.test.ts'));
   assert.throws(() => record(f, d), (e) => e.code === 3 && /symlink in feature y\.test\.ts/.test(e.message));
@@ -79,7 +79,7 @@ test('locked: a symlinked test file makes record throw code 3', () => {
 
 test('locked: a symlinked directory of tests added after record makes verify throw code 3', () => {
   const { f, d } = setup();
-  const outside = mkdtempSync(join(tmpdir(), 'tb-out-'));
+  const outside = tmp('tb-out-');
   writeFileSync(join(outside, 'z.test.ts'), 'Z');
   symlinkSync(outside, join(f, 'more'));
   assert.throws(() => verify(f, d), (e) => e.code === 3 && /symlink in feature more/.test(e.message));
@@ -90,7 +90,7 @@ test('locked: a dangling symlink at a locked snapshot path makes restore throw b
   mkdirSync(join(f, '__snapshots__'));
   writeFileSync(join(f, '__snapshots__', 'a.test.ts.snap'), 'S');
   record(f, d);
-  const outside = join(mkdtempSync(join(tmpdir(), 'tb-out-')), 'planted');
+  const outside = join(tmp('tb-out-'), 'planted');
   unlinkSync(join(f, '__snapshots__', 'a.test.ts.snap'));
   symlinkSync(outside, join(f, '__snapshots__', 'a.test.ts.snap'));
   assert.throws(() => restore(f, d), (e) => e.code === 3 && /symlink in feature __snapshots__\/a\.test\.ts\.snap/.test(e.message));

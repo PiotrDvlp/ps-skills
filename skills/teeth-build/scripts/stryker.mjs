@@ -1,12 +1,11 @@
 import { chmodSync, closeSync, existsSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { assertSafeDir, ensureSafeDir } from './safe-dir.mjs';
+import { assertSafeDir, ensureSafeDir, fail } from './safe-dir.mjs';
 
 const VERSION = '10.0.0';
 const PKGS = ['@stryker-mutator/core', '@stryker-mutator/vitest-runner'];
 const outside = (rel) => rel === '..' || rel.startsWith(`..${sep}`);
-const fail = (message) => Object.assign(new Error(message), { code: 3 });
 
 function acquire(lock) {
   try {

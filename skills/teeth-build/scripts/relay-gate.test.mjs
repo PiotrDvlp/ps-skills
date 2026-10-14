@@ -1,16 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, cpSync, rmSync, symlinkSync, readdirSync, statSync, unlinkSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { main, stateDir, isGlob, tsRanges } from './relay-gate.mjs';
+import { tmp } from './test-tmp.mjs';
 
 const CLI = fileURLToPath(new URL('./relay-gate.mjs', import.meta.url));
 const fx = (n) => readFileSync(new URL(`../fixtures/vitest/${n}.json`, import.meta.url), 'utf8');
 function repo() {
-  const r = mkdtempSync(join(tmpdir(), 'tb-rg-'));
+  const r = tmp('tb-rg-');
   mkdirSync(join(r, '__tests__'));
   writeFileSync(join(r, 'sum.ts'), 'export const sum = (a, b) => a + b\n');
   writeFileSync(join(r, '__tests__', 'sum.test.ts'), 'x\n');
@@ -41,12 +43,12 @@ test('cli: no subcommand and a flag without a value exit 3', () => {
 test('baseline: a dirty tree exits 3', async () => {
   const r = repo();
   writeFileSync(join(r, 'sum.ts'), 'changed\n');
-  assert.equal(await main(args(r, 'baseline'), fakeDeps(r, mkdtempSync(join(tmpdir(), 'tb-s-')), [], 'list-base', null, 0)), 3);
+  assert.equal(await main(args(r, 'baseline'), fakeDeps(r, tmp('tb-s-'), [], 'list-base', null, 0)), 3);
 });
 
 test('baseline: a red suite exits 2 and publishes no state that red could use', async () => {
   const r = repo();
-  const state = mkdtempSync(join(tmpdir(), 'tb-s-'));
+  const state = tmp('tb-s-');
   const lines = [];
   assert.equal(await main(args(r, 'baseline'), fakeDeps(r, state, lines, 'list-base', null, 1)), 2);
   assert.equal(existsSync(join(state, 'baseline.json')), false);
@@ -56,7 +58,7 @@ test('baseline: a red suite exits 2 and publishes no state that red could use', 
 
 test('baseline: a green suite writes baseline.json with the HEAD sha', async () => {
   const r = repo();
-  const state = mkdtempSync(join(tmpdir(), 'tb-s-'));
+  const state = tmp('tb-s-');
   assert.equal(await main(args(r, 'baseline'), fakeDeps(r, state, [], 'list-base', null, 0)), 0);
   const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: r, encoding: 'utf8' }).stdout.trim();
   assert.equal(JSON.parse(readFileSync(join(state, 'baseline.json'), 'utf8')).base, head);
@@ -64,7 +66,7 @@ test('baseline: a green suite writes baseline.json with the HEAD sha', async () 
 
 test('locked: record, a modified test file fails verify, restore brings it back', async () => {
   const r = repo();
-  const state = mkdtempSync(join(tmpdir(), 'tb-s-'));
+  const state = tmp('tb-s-');
   const lines = [];
   const d = fakeDeps(r, state, lines, 'list-base', null, 0);
   assert.equal(await main(args(r, 'locked', '--record'), d), 0);
@@ -77,14 +79,14 @@ test('locked: record, a modified test file fails verify, restore brings it back'
 
 test('signals: an interrupted vitest child returns 130', async () => {
   const r = repo();
-  const d = { ...fakeDeps(r, mkdtempSync(join(tmpdir(), 'tb-s-')), [], 'list-base', null, 0), run: () => ({ status: null, signal: 'SIGINT', stdout: '', stderr: '' }) };
+  const d = { ...fakeDeps(r, tmp('tb-s-'), [], 'list-base', null, 0), run: () => ({ status: null, signal: 'SIGINT', stdout: '', stderr: '' }) };
   assert.equal(await main(args(r, 'baseline'), d), 130);
 });
 
 test('baseline: the real run with a relative root and no vitest binary exits 3', async () => {
   const r = repo();
   const lines = [];
-  const { run, ...d } = fakeDeps(r, mkdtempSync(join(tmpdir(), 'tb-s-')), lines, 'list-base', null, 0);
+  const { run, ...d } = fakeDeps(r, tmp('tb-s-'), lines, 'list-base', null, 0);
   assert.equal(await main(['baseline', '--root', relative(process.cwd(), r), '--task', 't1', '--feature', '.'], d), 3);
   assert.match(lines.join('\n'), /vitest failed to start/);
 });
@@ -93,14 +95,14 @@ test('task: a path-like --task exits 3', async () => {
   const r = repo();
   const lines = [];
   const a = ['baseline', '--root', r, '--task', '../x', '--feature', '.'];
-  assert.equal(await main(a, fakeDeps(r, mkdtempSync(join(tmpdir(), 'tb-s-')), lines, 'list-base', null, 0)), 3);
+  assert.equal(await main(a, fakeDeps(r, tmp('tb-s-'), lines, 'list-base', null, 0)), 3);
   assert.match(lines.join('\n'), /invalid --task/);
 });
 
 test('state: a group-readable task dir is refused', async () => {
   const r = repo();
   const old = process.env.TMPDIR;
-  process.env.TMPDIR = mkdtempSync(join(tmpdir(), 'tb-base-'));
+  process.env.TMPDIR = tmp('tb-base-');
   try {
     chmodSync(stateDir(r, 't1'), 0o755);
     const lines = [];
@@ -114,7 +116,7 @@ test('state: a group-readable task dir is refused', async () => {
 
 async function redWith(report, list = 'list-new') {
   const r = repo();
-  const state = mkdtempSync(join(tmpdir(), 'tb-state-'));
+  const state = tmp('tb-state-');
   const lines = [];
   assert.equal(await main(args(r, 'baseline'), fakeDeps(r, state, lines, 'list-base', null, 0)), 0);
   const code = await main(args(r, 'red'), fakeDeps(r, state, lines, list, report));
@@ -142,7 +144,7 @@ test('red: a renamed spec makes its old cases new, and they are already passing'
 
 test('red: a stale red.json is not accepted when vitest writes no report', async () => {
   const r = repo();
-  const state = mkdtempSync(join(tmpdir(), 'tb-state-'));
+  const state = tmp('tb-state-');
   const lines = [];
   assert.equal(await main(args(r, 'baseline'), fakeDeps(r, state, lines, 'list-base', null, 0)), 0);
   assert.equal(await main(args(r, 'red'), fakeDeps(r, state, lines, 'list-new', 'red-assert')), 0);
@@ -159,8 +161,6 @@ test('red: an import error in one spec does not taint another spec', async () =>
   assert.doesNotMatch(r.out, /sum > doubles/);
 });
 
-import { cpSync, rmSync, symlinkSync, readdirSync, statSync, unlinkSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 const VROOT = process.env.TEETH_BUILD_VITEST_ROOT;
 const CACHE = process.env.TEETH_BUILD_CACHE;
 const NEEDS_ROOT = VROOT ? {} : { skip: 'set TEETH_BUILD_VITEST_ROOT' };
@@ -204,7 +204,7 @@ test('mutants: deletions only skip Stryker and exit 0', async () => {
 });
 
 test('mutants: a template-only change lists every changed line and exits 0', NEEDS_ROOT, async () => {
-  const r = mkdtempSync(join(tmpdir(), 'tb-tpl-'));
+  const r = tmp('tb-tpl-');
   symlinkSync(join(VROOT, 'node_modules'), join(r, 'node_modules'));
   writeFileSync(join(r, 'T.vue'), '<template>\n  <p>a</p>\n</template>\n');
   const base = gitRepo(r);
@@ -353,7 +353,7 @@ test('baseline: the real vitest child runs with CI=1 so it writes no snapshots',
   const old = process.env.CI;
   delete process.env.CI;
   try {
-    const { run, ...d } = fakeDeps(r, mkdtempSync(join(tmpdir(), 'tb-s-')), [], 'list-base', null, 0);
+    const { run, ...d } = fakeDeps(r, tmp('tb-s-'), [], 'list-base', null, 0);
     assert.equal(await main(args(r, 'baseline'), d), 0);
   } finally {
     if (old !== undefined) process.env.CI = old;
@@ -387,14 +387,14 @@ test('mutants: a relative --cache-dir reaches the work copy and the tool as abso
   writeFileSync(join(r, 'sum.ts'), 'export const sum = (a, b) => b + a\n');
   const seen = [];
   const deps = { vitestMajor: () => 3, toolReady: (t) => { seen.push(t); return true; }, syncWork: (_r, w) => { seen.push(w); throw new Error('stop'); } };
-  const rel = relative(process.cwd(), mkdtempSync(join(tmpdir(), 'tb-rel-')));
+  const rel = relative(process.cwd(), tmp('tb-rel-'));
   await main(['mutants', '--root', r, '--task', 'it', '--feature', '.', '--base', 'HEAD', '--cache-dir', rel], { log: () => {}, ...deps });
   assert.equal(seen.length, 2);
   for (const p of seen) assert.equal(isAbsolute(p), true, p);
 });
 
 test('mutants: the not covered count includes template, macro and glob lines that were printed', async () => {
-  const r = mkdtempSync(join(tmpdir(), 'tb-cnt-'));
+  const r = tmp('tb-cnt-');
   writeFileSync(join(r, 'a.ts'), 'export const a = 1\n');
   const base = gitRepo(r);
   writeFileSync(join(r, 'a.ts'), 'export const a = 2\n');
@@ -406,7 +406,7 @@ test('mutants: the not covered count includes template, macro and glob lines tha
 
 test('baseline: a feature with no tests yet passes when vitest is given --passWithNoTests', async () => {
   const r = repo();
-  const state = mkdtempSync(join(tmpdir(), 'tb-s-'));
+  const state = tmp('tb-s-');
   const d = {
     stateDir: () => state,
     vitestMajor: () => 3,
@@ -419,10 +419,10 @@ test('baseline: a feature with no tests yet passes when vitest is given --passWi
 
 test('locked: --feature outside --root exits 3 and --feature . still works', async () => {
   const r = repo();
-  const outside = mkdtempSync(join(tmpdir(), 'tb-out-'));
+  const outside = tmp('tb-out-');
   for (const feature of ['../x', outside]) {
     const lines = [];
-    const state = mkdtempSync(join(tmpdir(), 'tb-s-'));
+    const state = tmp('tb-s-');
     const a = ['locked', '--root', r, '--task', 't1', '--feature', feature, '--record'];
     assert.equal(await main(a, fakeDeps(r, state, lines, 'list-base', null, 0)), 3);
     assert.match(lines.join('\n'), /--feature must be inside --root/);
@@ -430,16 +430,16 @@ test('locked: --feature outside --root exits 3 and --feature . still works', asy
   symlinkSync(outside, join(r, 'link'));
   const lines = [];
   const linkArgs = ['locked', '--root', r, '--task', 't1', '--feature', 'link', '--record'];
-  assert.equal(await main(linkArgs, fakeDeps(r, mkdtempSync(join(tmpdir(), 'tb-s-')), lines, 'list-base', null, 0)), 3);
+  assert.equal(await main(linkArgs, fakeDeps(r, tmp('tb-s-'), lines, 'list-base', null, 0)), 3);
   assert.match(lines.join('\n'), /--feature must be inside --root/);
   const dotLines = [];
   const dotArgs = ['locked', '--root', r, '--task', 't1', '--feature', '.', '--record'];
-  assert.equal(await main(dotArgs, fakeDeps(r, mkdtempSync(join(tmpdir(), 'tb-s-')), dotLines, 'list-base', null, 0)), 3);
+  assert.equal(await main(dotArgs, fakeDeps(r, tmp('tb-s-'), dotLines, 'list-base', null, 0)), 3);
   assert.match(dotLines.join('\n'), /symlink in feature link/);
   unlinkSync(join(r, 'link'));
   mkdirSync(join(r, '..foo'));
   for (const feature of ['.', '..foo']) {
     const a = ['locked', '--root', r, '--task', 't1', '--feature', feature, '--record'];
-    assert.equal(await main(a, fakeDeps(r, mkdtempSync(join(tmpdir(), 'tb-s-')), [], 'list-base', null, 0)), 0);
+    assert.equal(await main(a, fakeDeps(r, tmp('tb-s-'), [], 'list-base', null, 0)), 0);
   }
 });

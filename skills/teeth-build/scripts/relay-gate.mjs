@@ -4,15 +4,13 @@ import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { ensureSafeDir, assertSafeDir } from './safe-dir.mjs';
+import { ensureSafeDir, assertSafeDir, fail } from './safe-dir.mjs';
 import { record, verify, restore } from './locked.mjs';
 import { classifyMutants } from './classify.mjs';
 import { loadVueParsers, vueRanges } from './vue-ranges.mjs';
-import { changedLines } from './git-changes.mjs';
+import { changedLines, gitOk } from './git-changes.mjs';
 import { withRepoLock, syncWork, toolReady, setupTool, linkTool, writeConfig, runStryker } from './stryker.mjs';
 import { parseList, reporterName, caseId } from '../../test-teeth/scripts/test-teeth.mjs';
-
-const fail = (message, code = 3) => Object.assign(new Error(message), { code });
 
 function flag(argv, name) {
   const i = argv.indexOf(`--${name}`);
@@ -48,11 +46,7 @@ const realRun = (root) => (args, cwd = root) => {
 const interrupted = (r) => r.signal === 'SIGINT' || r.signal === 'SIGTERM';
 const USAGE = 'usage: relay-gate.mjs setup|baseline|red|locked|mutants --root R ...';
 
-function git(root, ...a) {
-  const r = spawnSync('git', ['--no-optional-locks', '-C', root, ...a], { encoding: 'utf8' });
-  if (r.status !== 0) throw fail(`git ${a[0]} failed`);
-  return r.stdout.trim();
-}
+const git = (root, ...a) => gitOk(root, a).trim();
 
 function baseline(ctx) {
   const { root, feature, state, deps } = ctx;
