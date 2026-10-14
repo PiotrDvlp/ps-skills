@@ -46,13 +46,13 @@ Run `G baseline F`. Exit 2: the feature suite was red before the task; stop and 
    - `G cases F`. On exit 1, send the removed cases, unless the plan task names that removal.
 8. `G mutants F`.
    - Exit 0: go to Done.
-   - Exit 1: send the findings to the writer in repair mode (a mutants round). Run the feature suite; a failing repair test goes back to the writer once, and if the writer reports that the implementation is wrong, the task is `blocked`. Then `G locked --record F` and `G mutants F` again; the targeted mutants must be gone from the findings.
+   - Exit 1: send the findings to the writer in repair mode (a mutants round). Run the feature suite; a failing repair test goes back to the writer once, and if the writer reports that the implementation is wrong, the task is `blocked`. Then rerun `G scope F --allow <list>` (the list from step 7 plus the repair test files) and `G cases F`; a failure goes back to the writer as a mutants round. Then `G locked --record F` and `G mutants F` again; the targeted mutants must be gone from the findings.
    - Exit 2: send the output to the implementer (a green round).
    - Exit 3 with `run: relay-gate.mjs setup`: see Setup. Any other exit 3: stop and show the message.
 
 ### 3b. Gate path
 
-Dispatch the implementer in gate mode; it writes tests and code. Run the green checks of 3a step 7 without the `locked` line, then `G mutants F`. Findings go back to the implementer (a mutants round).
+Dispatch the implementer in gate mode; it writes tests and code. Run the green checks of 3a step 7 without the `locked` line, then `G mutants F`. Findings go back to the implementer (a mutants round); after its fix, run the green checks again before the next `G mutants F`.
 
 ### 3c. Refactor path
 
