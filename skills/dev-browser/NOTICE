@@ -1,5 +1,5 @@
 This skill is a fork of https://github.com/SawyerHood/dev-browser (skills/dev-browser), MIT.
-This copy targets the dev-browser CLI 0.2.5; upstream has since moved to a Puppeteer API.
+This copy targets the dev-browser CLI 0.2.9 (Playwright API); upstream 1.0 moved to a Puppeteer API.
 Upstream license text follows.
 
 MIT License

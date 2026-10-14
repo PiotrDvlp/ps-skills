@@ -30,7 +30,7 @@ npx skills@latest add PiotrDvlp/ps-skills
 | `blast-radius` | What a diff could break elsewhere | — |
 | `layer-lint` | SHOPin `pageModules/` layer-boundary linter | Node 22 |
 | `retro` | Fork of mattpocock/skills `retro` | — |
-| `dev-browser` | Fork of SawyerHood/dev-browser; targets CLI 0.2.5 | `dev-browser@0.2.5` |
+| `dev-browser` | Fork of SawyerHood/dev-browser; targets CLI 0.2.9 | `dev-browser@0.2.9` |
 | `worktree-audit` | Read-only inventory of a repo's git worktrees: target, ahead/behind, dirty, deps, MRs | `glab` for `--mr` |
 | `prove-ui` | Proves a browser-visible change with a baseline-vs-candidate run and an attested line | a repo adapter at `.claude/prove-ui/adapter.md` |
 | `mr-watchman` | One read-only status pass over your open MRs: conflicts, then review threads, then CI; twins grouped | Node 22+, authenticated `glab` |
