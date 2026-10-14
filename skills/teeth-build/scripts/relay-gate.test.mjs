@@ -468,3 +468,42 @@ test('mutants: a changed .js file is listed as unsupported extension and nothing
   assert.match(out.out, /not covered: a\.js:1 unsupported extension/);
   assert.match(out.out, /no changed mutable lines/);
 });
+
+function scopeRepo() {
+  const r = tmp('tb-scope-');
+  mkdirSync(join(r, 'f', '__tests__'), { recursive: true });
+  mkdirSync(join(r, 'test'));
+  writeFileSync(join(r, 'f', 'a.ts'), 'export const a = 1\n');
+  writeFileSync(join(r, 'f', '__tests__', 'old.test.ts'), 'x\n');
+  writeFileSync(join(r, 'test', 'setup.ts'), 'x\n');
+  writeFileSync(join(r, 'vitest.config.ts'), 'x\n');
+  for (const a of [['init', '-q'], ['config', 'user.email', 't@t'], ['config', 'user.name', 't'], ['add', '.'], ['commit', '-qm', 'b']]) spawnSync('git', a, { cwd: r });
+  return r;
+}
+const scopeRun = async (r, allow) => {
+  const lines = [];
+  const code = await main(['scope', '--root', r, '--task', 't1', '--feature', 'f', '--base', 'HEAD', '--allow', allow], { stateDir: () => tmp('tb-s-'), log: (s) => lines.push(s) });
+  return { code, lines };
+};
+
+test('scope: planned files and new test files under the feature pass', async () => {
+  const r = scopeRepo();
+  writeFileSync(join(r, 'f', 'a.ts'), 'export const a = 2\n');
+  writeFileSync(join(r, 'f', 'b.ts'), 'export const b = 1\n');
+  writeFileSync(join(r, 'f', '__tests__', 'a.test.ts'), 'y\n');
+  const { code, lines } = await scopeRun(r, 'f/a.ts,f/b.ts');
+  assert.equal(code, 0, lines.join('\n'));
+});
+
+test('scope: an edited existing test, a rename, a shared test shim, a test outside the feature and a config edit are named', async () => {
+  const r = scopeRepo();
+  writeFileSync(join(r, 'f', '__tests__', 'old.test.ts'), 'weakened\n');
+  writeFileSync(join(r, 'f', 'a.ts'), 'export const a = 2\n');
+  spawnSync('git', ['mv', 'f/a.ts', 'f/c.ts'], { cwd: r });
+  writeFileSync(join(r, 'test', 'setup.ts'), 'weakened\n');
+  writeFileSync(join(r, 'test', 'shim.test.ts'), 'z\n');
+  writeFileSync(join(r, 'vitest.config.ts'), 'y\n');
+  const { code, lines } = await scopeRun(r, 'f/a.ts');
+  assert.equal(code, 1);
+  assert.deepEqual(lines, ['out of scope: f/__tests__/old.test.ts', 'out of scope: f/c.ts', 'out of scope: test/setup.ts', 'out of scope: test/shim.test.ts', 'out of scope: vitest.config.ts']);
+});

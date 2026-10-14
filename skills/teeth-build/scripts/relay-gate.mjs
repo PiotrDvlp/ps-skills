@@ -8,7 +8,7 @@ import { ensureSafeDir, assertSafeDir, fail } from './safe-dir.mjs';
 import { record, verify, restore } from './locked.mjs';
 import { classifyMutants } from './classify.mjs';
 import { loadVueParsers, vueRanges } from './vue-ranges.mjs';
-import { changedLines, gitOk } from './git-changes.mjs';
+import { changedLines, gitOk, TEST_FILE } from './git-changes.mjs';
 import { withRepoLock, syncWork, toolReady, setupTool, linkTool, writeConfig, runStryker } from './stryker.mjs';
 import { parseList, reporterName, caseId } from '../../test-teeth/scripts/test-teeth.mjs';
 
@@ -44,7 +44,7 @@ const realRun = (root) => (args, cwd = root) => {
 };
 
 const interrupted = (r) => r.signal === 'SIGINT' || r.signal === 'SIGTERM';
-const USAGE = 'usage: relay-gate.mjs setup|baseline|red|locked|mutants --root R ...';
+const USAGE = 'usage: relay-gate.mjs setup|baseline|red|locked|scope|mutants --root R ...';
 
 const git = (root, ...a) => gitOk(root, a).trim();
 
@@ -189,13 +189,37 @@ function mutateEntries(root, changed) {
   return { mutate, mutable, notCovered };
 }
 
+function baseOf(ctx, argv) {
+  const p = join(ctx.state, 'baseline.json');
+  const base = flag(argv, 'base') ?? (existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')).base : null);
+  if (!base) throw fail('no baseline; run baseline or pass --base');
+  return base;
+}
+
+function scope(ctx, argv) {
+  const { root, deps } = ctx;
+  const base = baseOf(ctx, argv);
+  const allow = new Set((flag(argv, 'allow') ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+  const featureRel = relative(root, resolve(root, ctx.feature)).split(sep).join('/');
+  const inFeature = (p) => featureRel === '' || p.startsWith(`${featureRel}/`);
+  const isTest = (p) => TEST_FILE.test(p) || p.split('/').includes('__snapshots__');
+  const paths = (...a) => git(root, ...a).split('\n').filter(Boolean);
+  const added = new Set([
+    ...paths('diff', '--name-only', '--no-renames', '--diff-filter=A', base),
+    ...paths('ls-files', '--others', '--exclude-standard'),
+  ]);
+  const changed = new Set([...paths('diff', '--name-only', '--no-renames', base), ...added]);
+  const out = [...changed].filter((p) => !allow.has(p) && !(added.has(p) && inFeature(p) && isTest(p))).sort();
+  for (const p of out) deps.log(`out of scope: ${p}`);
+  return out.length ? 1 : 0;
+}
+
 async function mutants(ctx, argv) {
-  const { root, state, deps } = ctx;
+  const { root, deps } = ctx;
   const { hashDir, toolDir, workDir } = ctx.paths;
   const top = git(root, 'rev-parse', '--show-toplevel');
   if (realpathSync(top) !== realpathSync(root)) throw fail('root must be the git top-level');
-  const base = flag(argv, 'base') ?? (existsSync(join(state, 'baseline.json')) ? JSON.parse(readFileSync(join(state, 'baseline.json'), 'utf8')).base : null);
-  if (!base) throw fail('no baseline; run baseline or pass --base');
+  const base = baseOf(ctx, argv);
   deps.vitestMajor(root);
   const changed = changedLines(root, base, ctx.feature);
   const { mutate, mutable, notCovered } = mutateEntries(root, changed);
@@ -249,7 +273,7 @@ export async function main(argv, deps = {}) {
   const log = deps.log ?? console.log;
   try {
     const cmd = argv[0];
-    if (!['setup', 'baseline', 'red', 'locked', 'mutants'].includes(cmd)) {
+    if (!['setup', 'baseline', 'red', 'locked', 'scope', 'mutants'].includes(cmd)) {
       log(USAGE);
       return 3;
     }
@@ -281,7 +305,7 @@ export async function main(argv, deps = {}) {
     };
     const paths = cachePaths(root, argv);
     const ctx = { root, feature, paths, state: d.stateDir(paths, task), deps: d };
-    return await { baseline, red, locked, mutants }[cmd](ctx, argv);
+    return await { baseline, red, locked, scope, mutants }[cmd](ctx, argv);
   } catch (e) {
     log(e.message);
     return [2, 3, 130].includes(e.code) ? e.code : 3;
