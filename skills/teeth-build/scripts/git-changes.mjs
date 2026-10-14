@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fail } from './safe-dir.mjs';
 
-const PROD = /\.(ts|vue)$/;
+const SOURCE = /\.(ts|vue|js|jsx|tsx|mjs|cjs|mts|cts)$/;
 export const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
 const git = (root, args) => spawnSync('git', ['--no-optional-locks', '-c', 'core.quotePath=false', '-C', root, ...args], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
 
@@ -22,13 +22,13 @@ export function changedLines(root, base, featureRel) {
   for (const l of diff.split('\n')) {
     if (l.startsWith('+++ ')) file = l === '+++ /dev/null' ? null : l.slice(6).replace(/\t$/, '');
     const h = l.match(/^@@ -\S+ \+(\d+)(?:,(\d+))? @@/);
-    if (h && file && PROD.test(file) && !TEST_FILE.test(file)) {
+    if (h && file && SOURCE.test(file) && !TEST_FILE.test(file)) {
       const start = Number(h[1]), count = h[2] === undefined ? 1 : Number(h[2]);
       for (let i = 0; i < count; i++) add(file, start + i);
     }
   }
   for (const f of gitOk(root, ['ls-files', '--others', '--exclude-standard', '--', featureRel]).split('\n').filter(Boolean)) {
-    if (!PROD.test(f) || TEST_FILE.test(f)) continue;
+    if (!SOURCE.test(f) || TEST_FILE.test(f)) continue;
     const n = readFileSync(join(root, f), 'utf8').replace(/\n$/, '').split('\n').length;
     for (let i = 1; i <= n; i++) add(f, i);
   }

@@ -68,3 +68,9 @@ test('changed-lines: vitest-default test files are not production files', () => 
     assert.deepEqual([...changedLines(r, base, 'f').entries()], []);
   } finally { rmSync(r, { recursive: true, force: true }); }
 });
+
+test('changed-lines: changed js, jsx and tsx production files are returned', () => {
+  const { r, base } = repo();
+  for (const f of ['b.js', 'c.tsx', 'd.jsx']) writeFileSync(join(r, 'f', f), 'export const x = 1\n');
+  assert.deepEqual([...changedLines(r, base, 'f').keys()], ['f/b.js', 'f/c.tsx', 'f/d.jsx']);
+});

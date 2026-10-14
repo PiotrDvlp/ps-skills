@@ -457,3 +457,14 @@ test('locked: --feature outside --root exits 3 and --feature . still works', asy
     assert.equal(await main(a, fakeDeps(r, tmp('tb-s-'), [], 'list-base', null, 0)), 0);
   }
 });
+
+test('mutants: a changed .js file is listed as unsupported extension and nothing is mutated', async () => {
+  const r = tmp('tb-ext-');
+  writeFileSync(join(r, 'a.js'), 'export const a = 1\n');
+  const base = gitRepo(r);
+  writeFileSync(join(r, 'a.js'), 'export const a = 2\n');
+  const out = await gate(r, base, { vitestMajor: () => 3, runStryker: () => { throw new Error('must not run'); } });
+  assert.equal(out.code, 0);
+  assert.match(out.out, /not covered: a\.js:1 unsupported extension/);
+  assert.match(out.out, /no changed mutable lines/);
+});

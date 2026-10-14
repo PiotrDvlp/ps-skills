@@ -168,6 +168,10 @@ function mutateEntries(root, changed) {
       for (const l of lines) notCovered.push(`${file}:${l} glob characters in path`);
       continue;
     }
+    if (!/\.(ts|vue)$/.test(file)) {
+      for (const l of lines) notCovered.push(`${file}:${l} unsupported extension`);
+      continue;
+    }
     const source = readFileSync(join(root, file), 'utf8');
     if (file.endsWith('.vue')) {
       parsers ??= loadVueParsers(root);

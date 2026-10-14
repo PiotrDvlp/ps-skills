@@ -66,6 +66,8 @@ Other lines:
   - `macro`: a `defineProps`, `defineEmits`, `defineModel`, `defineOptions`, or `withDefaults` call.
   - `unparsed`: the script block did not parse.
   - `two script blocks`: the `.vue` file has both `<script>` and `<script setup>`.
+  - `unsupported extension`: a changed `.js`, `.jsx`, `.tsx`, `.mjs`, `.cjs`, `.mts` or `.cts` production file. Only `.ts` and `.vue` are mutated.
+  - `unsupported script lang`: a `.vue` file whose script block has `lang="tsx"` or `lang="jsx"`.
   - `glob characters in path`: the file path contains minimatch magic (for example Nuxt `pages/[id].vue`), so it is not mutated.
   - `no mutant inside the changed lines`: Stryker made no mutant for the line. A comment-only or type-only change passes this way, with its lines listed here. The `not covered` count in the summary includes every `not covered` line printed.
 - `timed out: <file>:<line> <mutator>`: the mutant ran past its timeout. It is listed as `timed out`; it is not a finding and does not fail the gate.
@@ -90,7 +92,7 @@ Do not edit files under `--feature` while a command runs. Stop `nuxt dev` and vi
 - Template lines are not mutated; a test that pins template output can still be toothless.
 - Files with two script blocks are not covered.
 - Vitest 4 is refused (`vitest 4.x not verified`).
-- Only `.ts` and `.vue` files that are not test files (`*.test.*`, `*.spec.*`) are checked.
+- Only `.ts` and `.vue` production files are mutated; other source extensions and tsx/jsx script blocks are listed as `not covered`.
 - A mutant is created only when its whole node lies inside the changed lines. A mutant whose node starts or ends on an unchanged line is not generated (for example a change inside a multi-line chain), and its line shows `no mutant inside the changed lines`. Whole-file mutation is a phase-2 decision.
 - For `mutants`, a test that fails with a message starting `expected ` (for example a thrown plain `expected 1` error) counts as assertion evidence, the same as `AssertionError`.
 - `locked` skips `node_modules` and `.git` when it walks `--feature`; any symlink under `--feature`, dangling or not, exits 3 (`symlink in feature <path>`), because vitest follows symlinked directories and `--restore` would write through a link.
