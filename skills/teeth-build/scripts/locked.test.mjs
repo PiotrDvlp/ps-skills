@@ -59,10 +59,8 @@ test('locked: vitest-default test names and snapshot files are locked', () => {
   assert.deepEqual(verify(f, d), { modified: ['__snapshots__/a.test.ts.snap'], deleted: [], added: ['x.test.js', 'y.spec.tsx'] });
 });
 
-test('locked: dangling symlinks, symlinks to the feature root and .git are skipped', () => {
+test('locked: .git is skipped', () => {
   const { f, d } = setup();
-  symlinkSync(join(f, 'nope'), join(f, 'dangling'));
-  symlinkSync(f, join(f, '__tests__', 'loop'));
   mkdirSync(join(f, '.git'));
   writeFileSync(join(f, '.git', 'x.test.ts'), 'G');
   record(f, d);
@@ -76,5 +74,25 @@ test('locked: a symlinked test file makes record throw code 3', () => {
   const target = join(mkdtempSync(join(tmpdir(), 'tb-tgt-')), 't.ts');
   writeFileSync(target, 'T');
   symlinkSync(target, join(f, 'y.test.ts'));
-  assert.throws(() => record(f, d), (e) => e.code === 3 && /symlinked test file y\.test\.ts/.test(e.message));
+  assert.throws(() => record(f, d), (e) => e.code === 3 && /symlink in feature y\.test\.ts/.test(e.message));
+});
+
+test('locked: a symlinked directory of tests added after record makes verify throw code 3', () => {
+  const { f, d } = setup();
+  const outside = mkdtempSync(join(tmpdir(), 'tb-out-'));
+  writeFileSync(join(outside, 'z.test.ts'), 'Z');
+  symlinkSync(outside, join(f, 'more'));
+  assert.throws(() => verify(f, d), (e) => e.code === 3 && /symlink in feature more/.test(e.message));
+});
+
+test('locked: a dangling symlink at a locked snapshot path makes restore throw before writing', () => {
+  const { f, d } = setup();
+  mkdirSync(join(f, '__snapshots__'));
+  writeFileSync(join(f, '__snapshots__', 'a.test.ts.snap'), 'S');
+  record(f, d);
+  const outside = join(mkdtempSync(join(tmpdir(), 'tb-out-')), 'planted');
+  unlinkSync(join(f, '__snapshots__', 'a.test.ts.snap'));
+  symlinkSync(outside, join(f, '__snapshots__', 'a.test.ts.snap'));
+  assert.throws(() => restore(f, d), (e) => e.code === 3 && /symlink in feature __snapshots__\/a\.test\.ts\.snap/.test(e.message));
+  assert.equal(existsSync(outside), false);
 });

@@ -9,10 +9,7 @@ function tests(root, d = root, out = []) {
     const n = e.name;
     const p = join(d, n);
     if (n === 'node_modules' || n === '.git') continue;
-    if (e.isSymbolicLink()) {
-      if (TEST_FILE.test(n)) throw Object.assign(new Error(`symlinked test file ${relative(root, p).split(sep).join('/')}`), { code: 3 });
-      continue;
-    }
+    if (e.isSymbolicLink()) throw Object.assign(new Error(`symlink in feature ${relative(root, p).split(sep).join('/')}`), { code: 3 });
     if (e.isDirectory()) tests(root, p, out);
     else if (TEST_FILE.test(n) || relative(root, d).split(sep).includes('__snapshots__')) out.push(relative(root, p).split(sep).join('/'));
   }

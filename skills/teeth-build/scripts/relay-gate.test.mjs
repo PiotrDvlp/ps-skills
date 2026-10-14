@@ -159,7 +159,7 @@ test('red: an import error in one spec does not taint another spec', async () =>
   assert.doesNotMatch(r.out, /sum > doubles/);
 });
 
-import { cpSync, rmSync, symlinkSync, readdirSync, statSync } from 'node:fs';
+import { cpSync, rmSync, symlinkSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 const VROOT = process.env.TEETH_BUILD_VITEST_ROOT;
 const CACHE = process.env.TEETH_BUILD_CACHE;
@@ -432,6 +432,11 @@ test('locked: --feature outside --root exits 3 and --feature . still works', asy
   const linkArgs = ['locked', '--root', r, '--task', 't1', '--feature', 'link', '--record'];
   assert.equal(await main(linkArgs, fakeDeps(r, mkdtempSync(join(tmpdir(), 'tb-s-')), lines, 'list-base', null, 0)), 3);
   assert.match(lines.join('\n'), /--feature must be inside --root/);
+  const dotLines = [];
+  const dotArgs = ['locked', '--root', r, '--task', 't1', '--feature', '.', '--record'];
+  assert.equal(await main(dotArgs, fakeDeps(r, mkdtempSync(join(tmpdir(), 'tb-s-')), dotLines, 'list-base', null, 0)), 3);
+  assert.match(dotLines.join('\n'), /symlink in feature link/);
+  unlinkSync(join(r, 'link'));
   mkdirSync(join(r, '..foo'));
   for (const feature of ['.', '..foo']) {
     const a = ['locked', '--root', r, '--task', 't1', '--feature', feature, '--record'];

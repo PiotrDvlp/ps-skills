@@ -93,7 +93,7 @@ Do not edit files under `--feature` while a command runs. Stop `nuxt dev` and vi
 - Only `.ts` and `.vue` files that are not test files (`*.test.*`, `*.spec.*`) are checked.
 - A mutant is created only when its whole node lies inside the changed lines. A mutant whose node starts or ends on an unchanged line is not generated (for example a change inside a multi-line chain), and its line shows `no mutant inside the changed lines`. Whole-file mutation is a phase-2 decision.
 - For `mutants`, a test that fails with a message starting `expected ` (for example a thrown plain `expected 1` error) counts as assertion evidence, the same as `AssertionError`.
-- `locked` skips symlinked directories, `node_modules` and `.git` when it walks `--feature`; a symlinked test file exits 3 (`symlinked test file <path>`).
+- `locked` skips `node_modules` and `.git` when it walks `--feature`; any symlink under `--feature`, dangling or not, exits 3 (`symlink in feature <path>`), because vitest follows symlinked directories and `--restore` would write through a link.
 - Only test files under `--feature` are locked. Tests outside it and shared test shims are not; phase 2 closes this because the controller will reject any changed path outside the task's planned files.
 - Phase 2 (the controller loop) is not built.
 
