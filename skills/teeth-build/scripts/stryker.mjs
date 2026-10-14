@@ -1,4 +1,4 @@
-import { chmodSync, closeSync, existsSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { chmodSync, existsSync, linkSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { assertSafeDir, ensureSafeDir, fail } from './safe-dir.mjs';
@@ -8,14 +8,16 @@ const PKGS = ['@stryker-mutator/core', '@stryker-mutator/vitest-runner'];
 const outside = (rel) => rel === '..' || rel.startsWith(`..${sep}`);
 
 function acquire(lock) {
+  const tmpLock = `${lock}.${process.pid}`;
+  writeFileSync(tmpLock, String(process.pid));
   try {
-    const fd = openSync(lock, 'wx');
-    writeSync(fd, String(process.pid));
-    closeSync(fd);
+    linkSync(tmpLock, lock);
     return true;
   } catch (e) {
     if (e.code !== 'EEXIST') throw e;
     return false;
+  } finally {
+    rmSync(tmpLock, { force: true });
   }
 }
 
@@ -25,7 +27,9 @@ export async function withRepoLock(cacheRoot, fn) {
   if (!acquire(lock)) {
     const pid = Number(readFileSync(lock, 'utf8'));
     let alive = false;
-    try { process.kill(pid, 0); alive = true; } catch { alive = false; }
+    if (Number.isInteger(pid) && pid > 0) {
+      try { process.kill(pid, 0); alive = true; } catch { alive = false; }
+    }
     if (alive) throw fail(`another mutants run on this repo (pid ${pid})`);
     rmSync(lock, { force: true });
     if (!acquire(lock)) throw fail('another mutants run on this repo');

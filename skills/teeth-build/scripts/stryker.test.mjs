@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, writeFileSync, readFileSync, existsSync, lstatSync, statSync } from 'node:fs';
+import { chmodSync, mkdirSync, writeFileSync, readFileSync, existsSync, lstatSync, statSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { withRepoLock, syncWork, toolReady, writeConfig, runStryker } from './stryker.mjs';
 import { tmp } from './test-tmp.mjs';
@@ -127,4 +127,20 @@ test('work: only top-level reports, .output and .stryker-tmp are excluded', () =
   assert.equal(existsSync(join(work, 'src', '.output', 'b.ts')), true);
   assert.equal(existsSync(join(work, 'reports')), false);
   assert.equal(existsSync(join(work, '.output')), false);
+});
+
+test('lock: an empty, zero, negative or non-numeric lock file is stale and replaced', async () => {
+  for (const content of ['', '0', '-1', 'abc']) {
+    const dir = tmp('tb-lk-');
+    writeFileSync(join(dir, 'lock'), content);
+    assert.equal(await withRepoLock(dir, async () => 7), 7, JSON.stringify(content));
+    assert.equal(existsSync(join(dir, 'lock')), false);
+  }
+});
+
+test('lock: the lock holds the PID while held and leaves no temp file', async () => {
+  const dir = tmp('tb-lk-');
+  const seen = await withRepoLock(dir, async () => readFileSync(join(dir, 'lock'), 'utf8'));
+  assert.equal(seen, String(process.pid));
+  assert.deepEqual(readdirSync(dir), []);
 });
