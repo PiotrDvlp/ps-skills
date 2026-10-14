@@ -231,7 +231,11 @@ function scope(ctx, argv) {
   const isTest = (p) => TEST_FILE.test(p) || p.split('/').includes('__snapshots__');
   const paths = (...a) => git(root, ...a).split('\n').filter(Boolean);
   const atBase = new Set(paths('ls-tree', '-r', '--name-only', base));
-  const changed = new Set([...paths('diff', '--name-only', '--no-renames', base), ...paths('ls-files', '--others', '--exclude-standard')]);
+  const changed = new Set([
+    ...paths('diff', '--name-only', '--no-renames', base),
+    ...paths('diff', '--cached', '--name-only', '--no-renames', base),
+    ...paths('ls-files', '--others', '--exclude-standard'),
+  ]);
   const out = [...changed].filter((p) => !allow.has(p) && !(!atBase.has(p) && inFeature(p) && isTest(p))).sort();
   for (const p of out) deps.log(`out of scope: ${p}`);
   return out.length ? 1 : 0;

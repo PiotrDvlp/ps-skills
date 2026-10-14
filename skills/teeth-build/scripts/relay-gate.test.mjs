@@ -551,3 +551,13 @@ test('scope: a root below the git top-level exits 3', async () => {
   assert.equal(code, 3);
   assert.match(lines.join('\n'), /root must be the git top-level/);
 });
+
+test('scope: a staged change reverted in the working tree is still named', async () => {
+  const r = scopeRepo();
+  writeFileSync(join(r, 'vitest.config.ts'), 'weakened\n');
+  spawnSync('git', ['add', 'vitest.config.ts'], { cwd: r });
+  writeFileSync(join(r, 'vitest.config.ts'), 'x\n');
+  const { code, lines } = await scopeRun(r, 'f/a.ts');
+  assert.equal(code, 1);
+  assert.deepEqual(lines, ['out of scope: vitest.config.ts']);
+});
