@@ -1,21 +1,23 @@
 #!/usr/bin/env node
 // Usage: node scripts/check-public-leaks.mjs --root <dir> --deny-file <file> [--allow-path <prefix>]...
-// Exit 0: no findings. 1: findings printed. 2: deny file missing or empty, or no file scanned.
-import { readdirSync, readFileSync, lstatSync, readlinkSync, existsSync } from 'node:fs';
+// Exit 0: no findings. 1: findings printed. 2: deny file missing or empty, root not a git work tree, or no file scanned.
+import { readFileSync, lstatSync, readlinkSync, existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
-const SKIP_DIRS = new Set(['.git', 'node_modules', '.tmp']);
+const SKIP_DIRS = new Set(['node_modules', '.tmp']);
 const PERSONAL_PATH = /\/Users\/|\/home\/[a-z]|~\/Projekty/;
 const TICKET = /\b(?!PROJ-|ABC-)[A-Z][A-Z\d]{1,9}-\d+\b/;
 
-function* walk(dir) {
-  for (const name of readdirSync(dir)) {
-    if (SKIP_DIRS.has(name)) continue;
-    const full = join(dir, name);
-    const st = lstatSync(full);
+function* walk(root) {
+  const out = execFileSync('git', ['-C', root, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], { encoding: 'utf8' });
+  for (const rel of new Set(out.split('\0').filter(Boolean))) {
+    if (rel.split('/').some((seg) => SKIP_DIRS.has(seg))) continue;
+    const full = join(root, rel);
+    let st;
+    try { st = lstatSync(full); } catch { continue; }
     if (st.isSymbolicLink()) yield { full, text: readlinkSync(full) };
-    else if (st.isDirectory()) yield* walk(full);
-    else {
+    else if (st.isFile()) {
       const buf = readFileSync(full);
       if (!buf.includes(0)) yield { full, text: buf.toString('utf8') };
     }
@@ -52,7 +54,9 @@ if (process.argv[1] && process.argv[1].endsWith('check-public-leaks.mjs')) {
   const allowPaths = argv.flatMap((a, i) => (a === '--allow-path' ? [argv[i + 1]] : []));
   const deny = readDeny(get('--deny-file'));
   if (!deny) { console.error('deny file missing or empty: refusing to run a weakened scan'); process.exit(2); }
-  const { findings, scanned } = scanTree({ root: get('--root') ?? '.', deny, allowPaths });
+  let result;
+  try { result = scanTree({ root: get('--root') ?? '.', deny, allowPaths }); } catch (e) { console.error(`cannot list files with git: ${e.message.split('\n')[0]}`); process.exit(2); }
+  const { findings, scanned } = result;
   if (!scanned) { console.error('no files scanned: check --root'); process.exit(2); }
   for (const f of findings) console.log(`${f.file}:${f.line}: ${f.rule}: ${f.match}`);
   console.log(`${findings.length} findings`);
