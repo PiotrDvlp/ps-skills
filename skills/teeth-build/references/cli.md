@@ -94,6 +94,7 @@ Do not edit files under `--feature` while a command runs. Stop `nuxt dev` and vi
 - Only `.ts` and `.vue` production files are mutated; other source extensions and tsx/jsx script blocks are listed as `not covered`.
 - A mutant is created only when its whole node lies inside the changed lines. A mutant whose node starts or ends on an unchanged line is not generated (for example a change inside a multi-line chain), and its line shows `no mutant inside the changed lines`. Whole-file mutation is not used: line ranges keep a task's run in seconds.
 - For `mutants`, a test that fails with a message starting `expected ` (for example a thrown plain `expected 1` error) counts as assertion evidence, the same as `AssertionError`.
+- Assertion evidence comes from Stryker's `statusReason`, the message of the first failing test only; the report has no per-test messages. A mutant killed by assertion in a later test, after an earlier test crashed on it, is reported as `no assertion evidence`. Order the spec so the asserting test runs first.
 - `locked` skips `node_modules` and `.git` when it walks `--feature`; any symlink under `--feature`, dangling or not, exits 3 (`symlink in feature <path>`), because vitest follows symlinked directories and `--restore` would write through a link.
 - Only test files under `--feature` are locked; `scope` names every other changed path the task did not plan, shared test setup and config included.
 

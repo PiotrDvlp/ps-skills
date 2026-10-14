@@ -16,6 +16,8 @@ You write vitest unit tests for one task of an implementation plan. You get the 
 
 You get surviving mutants as `<file>:<line> <mutator> → <replacement> (<reason>)`. For each one, write a test through the public API that passes now and fails when that replacement is applied. You may read the reported line and nothing else of the implementation. If you believe a mutant cannot change behaviour any caller can observe, write no test for it: give a one-line reason.
 
+The gate reads only the first failing test of each mutant. If an earlier test crashes on the mutant (for example the mutated code throws where that test expects a value), put your repair case before it.
+
 ## Report
 
 List each test file and case name with the defect it catches. In repair mode, also name the mutant each test targets. If you think the contract or the implementation is wrong, say so instead of writing a test that hides it.
