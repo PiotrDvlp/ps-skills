@@ -1,0 +1,198 @@
+{
+  "schemaVersion": "2",
+  "files": {
+    "src/a.ts": {
+      "language": "typescript",
+      "source": "",
+      "mutants": [
+        {
+          "id": "1",
+          "mutatorName": "EqualityOperator",
+          "replacement": "!==",
+          "status": "Killed",
+          "killedBy": [
+            "1"
+          ],
+          "statusReason": "expected 2 to be 3 // Object.is equality",
+          "location": {
+            "start": {
+              "line": 1,
+              "column": 1
+            },
+            "end": {
+              "line": 1,
+              "column": 5
+            }
+          }
+        },
+        {
+          "id": "2",
+          "mutatorName": "EqualityOperator",
+          "replacement": "!==",
+          "status": "Killed",
+          "killedBy": [
+            "1",
+            "2"
+          ],
+          "statusReason": "AssertionError: expected true to be false",
+          "location": {
+            "start": {
+              "line": 2,
+              "column": 1
+            },
+            "end": {
+              "line": 2,
+              "column": 5
+            }
+          }
+        },
+        {
+          "id": "3",
+          "mutatorName": "EqualityOperator",
+          "replacement": "!==",
+          "status": "Killed",
+          "killedBy": [
+            "1"
+          ],
+          "statusReason": "Snapshot `x 1` mismatched",
+          "location": {
+            "start": {
+              "line": 3,
+              "column": 1
+            },
+            "end": {
+              "line": 3,
+              "column": 5
+            }
+          }
+        },
+        {
+          "id": "4",
+          "mutatorName": "EqualityOperator",
+          "replacement": "!==",
+          "status": "Killed",
+          "killedBy": [
+            "1"
+          ],
+          "statusReason": "RangeError: Maximum call stack size exceeded",
+          "location": {
+            "start": {
+              "line": 4,
+              "column": 1
+            },
+            "end": {
+              "line": 4,
+              "column": 5
+            }
+          }
+        },
+        {
+          "id": "5",
+          "mutatorName": "EqualityOperator",
+          "replacement": "!==",
+          "status": "Killed",
+          "killedBy": [
+            "1",
+            "2"
+          ],
+          "statusReason": "Error: boom",
+          "location": {
+            "start": {
+              "line": 5,
+              "column": 1
+            },
+            "end": {
+              "line": 5,
+              "column": 5
+            }
+          }
+        },
+        {
+          "id": "6",
+          "mutatorName": "EqualityOperator",
+          "replacement": "!==",
+          "status": "Killed",
+          "statusReason": "expected 1 to be 2",
+          "location": {
+            "start": {
+              "line": 6,
+              "column": 1
+            },
+            "end": {
+              "line": 6,
+              "column": 5
+            }
+          }
+        },
+        {
+          "id": "7",
+          "mutatorName": "EqualityOperator",
+          "replacement": "!==",
+          "status": "Survived",
+          "killedBy": [],
+          "location": {
+            "start": {
+              "line": 7,
+              "column": 1
+            },
+            "end": {
+              "line": 7,
+              "column": 5
+            }
+          }
+        },
+        {
+          "id": "8",
+          "mutatorName": "EqualityOperator",
+          "replacement": "!==",
+          "status": "Timeout",
+          "killedBy": [],
+          "location": {
+            "start": {
+              "line": 8,
+              "column": 1
+            },
+            "end": {
+              "line": 8,
+              "column": 5
+            }
+          }
+        },
+        {
+          "id": "9",
+          "mutatorName": "EqualityOperator",
+          "replacement": "!==",
+          "status": "CompileError",
+          "killedBy": [],
+          "location": {
+            "start": {
+              "line": 9,
+              "column": 1
+            },
+            "end": {
+              "line": 9,
+              "column": 5
+            }
+          }
+        },
+        {
+          "id": "10",
+          "mutatorName": "EqualityOperator",
+          "replacement": "!==",
+          "status": "Ignored",
+          "killedBy": [],
+          "location": {
+            "start": {
+              "line": 10,
+              "column": 1
+            },
+            "end": {
+              "line": 10,
+              "column": 5
+            }
+          }
+        }
+      ]
+    }
+  }
+}

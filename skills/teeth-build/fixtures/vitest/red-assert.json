@@ -1,0 +1,38 @@
+{
+  "testResults": [
+    {
+      "name": "/repo/__tests__/sum.test.ts",
+      "status": "failed",
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "sum"
+          ],
+          "title": "adds",
+          "fullName": "sum adds",
+          "status": "passed",
+          "failureMessages": [],
+          "location": {
+            "line": 3,
+            "column": 1
+          }
+        },
+        {
+          "ancestorTitles": [
+            "sum"
+          ],
+          "title": "doubles",
+          "fullName": "sum doubles",
+          "status": "failed",
+          "failureMessages": [
+            "AssertionError: expected 3 to be 4"
+          ],
+          "location": {
+            "line": 4,
+            "column": 1
+          }
+        }
+      ]
+    }
+  ]
+}

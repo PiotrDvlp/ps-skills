@@ -35,6 +35,7 @@ npx skills@latest add PiotrDvlp/ps-skills
 | `prove-ui` | Proves a browser-visible change with a baseline-vs-candidate run and an attested line | a repo adapter at `.claude/prove-ui/adapter.md` |
 | `mr-watchman` | One read-only status pass over your open MRs: conflicts, then review threads, then CI; twins grouped | Node 22+, authenticated `glab` |
 | `test-teeth` | Sampled-mutation audit of a feature's vitest tests: which mutants each test case kills and whether zero-kill cases are removable | Node 22+, vitest 3 in the audited repo |
+| `teeth-build` | Stryker gate on a task's changed lines plus red-first and locked-test checks (phase 1: relay-gate CLI) | Node 22+, vitest 3; Stryker 10 installed outside the repo by `setup` |
 
 ## Principles
 

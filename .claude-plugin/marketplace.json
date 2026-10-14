@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "ps",
-      "description": "Development workflow skills: commit, dual-branch-finish, codex-review, second-view, task-auditor, why, blast-radius, layer-lint, retro, dev-browser, worktree-audit, prove-ui, mr-watchman, test-teeth, principles",
+      "description": "Development workflow skills: commit, dual-branch-finish, codex-review, second-view, task-auditor, why, blast-radius, layer-lint, retro, dev-browser, worktree-audit, prove-ui, mr-watchman, test-teeth, teeth-build, principles",
       "source": "./",
       "category": "productivity"
     }
