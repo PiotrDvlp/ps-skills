@@ -12,6 +12,7 @@ const TICKET = ['ZZZ', '42'].join('-');
 
 function tree(files) {
   const root = mkdtempSync(join(tmpdir(), 'leak-'));
+  spawnSync('git', ['init', '-q', root]);
   for (const [rel, body] of Object.entries(files)) {
     mkdirSync(join(root, rel, '..'), { recursive: true });
     writeFileSync(join(root, rel), body);
@@ -78,6 +79,24 @@ test('scans extensionless, upper-case-extension and assets files, skips binaries
   });
   const { findings } = scanTree({ root, deny: ['acme'], allowPaths: [] });
   assert.deepEqual(findings.map((f) => f.file).sort(), ['LICENSE', 'a/NOTES.MD', 'assets/page.vue']);
+});
+
+test('skips gitignored files, still scans untracked ones', () => {
+  const root = tree({
+    'work/.gitignore': '*\n',
+    'work/plan.md': `${USERS}x\n`,
+    'new/SKILL.md': `${USERS}x\n`,
+  });
+  const { findings } = scanTree({ root, deny: ['acme'], allowPaths: [] });
+  assert.deepEqual(findings.map((f) => f.file), ['new/SKILL.md']);
+});
+
+test('exits 2 when the root is not a git work tree', () => {
+  const root = mkdtempSync(join(tmpdir(), 'leak-nogit-'));
+  writeFileSync(join(root, 'a.md'), 'clean\n');
+  const denyDir = tree({ 'deny.txt': 'acme\n' });
+  const r = spawnSync('node', [SCRIPT, '--root', root, '--deny-file', join(denyDir, 'deny.txt')], { encoding: 'utf8' });
+  assert.equal(r.status, 2);
 });
 
 test('scans symlink text without following the link', () => {
