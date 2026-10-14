@@ -37,6 +37,10 @@ export function vueRanges(source, changedLines, { parseSfc, parseTs }) {
     for (const line of changedLines) res.notCovered.push({ line, reason: 'two script blocks' });
     return res;
   }
+  if (blocks.some((b) => b.lang === 'tsx' || b.lang === 'jsx')) {
+    for (const line of changedLines) res.notCovered.push({ line, reason: 'unsupported script lang' });
+    return res;
+  }
   for (const line of changedLines) {
     const b = blocks.find((x) => line > x.loc.start.line && line < x.loc.end.line);
     if (!b) res.notCovered.push({ line, reason: 'template' });

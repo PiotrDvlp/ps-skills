@@ -1,18 +1,16 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { ensureSafeDir, assertSafeDir } from './safe-dir.mjs';
+import { ensureSafeDir, assertSafeDir, fail } from './safe-dir.mjs';
 import { record, verify, restore } from './locked.mjs';
 import { classifyMutants } from './classify.mjs';
 import { loadVueParsers, vueRanges } from './vue-ranges.mjs';
-import { changedLines } from './git-changes.mjs';
+import { changedLines, gitOk, TEST_FILE } from './git-changes.mjs';
 import { withRepoLock, syncWork, toolReady, setupTool, linkTool, writeConfig, runStryker } from './stryker.mjs';
 import { parseList, reporterName, caseId } from '../../test-teeth/scripts/test-teeth.mjs';
-
-const fail = (message, code = 3) => Object.assign(new Error(message), { code });
 
 function flag(argv, name) {
   const i = argv.indexOf(`--${name}`);
@@ -30,12 +28,12 @@ export function vitestMajor(root) {
   return 3;
 }
 
-export function stateDir(root, task) {
-  const base = join(tmpdir(), 'teeth-build');
-  const hashed = join(base, createHash('sha1').update(resolve(root)).digest('hex'));
-  const dir = join(hashed, task);
+export function stateDir({ cacheRoot, hashDir }, task) {
+  ensureSafeDir(cacheRoot, 'cache directory');
+  ensureSafeDir(hashDir, 'cache directory');
+  const dir = join(hashDir, 'state', task);
   ensureSafeDir(dir);
-  for (const p of [base, hashed]) assertSafeDir(p);
+  assertSafeDir(join(hashDir, 'state'));
   return dir;
 }
 
@@ -46,13 +44,9 @@ const realRun = (root) => (args, cwd = root) => {
 };
 
 const interrupted = (r) => r.signal === 'SIGINT' || r.signal === 'SIGTERM';
-const USAGE = 'usage: relay-gate.mjs setup|baseline|red|locked|mutants --root R ...';
+const USAGE = 'usage: relay-gate.mjs setup|baseline|red|locked|scope|cases|mutants --root R ...';
 
-function git(root, ...a) {
-  const r = spawnSync('git', ['--no-optional-locks', '-C', root, ...a], { encoding: 'utf8' });
-  if (r.status !== 0) throw fail(`git ${a[0]} failed`);
-  return r.stdout.trim();
-}
+const git = (root, ...a) => gitOk(root, a).trim();
 
 function baseline(ctx) {
   const { root, feature, state, deps } = ctx;
@@ -73,17 +67,43 @@ function baseline(ctx) {
 
 const keyed = (cases) => cases.map((c) => ({ ...c, key: `${c.spec}::${c.name}` }));
 
+function baselineCases(ctx) {
+  const p = join(ctx.state, 'baseline.json');
+  if (!existsSync(p)) throw fail('no baseline; run baseline');
+  return keyed(parseList(JSON.parse(readFileSync(p, 'utf8')).list, ctx.root));
+}
+
+function listNow(ctx) {
+  const run = ctx.deps.run(['list', ctx.feature, '--json', '--includeTaskLocation', '--no-cache'], ctx.root);
+  if (interrupted(run)) return { code: 130 };
+  if (run.status !== 0) return { code: 2 };
+  return { cases: keyed(parseList(JSON.parse(run.stdout), ctx.root)) };
+}
+
+function cases(ctx) {
+  ctx.deps.vitestMajor(ctx.root);
+  const before = baselineCases(ctx);
+  const now = listNow(ctx);
+  if (now.code) return now.code;
+  const left = new Map();
+  for (const c of now.cases) left.set(c.key, (left.get(c.key) ?? 0) + 1);
+  const removed = before.filter((c) => {
+    const n = left.get(c.key) ?? 0;
+    if (n) left.set(c.key, n - 1);
+    return !n;
+  });
+  for (const c of removed) ctx.deps.log(`removed: ${c.spec} > ${c.name}`);
+  return removed.length ? 1 : 0;
+}
+
 function red(ctx) {
   const { root, feature, state, deps } = ctx;
   deps.vitestMajor(root);
-  const basePath = join(state, 'baseline.json');
-  if (!existsSync(basePath)) throw fail('no baseline; run baseline');
-  const before = new Set(keyed(parseList(JSON.parse(readFileSync(basePath, 'utf8')).list, root)).map((c) => c.key));
+  const before = new Set(baselineCases(ctx).map((c) => c.key));
   const findings = [];
-  const run = deps.run(['list', feature, '--json', '--includeTaskLocation', '--no-cache'], root);
-  if (interrupted(run)) return 130;
-  if (run.status !== 0) return 2;
-  const now = keyed(parseList(JSON.parse(run.stdout), root));
+  const listed = listNow(ctx);
+  if (listed.code) return listed.code;
+  const now = listed.cases;
   const seen = new Set();
   for (const c of now) {
     if (seen.has(c.key)) findings.push(`${c.spec} > ${c.name}: duplicate identity`);
@@ -174,6 +194,10 @@ function mutateEntries(root, changed) {
       for (const l of lines) notCovered.push(`${file}:${l} glob characters in path`);
       continue;
     }
+    if (!/\.(ts|vue)$/.test(file)) {
+      for (const l of lines) notCovered.push(`${file}:${l} unsupported extension`);
+      continue;
+    }
     const source = readFileSync(join(root, file), 'utf8');
     if (file.endsWith('.vue')) {
       parsers ??= loadVueParsers(root);
@@ -191,13 +215,36 @@ function mutateEntries(root, changed) {
   return { mutate, mutable, notCovered };
 }
 
-async function mutants(ctx, argv) {
-  const { root, state, deps } = ctx;
-  const { cacheRoot, hashDir, toolDir, workDir } = cachePaths(root, argv);
-  const top = git(root, 'rev-parse', '--show-toplevel');
-  if (realpathSync(top) !== realpathSync(root)) throw fail('root must be the git top-level');
-  const base = flag(argv, 'base') ?? (existsSync(join(state, 'baseline.json')) ? JSON.parse(readFileSync(join(state, 'baseline.json'), 'utf8')).base : null);
+function baseOf(ctx, argv) {
+  const p = join(ctx.state, 'baseline.json');
+  const base = flag(argv, 'base') ?? (existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')).base : null);
   if (!base) throw fail('no baseline; run baseline or pass --base');
+  return base;
+}
+
+function scope(ctx, argv) {
+  const { root, deps } = ctx;
+  const base = baseOf(ctx, argv);
+  const allow = new Set((flag(argv, 'allow') ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+  const featureRel = relative(root, resolve(root, ctx.feature)).split(sep).join('/');
+  const inFeature = (p) => featureRel === '' || p.startsWith(`${featureRel}/`);
+  const isTest = (p) => TEST_FILE.test(p) || p.split('/').includes('__snapshots__');
+  const paths = (...a) => git(root, ...a).split('\n').filter(Boolean);
+  const atBase = new Set(paths('ls-tree', '-r', '--name-only', base));
+  const changed = new Set([
+    ...paths('diff', '--name-only', '--no-renames', base),
+    ...paths('diff', '--cached', '--name-only', '--no-renames', base),
+    ...paths('ls-files', '--others', '--exclude-standard'),
+  ]);
+  const out = [...changed].filter((p) => !allow.has(p) && !(!atBase.has(p) && inFeature(p) && isTest(p))).sort();
+  for (const p of out) deps.log(`out of scope: ${p}`);
+  return out.length ? 1 : 0;
+}
+
+async function mutants(ctx, argv) {
+  const { root, deps } = ctx;
+  const { hashDir, toolDir, workDir } = ctx.paths;
+  const base = baseOf(ctx, argv);
   deps.vitestMajor(root);
   const changed = changedLines(root, base, ctx.feature);
   const { mutate, mutable, notCovered } = mutateEntries(root, changed);
@@ -209,8 +256,6 @@ async function mutants(ctx, argv) {
   if (!deps.toolReady(toolDir)) throw fail(`run: relay-gate.mjs setup --root ${root}`);
   const tsconfig = join(root, 'tsconfig.json');
   if (existsSync(tsconfig) && /"extends"\s*:\s*"\.\/\.nuxt\//.test(readFileSync(tsconfig, 'utf8')) && !existsSync(join(root, '.nuxt'))) throw fail('run npx nuxi prepare');
-  ensureSafeDir(cacheRoot, 'cache directory');
-  ensureSafeDir(hashDir, 'cache directory');
   return withRepoLock(hashDir, () => {
     deps.syncWork(root, workDir);
     deps.linkTool(toolDir, root);
@@ -253,7 +298,7 @@ export async function main(argv, deps = {}) {
   const log = deps.log ?? console.log;
   try {
     const cmd = argv[0];
-    if (!['setup', 'baseline', 'red', 'locked', 'mutants'].includes(cmd)) {
+    if (!['setup', 'baseline', 'red', 'locked', 'scope', 'cases', 'mutants'].includes(cmd)) {
       log(USAGE);
       return 3;
     }
@@ -273,6 +318,7 @@ export async function main(argv, deps = {}) {
     const featureAbs = resolve(root, feature);
     if (outside(root, featureAbs) || (existsSync(featureAbs) && outside(realpathSync(root), realpathSync(featureAbs)))) throw fail('--feature must be inside --root');
     if (!/^[\w.-]+$/.test(task) || task === '.' || task === '..') throw fail('invalid --task');
+    if (realpathSync(git(root, 'rev-parse', '--show-toplevel')) !== realpathSync(root)) throw fail('root must be the git top-level');
     const d = {
       run: deps.run ?? realRun(root),
       stateDir: deps.stateDir ?? stateDir,
@@ -283,8 +329,9 @@ export async function main(argv, deps = {}) {
       linkTool: deps.linkTool ?? linkTool,
       log,
     };
-    const ctx = { root, feature, state: d.stateDir(root, task), deps: d };
-    return await { baseline, red, locked, mutants }[cmd](ctx, argv);
+    const paths = cachePaths(root, argv);
+    const ctx = { root, feature, paths, state: d.stateDir(paths, task), deps: d };
+    return await { baseline, red, locked, scope, cases, mutants }[cmd](ctx, argv);
   } catch (e) {
     log(e.message);
     return [2, 3, 130].includes(e.code) ? e.code : 3;

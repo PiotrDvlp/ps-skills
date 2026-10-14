@@ -1,102 +1,109 @@
 ---
 name: teeth-build
-description: Use when a plan's tasks should be built with tests that have teeth — a Stryker gate on changed lines, red-first tests, locked test files. Phase 1 ships the relay-gate CLI only.
+description: Use when an approved implementation plan should be built task by task with tests that have teeth — "/teeth-build <plan>", "teeth-build this plan", "build this plan with a mutation gate". Each task ends with a Stryker gate on its changed lines; relay tasks get red-first tests from a separate writer, locked before the implementer starts. Skip for auditing existing tests (test-teeth) or Codex-implemented tasks (codex-build).
 ---
 
 # teeth-build
 
-Phase 1 is the `relay-gate.mjs` CLI. It checks one task's work in a vitest 3 repo: the new tests fail first, the test files stay locked, and a Stryker run on the changed lines finds mutants the tests do not kill. The controller loop that drives it arrives in phase 2. The report is evidence for a developer, not an instruction to change code.
+You are the controller. You run an approved implementation plan one task at a time, dispatch a test writer and an implementer, and run the gates in `scripts/relay-gate.mjs`. You write no tests and no production code yourself, except the stubs in relay step 2. Read `references/cli.md` before the first command: it lists every subcommand, exit code and output line.
 
-## Run
+Below, `G` stands for `node ${CLAUDE_SKILL_DIR}/scripts/relay-gate.mjs` and `F` for `--root <repo> --task <task id> --feature <feature> --cache-dir <cache>`, with the same `<cache>` for the whole run. Task id: `T` plus the plan's task number. Feature: the nearest existing directory, relative to the repo root, that contains every file the task lists.
 
-This skill runs on macOS and Linux only. Node 22+ is required.
+## Before the first task
 
-```bash
-node ${CLAUDE_SKILL_DIR}/scripts/relay-gate.mjs <command> --root /path/to/your/repo --task T1 --feature src/features/cart
-```
+1. The user approved the plan. If you cannot tell, ask.
+2. The repo has vitest 3 in `node_modules`; Node 22+; `npm` and `rsync` are on the PATH.
+3. `git branch --show-current` is not `main`, `master` or `develop`. Otherwise stop and ask for a branch.
+4. The working tree is clean. Otherwise stop and ask the user to commit, stash or stop.
+5. Cache: `~/.cache/teeth-build` unless the user names another directory. If the sandbox blocks writes there, every command exits 3; ask the user to allow the directory or name a writable one.
+6. In a Nuxt repo, `.nuxt/` exists. Otherwise ask the user to run `npx nuxi prepare`.
+7. Resume: read the plan. Skip a task whose `teeth-build result` block says `done` or `done, waiver pending`. For a `blocked` task, ask the user whether to retry it. A task with no result block and a dirty working tree: show `git status --short` and ask the user to discard those edits or stop.
 
-Commands:
+## Per task
 
-- `setup --root R [--cache-dir D]`: install Stryker 10.0.0 once per repo into `<cache>/<sha1 of root>/tool`. A complete install is kept; a partial one is deleted and reinstalled. `--cache-dir` overrides `~/.cache/teeth-build`. Needs network access to the npm registry and write access to the cache directory. Run it only after the user approves the install. `--task` and `--feature` are not needed.
-- `baseline`: needs a clean working tree. Runs the feature suite, and writes `baseline.json` (HEAD sha and test list) only when the suite is green. A feature with no tests yet counts as green.
-- `red`: lists the tests now, compares with the baseline, and checks that every new test fails with an assertion.
-- `locked --record | --verify | --restore`: records the feature's test files (`*.test.*` and `*.spec.*` with a `js`, `ts`, `jsx`, `tsx`, `mjs`, `cjs`, `mts` or `cts` extension) and every file under a `__snapshots__` directory, reports changes to them, or rewrites them to the recorded bytes. `--restore` is the only command that writes to the target repo's working tree: it overwrites modified and deleted test files and deletes added ones.
-- `mutants [--base SHA] [--cache-dir D]`: copies the repo to a work directory, runs Stryker on the changed lines of `.ts` and `.vue` files under `--feature`, and prints one line per finding. `--base` defaults to the sha stored by `baseline`.
+### 1. Route
 
-Required for every command except `setup`: `--root`, `--task` (letters, digits, `_`, `.`, `-`; names the state directory), `--feature` (repo-relative path; a path outside `--root`, also through a symlink, exits 3 with `--feature must be inside --root`). The state directory is `<os temp>/teeth-build/<sha1 of root>/<task>`.
+- The task has a line `**Route:** relay`, `gate` or `refactor`: use it.
+- Otherwise `relay` when every production file the task creates or modifies is under a `helpers/` directory, or under a `mappers/` directory whose spec files contain neither `vi.stubGlobal` nor `vi.mock` (`rg -l 'vi\.(stubGlobal|mock)' <that mappers dir>` prints nothing).
+- Otherwise `gate`.
 
-Exit codes:
+### 2. Baseline
 
-- `0`: pass.
-- `1`: findings.
-- `2`: the code under test is not green (vitest failed, or Stryker wrote no report).
-- `3`: usage or setup problem. Messages include `--root, --task and --feature are required`, `invalid --task`, `no baseline; run baseline` (from `red`), `no baseline; run baseline or pass --base` (from `mutants`), `vitest wrote no report`, `working tree not clean`, `vitest <version> not verified`, `root must be the git top-level`, `run: relay-gate.mjs setup --root <root>`, `run npx nuxi prepare`, `Stryker matched <n> of <m> changed files` (or `an unknown number of`), `unsafe inventory path`, `work directory overlaps the repo`, `another mutants run on this repo`, and `base <sha> is not an ancestor of HEAD; rerun baseline`.
-- `130`: SIGINT or SIGTERM interrupted vitest or Stryker. Any other signal that kills Stryker exits 2 with `stryker killed by <signal>`.
+Run `G baseline F`. Exit 2: the feature suite was red before the task; stop and report. Exit 3: stop and show the message.
 
-`setup` exits 3 when the install is incomplete after `npm` ran. `unsafe ... directory` also exits 3. The state, cache, tool and work directories must be owned by you and set to owner-only 0700, and must not be symlinks. Delete the directory the message names, or `chmod 700` it if only the permissions are wrong, then rerun.
+### 3a. Relay path
 
-## Read the output
+1. Contract: copy from the plan task its files, exported names with full signatures, behaviour, and acceptance criteria. If an export the tests will call has no signature, stop and ask.
+2. Stubs: write every new export with the planned signature and a body that returns without throwing (`return undefined as never` for a value, an empty body for `void`). Leave existing exports alone.
+3. Dispatch the writer (see Agents) in write mode with the contract, the stub paths and the feature path.
+4. `G red F`. Exit 1, or exit 2 (a spec does not load): send the output to the writer. This is a red round.
+5. `G locked --record F`.
+6. Dispatch the implementer in relay mode with the contract and the locked test paths.
+7. Green checks, in this order. A failure goes back to the implementer as a green round:
+   - `G locked --verify F`. On exit 1, run `G locked --restore F` first, then send the printed paths.
+   - `(cd <repo> && CI=1 node_modules/.bin/vitest run <feature> --no-cache)` exits 0.
+   - `G scope F --allow <list>`. The list, comma-separated and repo-relative: every file the plan task names (production and test), plus, on the relay and refactor paths, the test files the writer reported. On exit 1 the implementer reverts the printed paths.
+   - `G cases F`. On exit 1, send the removed cases, unless the plan task names that removal.
+8. `G mutants F`.
+   - Exit 0: go to Done.
+   - Exit 1: send the findings to the writer in repair mode (a mutants round). Run the feature suite; a failing repair test goes back to the writer once, and if the writer reports that the implementation is wrong, the task is `blocked`. Then rerun `G scope F --allow <list>` (the list from step 7 plus the repair test files) and `G cases F`; a failure goes back to the writer as a mutants round. Then `G locked --record F` and `G mutants F` again; the targeted mutants must be gone from the findings.
+   - Exit 2: send the output to the implementer (a green round).
+   - Exit 3 with `run: relay-gate.mjs setup`: see Setup. Any other exit 3: stop and show the message.
 
-`red` prints one line per problem: `<spec> > <test name>: <reason>`.
+### 3b. Gate path
 
-- `no new tests`: the feature has no test that was absent from the baseline. Exit 1.
-- `already passing`: the new test passes, so it was not written red-first.
-- `crashed (<first line>)`: the new test failed without an assertion error.
-- `skipped`: the new test is skipped, pending, or todo.
-- `import error`: the spec file failed to load, so none of its tests ran.
-- `not reported`: vitest listed the test but its report omitted it.
-- `duplicate identity`: two tests share a spec and name.
+Dispatch the implementer in gate mode; it writes tests and code. Run the green checks of 3a step 7 without the `locked` line, then `G mutants F`. Findings go back to the implementer (a mutants round); after its fix, run the green checks again before the next `G mutants F`.
 
-`locked --verify` prints `modified: <path>`, `deleted: <path>` and `added: <path>`; exit 1 when any line prints. `--restore` prints only the differences that remain after restoring; normally nothing, exit 0.
+### 3c. Refactor path
 
-`mutants` prints findings as `<file>:<line> <mutator> → <replacement> (<reason>)`, then the other lists, then a summary: `N findings, N passed, N timed out, N invalid, N not covered`.
+Run `G locked --record F` right after the baseline. Dispatch the implementer in refactor mode. Run the green checks of 3a step 7; `G cases F` must exit 0 with no exception. Then `G mutants F`; findings go to the writer in repair mode as in 3a step 8, because new tests on a refactor pin existing behaviour.
 
-Finding reasons:
+### Setup
 
-- `Survived`: no test failed when the line changed.
-- `NoCoverage`: no test covers the mutant. When no test reaches the file at all, the replacement reads `no test reaches this file`.
-- `no assertion evidence`: a test failed, but not with an assertion error (a crash does not prove the test checks anything).
-- `unattributed`: Stryker marked the mutant killed without naming a killing test.
-- `unknown status <status>`: Stryker returned a status this gate does not know.
+The first `mutants` in a repo without the Stryker install exits 3 with `run: relay-gate.mjs setup --root <repo>`. `setup` installs two npm packages into the cache directory, not into the repo. Ask the user to approve it, then run `G setup --root <repo> --cache-dir <cache>` (needs network access to `registry.npmjs.org`) and run `mutants` again.
 
-Other lines:
+### Repair cap
 
-- `not covered: <file>:<line> <reason>`: the line was not mutated. This does not fail the gate. Reasons:
-  - `template`: a `.vue` template line; Stryker mutates `<script>` only.
-  - `macro`: a `defineProps`, `defineEmits`, `defineModel`, `defineOptions`, or `withDefaults` call.
-  - `unparsed`: the script block did not parse.
-  - `two script blocks`: the `.vue` file has both `<script>` and `<script setup>`.
-  - `glob characters in path`: the file path contains minimatch magic (for example Nuxt `pages/[id].vue`), so it is not mutated.
-  - `no mutant inside the changed lines`: Stryker made no mutant for the line. A comment-only or type-only change passes this way, with its lines listed here. The `not covered` count in the summary includes every `not covered` line printed.
-- `timed out: <file>:<line> <mutator>`: the mutant ran past its timeout. It is listed as `timed out`; it is not a finding and does not fail the gate.
-- `invalid: <file>:<line> <mutator>`: the mutant did not compile or crashed at start-up. It is not evidence either way.
-- `no changed mutable lines`: nothing to mutate; exit 0.
+A round is one return of work to an agent. Each loop (red, green, mutants) gets two rounds per task. A third failure in the same loop makes the task `blocked`: commit nothing, write the result block with the last gate output, stop the run and tell the user.
 
-## Prerequisites
+### Equivalent mutants
 
-1. `npm` (used by `setup`) and `rsync` (used by `mutants`) must be on the PATH.
-2. Run `setup` once per repo, after the user approves the install.
-3. In a Nuxt repo, run `npx nuxi prepare` first. `mutants` exits 3 with `run npx nuxi prepare` when `tsconfig.json` extends `.nuxt/` and that directory is missing.
-4. The repo must have vitest 3 in `node_modules`. Any other major version exits 3. `.vue` files also need `@vue/compiler-sfc` and `@babel/parser` there.
-5. `--root` must be the git top-level, and `--base` (or the baseline sha) must be an ancestor of HEAD.
-6. Vite writes `.vite-temp` into the repo's `node_modules` during `mutants`. A sandbox that makes that `node_modules` read-only blocks the gate.
+You may propose a surviving mutant as `equivalent` when its replacement cannot change behaviour any caller can observe, with a one-line reason. You never approve your own proposal. A task whose only remaining findings are proposed equivalents is committed with status `done, waiver pending`.
 
-Do not edit files under `--feature` while a command runs. Stop `nuxt dev` and vitest watchers first. Run one `mutants` at a time per repo; a lock left by a killed run is replaced on the next run.
+### Done
 
-`baseline` and `red` run vitest with `CI=1`, so it writes no snapshots; vitest still writes `node_modules/.vite-temp`. `locked --record` and `locked --verify` write nothing to the repo. `mutants` writes only to the cache work directory, never to the repo, apart from the `.vite-temp` file above. The work copy leaves out `.git`, `node_modules`, `.env*`, and the top-level `reports`, `.output` and `.stryker-tmp`, so a suite that needs values from `.env` fails under Stryker (exit 2).
+1. Append under the task's heading in the plan file:
+
+   ```markdown
+   **teeth-build result (T3):** done
+   - base: 1a2b3c4, route: relay
+   - tests: 4 red-proven, 1 mutation-proven repair
+   - mutants: 23 killed of 25; timed out: none; invalid: none
+   - not covered: src/x/Badge.vue:3 template
+   - proposed equivalents: src/x/clamp.ts:4 EqualityOperator → `n <= max` (n equal to max returns max either way)
+   - rounds: red 0, green 1, mutants 1
+   ```
+
+   The status is `done`, `done, waiver pending` or `blocked`. `killed of N` counts `passed` against `passed` plus findings plus `timed out` from the last `mutants` summary.
+2. Commit the task's files through the `commit` skill; when the plan file lives inside the repo, commit it in the same commit, so the next `baseline` finds a clean tree. Never push. A `blocked` task writes its result block and commits nothing; the run stops there.
+
+## After the last task: waiver review
+
+List every proposed equivalent from all result blocks (task, `file:line mutator → replacement`, reason) and ask the user to approve or reject each one. Mark an approved one `approved` in its result block. For a rejected one, reopen its task: the writer (relay, refactor) or the implementer (gate) gets the mutant. Run the feature suite, then `G mutants F --base <base from that task's result block>`. A fresh baseline would see no changed lines, because the task's code is already committed. The rejected mutant must no longer be a finding; findings on lines from later tasks belong to those tasks. Commit the follow-up as a new commit and update the result block. The run is done when no waiver is pending.
+
+## Agents
+
+Dispatch both with the Agent tool, `subagent_type: "general-purpose"`, and paste the prompt file's content into the dispatch.
+
+| Role | Prompt | Model | Effort |
+|---|---|---|---|
+| Writer | `references/writer.md`, the mode, the contract | not set (session model) | not set |
+| Implementer | `references/implementer.md`, the mode, the contract | `sonnet` | `medium` |
+
+If the Agent tool in this harness has no `effort` parameter, pin `model` only and say so in the first result block. The writer decides which defects matter, and no gate sees all of that, so it stays on the session model. The implementer works behind the `red`, `locked`, `scope`, `cases`, suite and `mutants` gates.
 
 ## Limits
 
-- Template lines are not mutated; a test that pins template output can still be toothless.
-- Files with two script blocks are not covered.
-- Vitest 4 is refused (`vitest 4.x not verified`).
-- Only `.ts` and `.vue` files that are not test files (`*.test.*`, `*.spec.*`) are checked.
-- A mutant is created only when its whole node lies inside the changed lines. A mutant whose node starts or ends on an unchanged line is not generated (for example a change inside a multi-line chain), and its line shows `no mutant inside the changed lines`. Whole-file mutation is a phase-2 decision.
-- For `mutants`, a test that fails with a message starting `expected ` (for example a thrown plain `expected 1` error) counts as assertion evidence, the same as `AssertionError`.
-- `locked` skips `node_modules` and `.git` when it walks `--feature`; any symlink under `--feature`, dangling or not, exits 3 (`symlink in feature <path>`), because vitest follows symlinked directories and `--restore` would write through a link.
-- Only test files under `--feature` are locked. Tests outside it and shared test shims are not; phase 2 closes this because the controller will reject any changed path outside the task's planned files.
-- Phase 2 (the controller loop) is not built.
-
-## Developing this skill
-
-From the skill directory, run `node --test scripts/*.test.mjs`. Set `TEETH_BUILD_VITEST_ROOT` to a repo with vitest 3 installed, and optionally `TEETH_BUILD_CACHE`, to run the integration tests.
+- The writer is told not to read the implementation; nothing enforces it. For new exports there is only the stub to read.
+- Gate limits (templates, macros, unsupported extensions, line ranges): `references/cli.md` § Limits.
+- Relay on composables and components is unproven: their specs stub auto-imported names, which the writer must guess. Use `**Route:** relay` there only as a pilot.

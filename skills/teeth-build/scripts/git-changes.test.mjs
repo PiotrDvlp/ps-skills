@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { changedLines } from './git-changes.mjs';
+import { tmp } from './test-tmp.mjs';
 
 const git = (cwd, ...a) => spawnSync('git', a, { cwd, encoding: 'utf8' });
 function repo() {
-  const r = mkdtempSync(join(tmpdir(), 'tb-git-'));
+  const r = tmp('tb-git-');
   git(r, 'init', '-q'); git(r, 'config', 'user.email', 't@t'); git(r, 'config', 'user.name', 't');
   mkdirSync(join(r, 'f', '__tests__'), { recursive: true });
   writeFileSync(join(r, 'f', 'a.ts'), 'const a = 1\nconst b = 2\nconst c = 3\n');
@@ -67,4 +67,29 @@ test('changed-lines: vitest-default test files are not production files', () => 
     for (const n of ['x.test.js', 'y.spec.tsx', 'z.test.mts', 'w.test.ts']) writeFileSync(join(r, 'f', n), 'export const x = 1\n');
     assert.deepEqual([...changedLines(r, base, 'f').entries()], []);
   } finally { rmSync(r, { recursive: true, force: true }); }
+});
+
+test('changed-lines: changed js, jsx and tsx production files are returned', () => {
+  const { r, base } = repo();
+  for (const f of ['b.js', 'c.tsx', 'd.jsx']) writeFileSync(join(r, 'f', f), 'export const x = 1\n');
+  assert.deepEqual([...changedLines(r, base, 'f').keys()], ['f/b.js', 'f/c.tsx', 'f/d.jsx']);
+});
+
+test('changed-lines: a file name git has to quote exits 3', () => {
+  const { r, base } = repo();
+  writeFileSync(join(r, 'f', 'q"b.ts'), 'export const x = 1\n');
+  assert.throws(() => changedLines(r, base, 'f'), (e) => e.code === 3 && /quoted/.test(e.message));
+  const t = repo();
+  writeFileSync(join(t.r, 'f', 'a.ts'), 'const a = 1\n');
+  spawnSync('git', ['mv', 'f/a.ts', 'f/t\tb.ts'], { cwd: t.r });
+  assert.throws(() => changedLines(t.r, t.base, 'f'), (e) => e.code === 3 && /quoted/.test(e.message));
+});
+
+test('changed-lines: a removed content line starting with -- " is not a quoted path header', () => {
+  const { r } = repo();
+  writeFileSync(join(r, 'f', 'a.ts'), 'const a = 1\n-- "x"\nconst c = 3\n');
+  git(r, 'commit', '-qam', 'dash');
+  const head = git(r, 'rev-parse', 'HEAD').stdout.trim();
+  writeFileSync(join(r, 'f', 'a.ts'), 'const a = 1\n++ "y"\nconst c = 3\n');
+  assert.deepEqual([...changedLines(r, head, 'f').entries()], [['f/a.ts', [2]]]);
 });

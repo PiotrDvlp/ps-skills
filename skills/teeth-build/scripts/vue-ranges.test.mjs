@@ -53,3 +53,9 @@ test('vue-ranges: a blank line between changed lines stays in one range but is n
   assert.deepEqual(r.mutate, [{ start: 2, end: 4 }]);
   assert.deepEqual(r.mutable, [2, 4]);
 });
+
+test('vue-ranges: a tsx script block is not covered as unsupported script lang', opts, () => {
+  const r = vueRanges(src('TsxScript'), [2, 3], loadVueParsers(ROOT));
+  assert.deepEqual(r.mutate, []);
+  assert.deepEqual(r.notCovered, [{ line: 2, reason: 'unsupported script lang' }, { line: 3, reason: 'unsupported script lang' }]);
+});
