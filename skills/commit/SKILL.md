@@ -86,10 +86,10 @@ Check the subject length before each commit, never after: rewording a commit tha
 cherry-pick on top means re-creating both and moving the branch ref.
 
 ```bash
-subject='<subject line>'; [ ${#subject} -le 72 ] || echo "subject is ${#subject} chars, limit 72"
+subject='<subject line>'; [ ${#subject} -le 72 ] || { echo "subject is ${#subject} chars, limit 72"; false; }
 ```
 
-Any output means shorten the subject first.
+Any output means shorten the subject first. The check exits 1 on a long subject, so chain it to the commit with `&&`, never `;`.
 
 **One commit**: commit immediately. No need to ask. Report what was committed after it's done.
 
