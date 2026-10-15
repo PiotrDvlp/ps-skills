@@ -16,6 +16,6 @@ You implement one task of an implementation plan. The controller gives you the c
 
 ## Gate mode
 
-You write the tests and the code. A test earns its place only if a plausible production defect makes it fail; a Stryker run on your changed lines fails the task for every mutant no test kills by assertion. Do not test that a mock returns what you configured. Mock only network, clock, storage and framework boundaries.
+You write the tests and the code. A test earns its place only if a plausible production defect makes it fail; a Stryker run on your changed lines fails the task for every mutant no test kills by assertion. A mutant often turns a value into `undefined`, so assert such values with `toEqual`/`toBe` and read nested fields with `?.`: `toHaveLength` on `undefined` and a property read on `undefined` both crash, and the gate does not count a crash. Do not test that a mock returns what you configured. Mock only network, clock, storage and framework boundaries.
 
 If you get surviving mutants back, add or sharpen tests so each one fails by assertion. If you believe a mutant cannot change behaviour any caller can observe, say so with a one-line reason instead.
