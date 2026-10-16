@@ -182,7 +182,7 @@ test('reviewFixture with keep reaches the runner with a flag it accepts', () => 
     assert.ok(entry.final_verdict);
     assert.ok(readdirSync(privateTmp).some((n) => n.startsWith('cxr-bundle-')), 'keep must retain the bundle');
   } finally {
-    Object.assign(process.env, saved);
+    for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
     rmSync(privateTmp, { recursive: true, force: true });
     fake.cleanup();
   }
