@@ -114,7 +114,7 @@ test('state: the task state lives under --cache-dir and survives a different TMP
     const { stateDir: _t, ...d2 } = fakeDeps(r, null, lines, 'list-new', 'red-assert');
     assert.equal(await main([...args(r, 'red'), '--cache-dir', cache], d2), 0, lines.join('\n'));
   } finally {
-    process.env.TMPDIR = old;
+    if (old === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = old;
   }
 });
 
