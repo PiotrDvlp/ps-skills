@@ -86,6 +86,21 @@ checkout's files to get the old code; build a throwaway base checkout instead.
 8. Remove the base checkout with the adapter's cleanup command, and hand the user the
    temporary branch deletion (`git branch -D prove-ui/base-<id>`): deleting a branch is theirs.
 
+## Verify an uncommitted fix
+
+The fix is already edited in a worktree but not committed. The old code is then the branch
+HEAD, so a baseline is still possible: follow "Verify an existing fix" with these changes.
+
+- The fix checkout is dirty by design; only the base checkout must be clean.
+- Base ref: `git rev-parse HEAD` in the fix checkout, not the merge base.
+- Skip the dependency comparison: base and fix share the same commit.
+- `BASELINE_NOT_ANCESTOR` cannot fire (the base commit is the candidate's own HEAD), and
+  `TREE_UNCHANGED` still guards that the edit reached the tree.
+- A later code change only needs a new candidate run and `attest`; the check file and the
+  baseline stay valid.
+
+Proven 2026-10-16 on two fixes (three checks, `attest` exit 0).
+
 ## No baseline possible
 
 Code already edited, a behaviour-preserving refactor, or a route that needs login: do a
@@ -97,4 +112,6 @@ Never call that `verified in-browser`.
 
 - Do not report a skipped entry point as verified through a different path.
 - Never kill a process you did not start. Evidence under `.distro/` stays local.
+- Exploration and diagnostic scripts go to `$TMPDIR`, never into the checkout: the repo lint
+  scans `.distro/`, and five stray `.distro/explore/*.mjs` files failed `npm run lint` (2026-10-16).
 - A feature file that was never driven is a draft; mark it so.
