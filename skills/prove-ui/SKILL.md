@@ -1,6 +1,6 @@
 ---
 name: prove-ui
-description: Use before editing code for a browser-visible change in a repo that has `.claude/prove-ui/adapter.md`, and before calling such a change done — "fix the focus ring on X", "implement this UI ticket and prove it", "before I call PROJ-123 done, prove it in the browser". Proves the change with a baseline-vs-candidate browser run. Skip for lint/typecheck/test runs (verify), plain screenshots or page exploration (dev-browser), and logic-only changes with no rendered effect.
+description: Use before editing code for a browser-visible change in a repo that has `.claude/prove-ui/adapter.md` (in a linked worktree, check the main checkout), and before calling such a change done — "fix the focus ring on X", "implement this UI ticket and prove it", "before I call PROJ-123 done, prove it in the browser". Proves the change with a baseline-vs-candidate browser run. Skip for lint/typecheck/test runs (verify), plain screenshots or page exploration (dev-browser), and logic-only changes with no rendered effect.
 ---
 
 # prove-ui
@@ -11,7 +11,9 @@ end state proves nothing: six past checks passed with or without the fix.
 
 ## Procedure
 
-1. Read `<repo>/.claude/prove-ui/adapter.md` and run its doctor preflight. Read
+1. Read `<repo>/.claude/prove-ui/adapter.md` and run its doctor preflight. In a linked
+   worktree a gitignored `.claude/` is not copied: read the adapter from the main checkout,
+   `$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.claude/prove-ui/`. Read
    `features/README.md`, then the feature file for the route. No feature file: map the
    feature from source first, using the contract in `features/README.md`. Notes elsewhere
    are leads to confirm, not facts.
