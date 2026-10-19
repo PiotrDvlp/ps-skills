@@ -7,7 +7,7 @@ import { join } from 'node:path';
 
 import {
   resolveTarget, buildPatch, countUntracked, stateDigest, parsePatch,
-  validateAgainstSchema, validateSemantics, validateCitations, deriveFinalVerdict,
+  validateAgainstSchema, validateSemantics, findUnanchoredIssues, deriveFinalVerdict,
   buildPathspecs, makeDelimiter, assemblePrompt, renderBody,
   validateModel, resolveModelFromOutput, ReviewError, PROTOCOL_VERSION,
 } from './code-review-core.mjs';
@@ -29,6 +29,20 @@ test('patch/ uncommitted picks up modified and untracked files', () => {
   assert.match(patch, /a\.txt/);
   assert.match(patch, /b\.txt/);
   assert.equal(countUntracked(r.dir, {}), 1);
+  r.cleanup();
+});
+
+test('patch/ uncommitted keeps a staged new file next to an untracked one', () => {
+  const r = makeRepo();
+  write(r.dir, 'a.txt', 'one\n');
+  commitAll(r.g);
+  write(r.dir, 'staged.txt', 'staged\n');
+  r.g('add', 'staged.txt');
+  write(r.dir, 'untracked.txt', 'untracked\n');
+  const t = resolveTarget(r.dir, { kind: 'uncommitted' });
+  const patch = buildPatch(r.dir, t, {}, { tmpDir: tmp() });
+  assert.match(patch, /\+\+\+ b\/staged\.txt\n@@ -0,0 \+1 @@\n\+staged/);
+  assert.match(patch, /\+\+\+ b\/untracked\.txt/);
   r.cleanup();
 });
 
@@ -147,18 +161,18 @@ test('patch/ two-hunk line accounting survives a deletion + a later insertion', 
   assert.ok(oldLines.has(2), 'the deleted line2 must be citable on the old side');
 
   // And the validator agrees: a finding anchored at new:15 is in scope, one at
-  // new:14 (a context line) is rejected as out of scope.
+  // new:14 (a context line) is flagged as unanchored.
   const inScope = {
     protocol_version: PROTOCOL_VERSION, verdict: 'NEEDS-WORK',
     issues: [{ severity: 'WARNING', title: 'ok', path: 'a.txt', side: 'new', line: 15, body: 'b' }],
     unresolved_assumptions: [],
   };
-  assert.equal(validateCitations(inScope, cites), inScope);
-  assert.throws(() => validateCitations({
+  assert.deepEqual(findUnanchoredIssues(inScope, cites), []);
+  assert.deepEqual(findUnanchoredIssues({
     protocol_version: PROTOCOL_VERSION, verdict: 'NEEDS-WORK',
     issues: [{ severity: 'WARNING', title: 'context', path: 'a.txt', side: 'new', line: 14, body: 'b' }],
     unresolved_assumptions: [],
-  }, cites), (e) => e.code === 'citation_invalid');
+  }, cites), [0]);
   r.cleanup();
 });
 
@@ -402,7 +416,7 @@ test('fatal/ wrong protocol_version is rejected', () => {
   }), (e) => e.code === 'protocol_mismatch');
 });
 
-test('fatal/ out-of-scope citation is rejected', () => {
+test('citation/ out-of-scope citation is flagged as unanchored', () => {
   const r = makeRepo();
   write(r.dir, 'a.txt', 'v1\n');
   commitAll(r.g);
@@ -415,11 +429,11 @@ test('fatal/ out-of-scope citation is rejected', () => {
     issues: [{ severity: 'WARNING', title: 'off-scope', path: '.codex/other.json', side: 'new', line: 3, body: 'b' }],
     unresolved_assumptions: [],
   };
-  assert.throws(() => validateCitations(result, cites), (e) => e.code === 'citation_invalid');
+  assert.deepEqual(findUnanchoredIssues(result, cites), [0]);
   r.cleanup();
 });
 
-test('fatal/ an in-scope citation passes', () => {
+test('citation/ an in-scope citation is anchored', () => {
   const r = makeRepo();
   write(r.dir, 'a.txt', 'v1\n');
   commitAll(r.g);
@@ -433,7 +447,7 @@ test('fatal/ an in-scope citation passes', () => {
     issues: [{ severity: 'WARNING', title: 'ok', path: 'a.txt', side: 'new', line, body: 'b' }],
     unresolved_assumptions: [],
   };
-  assert.equal(validateCitations(result, cites), result);
+  assert.deepEqual(findUnanchoredIssues(result, cites), []);
   r.cleanup();
 });
 
