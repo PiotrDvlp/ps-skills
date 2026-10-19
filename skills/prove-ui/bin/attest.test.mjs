@@ -15,8 +15,8 @@ const CLI = fileURLToPath(new URL('./attest.mjs', import.meta.url))
 const EXP = { baseline: 'rgba(0, 0, 0, 0)', candidate: { not: 'rgba(0, 0, 0, 0)' } }
 const VALUE = { baseline: 'rgba(0, 0, 0, 0)', candidate: 'rgb(16, 16, 16)' }
 
-const prove = async (r, phase, { ready = true, value = VALUE[phase] } = {}) => {
-  const p = createProof({ id: r.id, feature: 'f', route: '/', interaction: 'focus link', baseUrl: 'http://127.0.0.1:4100', file: r.file, shot: r.shot, phase })
+const prove = async (r, phase, { ready = true, value = VALUE[phase], file = r.file } = {}) => {
+  const p = createProof({ id: r.id, feature: 'f', route: '/', interaction: 'focus link', baseUrl: 'http://127.0.0.1:4100', file, shot: r.shot, phase, cwd: r.root })
   try {
     await p.precondition('ready', ready)
     await p.observe('outline-color', value, EXP)
@@ -131,7 +131,7 @@ const baseCheckout = (fix) => {
 }
 
 const proveBaselineIn = async (base, fix) => {
-  const p = createProof({ id: fix.id, feature: 'f', route: '/', interaction: 'focus link', baseUrl: 'http://127.0.0.1:4100', file: base.file, shot: base.shot, phase: 'baseline', evidenceRoot: fix.root })
+  const p = createProof({ id: fix.id, feature: 'f', route: '/', interaction: 'focus link', baseUrl: 'http://127.0.0.1:4100', file: base.file, shot: base.shot, phase: 'baseline', evidenceRoot: fix.root, cwd: base.root })
   await p.precondition('ready', true)
   await p.observe('outline-color', VALUE.baseline, EXP)
   await p.finish()
@@ -162,7 +162,7 @@ test('verify-fix: a baseline from an unrelated repo gives BASELINE_NOT_ANCESTOR'
   const fix = makeRepo()
   const other = makeRepo()
   spawnSync('git', ['-c', 'user.email=o@example.com', '-c', 'user.name=o', 'commit', '-q', '--allow-empty', '-m', 'unrelated'], { cwd: other.root })
-  await proveBaselineIn({ file: other.file, shot: other.shot }, fix)
+  await proveBaselineIn({ file: other.file, shot: other.shot, root: other.root }, fix)
   fix.edit()
   await prove(fix, 'candidate')
   assert.equal(attest(fix.checkPath, fix.root).code, 'BASELINE_NOT_ANCESTOR')
@@ -173,6 +173,25 @@ test('happy path prints the done-gate line with repo-relative paths', async () =
   const result = attest(r.checkPath, r.root)
   assert.equal(result.code, 'OK')
   assert.equal(result.line, 'verified in-browser: / — focus link (baseline: .distro/browser/prove-ui/demo-check/baseline.json; screenshot: .distro/browser/run-2/demo-check.png)')
+})
+
+const storedOutsideRepo = (r) => {
+  const dir = fs.mkdtempSync(path.join(fs.realpathSync(process.env.TMPDIR ?? '/tmp'), 'prove ui store-'))
+  const check = path.join(dir, `${r.id}.mjs`)
+  fs.copyFileSync(r.checkPath, check)
+  return check
+}
+
+test('a check stored outside the repo proves the repo of the working directory', async () => {
+  const r = makeRepo()
+  const check = storedOutsideRepo(r)
+  await prove(r, 'baseline', { file: pathToFileURL(check).href })
+  r.edit()
+  await prove(r, 'candidate', { file: pathToFileURL(check).href })
+  const baseline = JSON.parse(fs.readFileSync(path.join(manifestDir(r.root, r.id), 'baseline.json'), 'utf8'))
+  assert.equal(baseline.codeRoot, r.root)
+  assert.equal(attest(check, r.root).code, 'OK')
+  assert.equal(attest(check, makeRepo().root).code, 'BASELINE_MISSING')
 })
 
 test('relative check path from a subdirectory still passes', async () => {

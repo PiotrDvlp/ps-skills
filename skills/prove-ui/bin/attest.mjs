@@ -36,7 +36,7 @@ export const attest = (checkPath, cwd = process.cwd()) => {
   const id = path.basename(check, '.mjs')
   let root
   try {
-    root = repoRoot(path.dirname(check))
+    root = repoRoot(cwd)
   } catch {
     return { code: 'NOT_A_REPO' }
   }
