@@ -4,7 +4,7 @@ Main checkout: <absolute path of the repo's main checkout>
 
 ## Harness
 
-`PROVE_UI_PHASE=<baseline|candidate> ~/.claude/skills/prove-ui/bin/browser.mjs run <this folder>/checks/<id>.mjs --serve --timeout 180`
+`PROVE_UI_PHASE=<baseline|candidate> <prove-ui skill dir>/bin/browser.mjs run <this folder>/checks/<id>.mjs --serve --timeout 180`
 run from the root of the checkout being proven (or the repo's own harness command). Name the
 readiness signal and the teardown the harness owns.
 `shot(name)` saves the viewport, `shot(name, { fullPage: true })` the whole page.

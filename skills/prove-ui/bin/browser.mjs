@@ -52,15 +52,16 @@ const samePath = (a, b) => {
 }
 
 const devServerPort = (slug) => 4100 + (parseInt(slug.slice(0, 4), 16) % 800)
-/** Short enough for vite-node's unix socket path. */
+/** vite-node serves over a unix socket in TMPDIR, so the path stays short; Nitro moves to TCP via NITRO_NO_UNIX_SOCKET. */
 const devServerTmp = (slug) => path.join('/tmp', `claude-${process.getuid()}`, `dv-${slug.slice(0, 8)}`)
 
 const USAGE = `usage: browser run <script.mjs> [--serve] [--timeout <seconds>]
 
-  Runs the script's default export against headless Chromium inside this session's sandbox,
-  from the worktree root (worker-side). The export receives { page, context, shot, baseUrl };
-  shot(name, { fullPage }) saves <run>/<name>.png under .distro/browser/: the viewport, or the
-  whole page when fullPage is true. --serve starts npm run dev on this task's port first and always stops it. Default timeout 180 s, dev-server start included.`
+  Runs the script's default export against headless Chromium from the checkout root. The export
+  receives { page, context, shot, baseUrl }; shot(name, { fullPage }) saves <run>/<name>.png under
+  .distro/browser/: the viewport, or the whole page when fullPage is true. --serve starts
+  npm run dev on the branch's port first and always stops it. Default timeout 180 s, dev-server
+  start included.`
 
 const flagValue = (argv, name) => {
   const i = argv.indexOf(`--${name}`)
@@ -102,10 +103,9 @@ const groupAlive = (pid) => {
   }
 }
 
-/** The dev server runs in its own process group; `stop` signals the whole group and escalates until it is gone, whether or not the port ever opened. */
 const serve = ({ worktree, port, log, tmpdir }) => {
   const out = fs.openSync(log, 'a')
-  const child = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(port)], { cwd: worktree, detached: true, stdio: ['ignore', out, out], env: { ...process.env, TMPDIR: tmpdir, NITRO_NO_UNIX_SOCKET: '1', NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import ${pathToFileURL(PROXY_PRELOAD).href}`.trim(), BROWSER_PROXY_LOG: path.join(path.dirname(log), 'dev-proxy.log') } })
+  const child = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(port)], { cwd: worktree, detached: true, stdio: ['ignore', out, out], env: { ...process.env, NODE_USE_ENV_PROXY: process.env.NODE_USE_ENV_PROXY ?? '1', TMPDIR: tmpdir, NITRO_NO_UNIX_SOCKET: '1', NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import ${pathToFileURL(PROXY_PRELOAD).href}`.trim(), BROWSER_PROXY_LOG: path.join(path.dirname(log), 'dev-proxy.log') } })
   let exited = null
   child.on('exit', (code, signal) => {
     exited = signal ?? code ?? 'exit'
@@ -145,7 +145,7 @@ const runCmd = async (argv) => {
   if (!fs.existsSync(scriptPath)) fail('BROWSER_SCRIPT_MISSING', `${scriptPath} does not exist`)
   const runtime = runtimePath()
   if (!fs.existsSync(runtime)) {
-    fail('BROWSER_RUNTIME_MISSING', `no Playwright runtime at ${runtime}`, ['the Captain provides it with dev-browser install; a worker never installs it'])
+    fail('BROWSER_RUNTIME_MISSING', `no Playwright runtime at ${runtime}`, ['npm i -g dev-browser@0.2.9, then dev-browser install (see the dev-browser skill)'])
   }
 
   const port = devServerPort(id.slug)
@@ -155,9 +155,6 @@ const runCmd = async (argv) => {
   const tmp = path.join(run, 'tmp')
   const profile = path.join(run, 'profile')
   fs.mkdirSync(tmp)
-  // The dev server gets the task's socket-granted TMPDIR: vite-node needs a unix socket there, Nitro moves to TCP via NITRO_NO_UNIX_SOCKET.
-  const serverTmp = devServerTmp(id.slug)
-  fs.mkdirSync(serverTmp, { recursive: true, mode: 0o700 })
   process.env.TMPDIR = tmp
   const deadline = Date.now() + timeout * 1000
 
@@ -192,7 +189,9 @@ const runCmd = async (argv) => {
 
   try {
     if (argv.includes('--serve')) {
-      if (await portOpen(port)) fail('BROWSER_PORT_BUSY', `port ${port} already accepts connections`, ['a dev server for this task is still running; stop it before --serve'])
+      if (await portOpen(port)) fail('BROWSER_PORT_BUSY', `port ${port} already accepts connections`, ['a dev server for this branch is still running; stop it before --serve'])
+      const serverTmp = devServerTmp(id.slug)
+      fs.mkdirSync(serverTmp, { recursive: true, mode: 0o700 })
       server = serve({ worktree: id.topLevel, port, log: path.join(run, 'dev-server.log'), tmpdir: serverTmp })
       await server.ready(deadline)
     }
