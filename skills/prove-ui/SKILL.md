@@ -25,6 +25,9 @@ resolved the same way from every checkout and worktree of the repo:
 5. Neither exists: with a store line, copy `adapter-template/` to `<store root>/<project name>/`
    and fill it in; without one, ask the user to add `prove-ui projects: <dir>` first.
 
+The adapter's harness is `${CLAUDE_SKILL_DIR}/bin/browser.mjs run <check> [--serve] [--timeout <s>]`
+unless the repo has its own.
+
 Keep project folders out of this skill's directory: the skill ships in a public repo, and
 adapters hold hosts, test data and local paths. A check written into a worktree's own
 gitignored `.claude/` dies with the worktree (2026-10-19), so checks go in `$PROJECT/checks/`.
