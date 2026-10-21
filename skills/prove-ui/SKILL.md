@@ -1,6 +1,6 @@
 ---
 name: prove-ui
-description: Use before editing code for a browser-visible change in a repo that has `.claude/prove-ui/adapter.md` (in a linked worktree, check the main checkout), and before calling such a change done — "fix the focus ring on X", "implement this UI ticket and prove it", "before I call PROJ-123 done, prove it in the browser". Proves the change with a baseline-vs-candidate browser run. Skip for lint/typecheck/test runs (verify), plain screenshots or page exploration (dev-browser), and logic-only changes with no rendered effect.
+description: Use before editing code for a browser-visible change in a repo that has a prove-ui project (a folder in the `prove-ui projects:` store, or `.claude/prove-ui/adapter.md` in the main checkout), and before calling such a change done — "fix the focus ring on X", "implement this UI ticket and prove it", "before I call PROJ-123 done, prove it in the browser". Proves the change with a baseline-vs-candidate browser run. Skip for lint/typecheck/test runs (verify), plain screenshots or page exploration (dev-browser), and logic-only changes with no rendered effect.
 ---
 
 # prove-ui
@@ -9,15 +9,33 @@ A UI change counts as proven only when the same check observes the old value on 
 unedited code and a different, declared new value after the edit. One screenshot of the
 end state proves nothing: six past checks passed with or without the fix.
 
+## Project folder
+
+Each project's adapter, feature files and checks live in one folder, `$PROJECT` below,
+resolved the same way from every checkout and worktree of the repo:
+
+1. Store root: the `prove-ui projects: <dir>` line in the user's `CLAUDE.md`.
+2. Project name: the main checkout's directory name,
+   `basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"`.
+3. `$PROJECT` = `<store root>/<project name>`, holding `adapter.md`, `features/` and `checks/`.
+   Its `adapter.md` names the main checkout on a `Main checkout: <absolute path>` line; when that
+   path is not this repo's main checkout, two repos share a directory name: stop and report.
+4. No store line, or no folder for this project: `$PROJECT` is the legacy
+   `$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.claude/prove-ui`.
+5. Neither exists: with a store line, copy `adapter-template/` to `<store root>/<project name>/`
+   and fill it in; without one, ask the user to add `prove-ui projects: <dir>` first.
+
+Keep project folders out of this skill's directory: the skill ships in a public repo, and
+adapters hold hosts, test data and local paths. A check written into a worktree's own
+gitignored `.claude/` dies with the worktree (2026-10-19), so checks go in `$PROJECT/checks/`.
+
 ## Procedure
 
-1. Read `<repo>/.claude/prove-ui/adapter.md` and run its doctor preflight. In a linked
-   worktree a gitignored `.claude/` is not copied: read the adapter from the main checkout,
-   `$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.claude/prove-ui/`. Read
+1. Read `$PROJECT/adapter.md` and run its doctor preflight. Read
    `features/README.md`, then the feature file for the route. No feature file: map the
    feature from source first, using the contract in `features/README.md`. Notes elsewhere
    are leads to confirm, not facts.
-2. **Before the first product edit**, write `.claude/prove-ui/checks/<id>.mjs`:
+2. **Before the first product edit**, write `$PROJECT/checks/<id>.mjs`:
 
    ```js
    import { createProof } from '${CLAUDE_SKILL_DIR}/lib/proof.mjs'
@@ -45,9 +63,13 @@ end state proves nothing: six past checks passed with or without the fix.
    means the check is wrong: fix the check, rerun the baseline, still before any edit.
 4. Edit the product code. Never edit the check file from here on.
 5. Run the harness with `PROVE_UI_PHASE=candidate`.
-6. Run `node "${CLAUDE_SKILL_DIR}/bin/attest.mjs" .claude/prove-ui/checks/<id>.mjs`.
+6. From the checkout root, run `node "${CLAUDE_SKILL_DIR}/bin/attest.mjs" "$PROJECT/checks/<id>.mjs"`.
    Paste its `verified in-browser:` line into the completion summary. Never write that
    line by hand.
+
+The harness and `attest` treat the repo of the working directory as the code under proof
+and write manifests to its `.distro/`, wherever the check file lives: always run them from
+the root of the checkout being proven.
 
 ## Reading results
 
@@ -61,7 +83,8 @@ end state proves nothing: six past checks passed with or without the fix.
 | `EVIDENCE_ROOT_INVALID` | `PROVE_UI_EVIDENCE_ROOT` is missing or not inside a git repo | pass the fix checkout's absolute path |
 | `BASELINE_DIRTY` | the base checkout had uncommitted or untracked files when the baseline ran | rebuild the base checkout clean, rerun the baseline |
 | `BASELINE_NOT_ANCESTOR` | the baseline commit is not an ancestor of the candidate commit | use `git merge-base` of the fix branch and its target as the base ref |
-| `CHECK_MISSING`, `NOT_A_REPO` | wrong check path, or the check is outside a git repo | pass the path to `checks/<id>.mjs` inside the repo |
+| `CHECK_MISSING` | wrong check path | pass the path to `$PROJECT/checks/<id>.mjs` |
+| `NOT_A_REPO` | the harness or `attest` ran outside a checkout | run it from the checkout root |
 | `PRECONDITION_UNMET` | wrong state, data or route | fix the setup, not the code |
 | `BEHAVIOR_MISMATCH` (candidate) | the change does not do what the check declares | fix the code |
 | `CRITERION_CHANGED` | check edited after the baseline | rerun both phases from the base code |
@@ -78,13 +101,13 @@ checkout's files to get the old code; build a throwaway base checkout instead.
 2. Base ref: `git merge-base origin/<target> <fix branch>`.
 3. Build the base checkout with the adapter's "Base checkout" commands. They refuse when the
    dependency files differ between base and fix.
-4. Write the check into the fix checkout's `checks/` and copy it unchanged into the base
-   checkout's `checks/`.
+4. Write the check into `$PROJECT/checks/`. Both checkouts run that same file; a legacy
+   in-repo `$PROJECT` needs it copied unchanged into the base checkout's `checks/` instead.
 5. Baseline: run the harness from the base checkout with `PROVE_UI_PHASE=baseline` and
    `PROVE_UI_EVIDENCE_ROOT=<fix checkout path>`. The manifest and a copy of the screenshot land
    in the fix checkout, so they survive the base checkout's removal.
 6. Candidate: run the harness from the fix checkout with `PROVE_UI_PHASE=candidate`.
-7. `attest` against the check in the fix checkout.
+7. `attest` from the fix checkout's root.
 8. Remove the base checkout with the adapter's cleanup command, and hand the user the
    temporary branch deletion (`git branch -D prove-ui/base-<id>`): deleting a branch is theirs.
 

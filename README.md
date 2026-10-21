@@ -74,14 +74,17 @@ This costs about 170 lines of context per session. Without the line, the skill i
 
 `commit` and `dual-branch-finish` share the read-only MR verifier `skills/dual-branch-finish/scripts/verify-mr.mjs` (`--help`).
 
-Four optional lines in your `~/.claude/CLAUDE.md`:
+Five optional lines in your `~/.claude/CLAUDE.md`:
 
 ```
 Notes root: /absolute/path/to/your/notes
 Activity log: /absolute/path/to/your/notes/log.md
 task-auditor extension: /absolute/path/to/a-markdown-file.md
 codex-review extension: /absolute/path/to/a-markdown-file.md
+prove-ui projects: /absolute/path/to/a-directory
 ```
+
+`prove-ui projects:` holds one folder per repo, named after the repo's main checkout directory, with that project's `adapter.md`, `features/` and `checks/`; every worktree of the repo resolves the same folder. Without it, `prove-ui` reads `.claude/prove-ui/` in the main checkout.
 
 Without `Notes root:`, `task-auditor` answers in chat, `codex-review` writes to `$TMPDIR/codex-reviews/`, and `second-view --save` is refused. With `Activity log:`, skills that save a note prepend `## [date] <op> | <title> → [[slug]]` after a `<!-- log:entries -->` line in that file. The extension files are plain Markdown instructions the skill follows after its own work is done.
 

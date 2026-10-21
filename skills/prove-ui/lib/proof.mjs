@@ -42,7 +42,11 @@ const isNot = (expected) => expected !== null && typeof expected === 'object' &&
 
 const matches = (value, expected) => (isNot(expected) ? !isDeepStrictEqual(value, expected.not) : isDeepStrictEqual(value, expected))
 
-export const createProof = ({ id, feature, route, interaction, baseUrl, file, shot, phase = process.env.PROVE_UI_PHASE, evidenceRoot = process.env.PROVE_UI_EVIDENCE_ROOT }) => {
+/**
+ * @remarks The code under proof is the repo of `cwd` (the harness pins it to the checkout root),
+ * not the repo holding the check file, so a check can live in a per-project store outside the repo.
+ */
+export const createProof = ({ id, feature, route, interaction, baseUrl, file, shot, phase = process.env.PROVE_UI_PHASE, evidenceRoot = process.env.PROVE_UI_EVIDENCE_ROOT, cwd = process.cwd() }) => {
   if (!PHASES.includes(phase)) throw new ProofError('PHASE_INVALID', `PROVE_UI_PHASE must be baseline or candidate, got ${JSON.stringify(phase)}`)
   const filePath = fileURLToPath(file)
   if (path.basename(filePath, '.mjs') !== id) throw new ProofError('ID_MISMATCH', `id ${id} must equal the check file name ${path.basename(filePath)}`)
@@ -50,7 +54,12 @@ export const createProof = ({ id, feature, route, interaction, baseUrl, file, sh
     if (typeof value !== 'string' || !value) throw new ProofError('FIELD_MISSING', key)
   }
   if (typeof shot !== 'function') throw new ProofError('FIELD_MISSING', 'shot')
-  const root = repoRoot(path.dirname(filePath))
+  let root
+  try {
+    root = repoRoot(cwd)
+  } catch {
+    throw new ProofError('NOT_A_REPO', `${cwd} is not inside a git repo; run from the checkout root`)
+  }
   let outRoot = root
   if (evidenceRoot) {
     try {
