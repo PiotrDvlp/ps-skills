@@ -16,7 +16,9 @@ resolved the same way from every checkout and worktree of the repo:
 
 1. Store root: the `prove-ui projects: <dir>` line in the user's `CLAUDE.md`.
 2. Project name: the main checkout's directory name,
-   `basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"`.
+   `basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"`. When the
+   common dir is not named `.git` (a submodule or a bare clone), that is not the main checkout:
+   stop and report.
 3. `$PROJECT` = `<store root>/<project name>`, holding `adapter.md`, `features/` and `checks/`.
    Its `adapter.md` names the main checkout on a `Main checkout: <absolute path>` line; when that
    path is not this repo's main checkout, two repos share a directory name: stop and report.
@@ -24,6 +26,9 @@ resolved the same way from every checkout and worktree of the repo:
    `$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.claude/prove-ui`.
 5. Neither exists: with a store line, copy `adapter-template/` to `<store root>/<project name>/`
    and fill it in; without one, ask the user to add `prove-ui projects: <dir>` first.
+
+The adapter's harness is `${CLAUDE_SKILL_DIR}/bin/browser.mjs run <check> [--serve] [--timeout <s>]`
+unless the repo has its own.
 
 Keep project folders out of this skill's directory: the skill ships in a public repo, and
 adapters hold hosts, test data and local paths. A check written into a worktree's own
@@ -52,7 +57,9 @@ gitignored `.claude/` dies with the worktree (2026-10-19), so checks go in `$PRO
    ```
 
    `${CLAUDE_SKILL_DIR}` is the directory holding this file; resolve it yourself when the variable is not substituted (Codex does not substitute it). Write the resolved absolute path into the check file.
-   `id` equals the file name. Name the correct and the broken state before writing it.
+   `id` equals the file name. Every checkout of the repo shares `checks/`, so a check
+   proven on two branches at once (main and develop twins) gets one id per branch
+   (`<id>-develop`). Name the correct and the broken state before writing it.
    Preconditions (route, data, market, rendered app) are separate from observations.
    An `observe` needs different baseline and candidate values (`NOT_DISTINCT` otherwise); a
    value that must hold in both phases is a `precondition`. Assert the state a precondition
@@ -101,8 +108,8 @@ checkout's files to get the old code; build a throwaway base checkout instead.
 2. Base ref: `git merge-base origin/<target> <fix branch>`.
 3. Build the base checkout with the adapter's "Base checkout" commands. They refuse when the
    dependency files differ between base and fix.
-4. Write the check into `$PROJECT/checks/`. Both checkouts run that same file; a legacy
-   in-repo `$PROJECT` needs it copied unchanged into the base checkout's `checks/` instead.
+4. Write the check into `$PROJECT/checks/`. Both checkouts run that same file by its absolute
+   path, a legacy in-repo `$PROJECT` included.
 5. Baseline: run the harness from the base checkout with `PROVE_UI_PHASE=baseline` and
    `PROVE_UI_EVIDENCE_ROOT=<fix checkout path>`. The manifest and a copy of the screenshot land
    in the fix checkout, so they survive the base checkout's removal.
