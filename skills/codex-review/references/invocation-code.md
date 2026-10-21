@@ -120,7 +120,26 @@ All abort with a distinct code, write nothing, and never retry:
 `model_not_allowed`, `model_fallback`, `model_unresolved`, `model_mismatch`,
 `drift_before_run`, `drift_during_run`, `codex_failed`, `empty_output`,
 `invalid_json`, `schema_violation`, `protocol_mismatch`, `too_many_issues`,
-`verdict_mismatch`, `citation_invalid`.
+`verdict_mismatch`.
+
+`codex_failed` (for example "Selected model is at capacity") keeps the bundle and
+prints `retained for a retry`: rerun `run --bundle <same dir>`, with `--model` to
+switch models. Every other code deletes the bundle, so the next attempt starts
+with `prepare`.
+
+## Unanchored findings
+
+A finding whose `path:line` is not an added or deleted line of the patch (a
+context line, or a file outside the diff) does not abort the run. It stays in
+the result, the note marks it `unanchored: not a changed line of the patch`, and
+`frontmatter.unanchored_issues` lists its 1-based number. Check the claim
+yourself before acting on it, and record it in `## Disposition` like any other.
+
+## Staged files
+
+`--uncommitted` covers modified, untracked, and staged-new files. Do not stage
+or edit files between `prepare` and the end of `run`: the drift check aborts
+with `drift_during_run`.
 
 ## Running inside a Claude Code session
 

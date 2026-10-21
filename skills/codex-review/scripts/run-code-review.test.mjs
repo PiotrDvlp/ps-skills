@@ -138,7 +138,7 @@ test('fatal/ verdict contradicting severities aborts', () => {
   fake.cleanup(); r.cleanup();
 });
 
-test('fatal/ out-of-scope citation aborts', () => {
+test('citation/ an out-of-scope citation keeps the result and flags that issue', () => {
   const r = dirtyRepo();
   const prep = JSON.parse(runner('prepare', ['--uncommitted', '--repo', r.dir]).stdout);
   const fake = makeFakeCodex({
@@ -148,8 +148,11 @@ test('fatal/ out-of-scope citation aborts', () => {
     }),
   });
   const res = runner('run', ['--bundle', prep.bundle], { fakeDir: fake.dir });
-  assert.notEqual(res.status, 0);
-  assert.match(res.stderr, /citation_invalid/);
+  assert.equal(res.status, 0, res.stderr);
+  const out = JSON.parse(res.stdout);
+  assert.equal(out.issue_count, 1);
+  assert.deepEqual(out.frontmatter.unanchored_issues, [1]);
+  assert.match(out.body, /1\. \[WARNING\] off — `\.codex\/x\.json:99` \(new\) — \*unanchored: not a changed line of the patch\*/);
   fake.cleanup(); r.cleanup();
 });
 
@@ -338,6 +341,21 @@ test('lifecycle/ --keep-artifacts retains the bundle and prints the path', () =>
   assert.match(res.stderr, /\[kept\]/);
   rmSync(prep.bundle, { recursive: true, force: true });
   fake.cleanup(); r.cleanup();
+});
+
+test('lifecycle/ a failed codex exit keeps the bundle so the same bundle can be retried', () => {
+  const r = dirtyRepo();
+  const prep = JSON.parse(runner('prepare', ['--uncommitted', '--repo', r.dir]).stdout);
+  const busy = makeFakeCodex({ json: goodResult(), exit: 1, stderr: 'ERROR: Selected model is at capacity.' });
+  const failed = runner('run', ['--bundle', prep.bundle], { fakeDir: busy.dir });
+  assert.match(failed.stderr, /\[codex_failed\]/);
+  assert.match(failed.stderr, /retained for a retry/);
+  const ok = makeFakeCodex({ json: goodResult() });
+  const retried = runner('run', ['--bundle', prep.bundle], { fakeDir: ok.dir });
+  assert.equal(retried.status, 0, retried.stderr);
+  assert.equal(JSON.parse(retried.stdout).ok, true);
+  assert.equal(existsSync(prep.bundle), false, 'a successful retry still cleans up');
+  busy.cleanup(); ok.cleanup(); r.cleanup();
 });
 
 test('lifecycle/ prepare sweeps an abandoned bundle older than the TTL', () => {

@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   resolveTarget, buildPatch, countUntracked, stateDigest, parsePatch,
-  validateAgainstSchema, validateSemantics, validateCitations, deriveFinalVerdict,
+  validateAgainstSchema, validateSemantics, findUnanchoredIssues, deriveFinalVerdict,
   assemblePrompt, renderBody, validateModel, resolveModelFromOutput,
   sha256, git, ReviewError, PROTOCOL_VERSION, SOFT_WARN_BYTES, HARD_REFUSE_BYTES,
 } from './code-review-core.mjs';
@@ -31,6 +31,7 @@ const SCHEMA_PATH = join(HERE, '..', 'references', 'code-review-output.schema.js
 const RUBRIC_PATH = join(HERE, '..', 'references', 'rubric-code.md');
 const BUNDLE_PREFIX = 'cxr-bundle-';
 const BUNDLE_TTL_MS = 24 * 60 * 60 * 1000;
+const RETRYABLE_CODES = new Set(['codex_failed']);
 
 const die = (code, msg) => { console.error(`[${code}] ${msg}`); process.exit(1); };
 
@@ -260,7 +261,7 @@ async function cmdRun(args) {
     // schema, so without this the schema contract would be untested.
     validateAgainstSchema(parsed, JSON.parse(readFileSync(SCHEMA_PATH, 'utf8')));
     validateSemantics(parsed);
-    validateCitations(parsed, parsePatch(patch).citations);
+    const unanchored = findUnanchoredIssues(parsed, parsePatch(patch).citations);
 
     const digestAfter = stateDigest(repoRoot);
     if (digestAfter !== digestBefore) {
@@ -273,6 +274,7 @@ async function cmdRun(args) {
       finalVerdict,
       unreviewable: manifest.unreviewable_paths,
       untrackedIncluded: manifest.untracked_included,
+      unanchored,
     });
 
     console.log(JSON.stringify({
@@ -297,6 +299,7 @@ async function cmdRun(args) {
         scope: manifest.scope,
         untracked_included: manifest.untracked_included,
         unreviewable_paths: manifest.unreviewable_paths,
+        unanchored_issues: unanchored.map((n) => n + 1),
         state_digest: digestAfter,
         reviewer_verdict: parsed.verdict,
         final_verdict: finalVerdict,
@@ -306,8 +309,12 @@ async function cmdRun(args) {
     if (args.keep) console.error(`[kept] artifacts retained at ${bundle}`);
     cleanup();
   } catch (err) {
-    if (args.keep) console.error(`[kept] artifacts retained at ${bundle}`);
-    cleanup();
+    if (RETRYABLE_CODES.has(err.code)) {
+      console.error(`[kept] bundle retained for a retry with run --bundle ${bundle}`);
+    } else {
+      if (args.keep) console.error(`[kept] artifacts retained at ${bundle}`);
+      cleanup();
+    }
     die(err.code ?? 'run_failed', err.message);
   }
 }
