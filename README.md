@@ -25,7 +25,7 @@ npx skills@latest add PiotrDvlp/ps-skills
 | `dual-branch-finish` | Lands one change on two integration branches and verifies both MR handoffs | Node 22+, authenticated `glab` |
 | `codex-review` | Independent read-only Codex review of a design, plan or diff | Codex CLI 0.130+ |
 | `second-view` | Independent Codex proposal on a problem still being decided | Codex CLI 0.130+ |
-| `task-auditor` | Readiness audit of a Jira ticket before implementation | `cs-atlassian` MCP (ask the author for the `cs-tools` repo) |
+| `task-auditor` | Start/blocked audit of a Jira ticket before implementation | `cs-atlassian` MCP (ask the author for the `cs-tools` repo) |
 | `why` | Explains why existing code is the way it is, from history | `cs-atlassian` MCP for tickets; `glab` or `gh` for MR lookups |
 | `blast-radius` | What a diff could break elsewhere | — |
 | `layer-lint` | SHOPin `pageModules/` layer-boundary linter | Node 22 |

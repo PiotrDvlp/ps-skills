@@ -1,4 +1,4 @@
-# Phase 2 pipeline (fetch, analysis, calibration)
+# Phase 2 pipeline (fetch, analysis)
 
 ## Phase 1: Jira data fetch
 
@@ -29,22 +29,22 @@ Before dispatching the analysis codebase pass, the orchestrator inspects the Pha
 - No acceptance criteria (no AC / `Akzeptanzkriterien` section, or it is empty).
 - No substantive comments (none, or only noise — "+1", "estimate?", bot/status notices).
 
-**Do NOT fire** when any one of those carries real content. A present description with missing AC is a normal Phase 2 WARNING/BLOCKER — not a fast-fail. Never fire on "missing API / Figma / copy" semantics: those are asset- and codebase-grounded judgments owned by Phase 2's verification-asset and dev-verifiable-downgrade logic, and short-circuiting them here would produce false NO-GOs.
+**Do NOT fire** when any one of those carries real content. A present description with missing AC is a normal Phase 2 WARNING/BLOCKER — not a fast-fail. Never fire on "missing API / Figma / copy" semantics: those are asset- and codebase-grounded judgments owned by Phase 2's verification-asset and dev-verifiable-downgrade logic, and short-circuiting them here would produce false BLOCKED verdicts.
 
 **On no-fire:** continue to Phase 2 unchanged.
 
-**On fire — emit a COMPLETE synthetic Phase 2 payload** so Phase 3's parser and `output.md` have no special-case holes. Skip Phase 2 and Phase 2.5 (no Sonnet dispatch, no calibration — there is no gap list to calibrate), then populate every field Phase 2 would have produced:
+**On fire — emit a COMPLETE synthetic Phase 2 payload** so Phase 3's parser and `output.md` have no special-case holes. Skip Phase 2 (no analysis dispatch), then populate every field Phase 2 would have produced:
 
 - `SUMMARY:` Ticket cannot be audited — Jira content is structurally empty.
 - `DATA_SOURCES:` Description Missing; Acceptance Criteria Missing; Definition of Done Missing; Comments None (or "no substantive"); Figma/Mockups Missing; Verification Assets: Asset-grade None; Soft evidence None.
 - `CODEBASE_EVIDENCE:` Module scope: not assessed (fast-fail before codebase pass); Primary locus, Confirmed non-impact, Candidate leads, Adjacent/excluded matches, Anticipated new surfaces all `None`; Search cap reached: no; BLAST_RADIUS: not assessed.
 - `IMPACT_MATRIX:` every area `Unknown — not assessed (no codebase pass)`.
 - `GAPS:` a single `BLOCKER #1: Ticket is structurally empty — no description, no acceptance criteria, no substantive comments; cannot audit for readiness.`
-- `READINESS:` Score 0%; Verdict NO-GO; Recommendation: Add a description, acceptance criteria, and implementation context to the ticket before requesting an audit.
+- `VERDICT:` Verdict BLOCKED; First move: none — blocked by the ticket author: a description and acceptance criteria; Decisions: 0; Handoffs: 1.
+- `GAPS:` also carries `HANDOFF #1: Add a description, acceptance criteria and implementation context to the ticket — owner: ticket author.`
 - `SUGGESTED_TAGS:` none (Phase 3 still applies the mechanical `jira` + `<project>` tags).
-- `calibration: skipped`, reason `fast-fail: structurally empty ticket, no Phase 2 analysis`.
 
-Then continue to Phase 3 and write the audit note as normal — a structurally empty ticket is exactly the kind of thing worth a durable, linkable NO-GO record.
+Then continue to Phase 3 and write the audit note as normal — a structurally empty ticket is exactly the kind of thing worth a durable, linkable BLOCKED record.
 
 This gate is orchestrator-inline and Jira-only — no subagent dispatch, sub-second cost.
 
@@ -131,66 +131,12 @@ Agent({
 })
 ```
 
-**Why no `model` pin here (changed 2026-07-27).** This step emits `SCOPE_DECISION`, a readiness
-score, and a verdict that gate whether a human starts coding — judgment output, not mechanical
-transformation. A cheap tier is permitted only where a
-deterministic gate verifies the worker's output; the only check on this step is Phase 2.5, which
-is advisory and by design never overrides the verdict. With no gate the precondition fails, so
-the tier is the session model. It was pinned `sonnet` until 2026-07-27.
+**Why no `model` pin here (changed 2026-07-27).** This step emits `SCOPE_DECISION`, a verdict and
+the first move that gate whether a human starts coding — judgment output, not mechanical
+transformation. A cheap tier is permitted only where a deterministic gate verifies the worker's
+output; no per-run gate exists here (the retro fixture in `scripts/retro-verdict.mjs` gates prompt
+edits, not audits), so the tier is the session model. It was pinned `sonnet` until 2026-07-27.
 
 The analysis agent **may not search**: no `find`, no `rg`, no `grep`, no broad `ls` — the packet is the search, and re-running discovery would duplicate work already done under a wall-clock timeout while undermining the scope-stability the packet provides. It MAY issue **up to 2 targeted `Read` calls**, and only when classifying a specific named gap depends on what that file contains (e.g. a WARNING's severity hinges on whether a config option is shared across payment brands). It must read **only from paths cited in the packet** (FILENAME_HITS, CONTENT_HITS, or KEYWORD_PLAN scope_hints) — it may not invent paths.
 
-The analysis agent returns a structured analysis whose **first required field is `SCOPE_DECISION`** (in-scope modules + excluded modules, each with reasoning citing Jira text or packet evidence). Parse the analysis to extract: scope decision (in_scope, excluded), summary, data sources, codebase evidence (module scope, primary locus, confirmed non-impact, candidate leads, adjacent/excluded, anticipated new surfaces), gaps, readiness score, verdict, and suggested canonical tags (0–3).
-
-## Phase 2.5: Jira-grounding calibration
-
-Dispatch a **separate verifier subagent** via the `Agent` tool with `references/calibration-prompt.md`. The verifier judges whether Phase 2's gap list, severity labels, score band, and verdict direction are defensible from the Jira data alone. It is **advisory only** — it never overrides the Phase 2 verdict and cannot validate codebase-anchored claims.
-
-**Hard requirement: isolation.** The calibration MUST run in a **separate `Agent` dispatch on a tier distinct from Phase 2's** — never inline in the orchestrator session. Two independent requirements, and both bind:
-
-- **Separate dispatch (context isolation).** Inline execution defeats the verifier: the orchestrator is the same context that produced Phase 2, so it cannot independently adjudicate its own conclusions. If you find yourself thinking "the data is unambiguous, I'll just confirm `aligned` inline," that is the exact rationalization Phase 2.5 exists to defeat.
-- **Distinct tier from Phase 2 (maker ≠ checker).** A model grading its own output reproduces its own reasoning errors. The hazard is between the verifier and **Phase 2**, which is the maker — not between the verifier and the orchestrator, which only routes. So the constraint is `verifier tier ≠ Phase 2 tier`, which is why Phase 2 running on the session model puts the verifier on `sonnet`.
-
-**Why the verifier is no longer `haiku` (changed 2026-07-27).** Haiku was chosen for cost, and it is the one tier documented to fail exactly the way this verifier must not. A controlled pressure test on 2026-07-08 fed the same false premise to Haiku, Sonnet, and Fable 5: Sonnet and Fable rejected it; Haiku accepted it and wrote the false claim into the notes as fact. A verifier whose entire job is judging whether Phase 2's claims are defensible, running on the tier that accepts false premises, returns `aligned` verdicts that carry no information. Cost tiering and correctness tiering are different axes.
-
-### Inputs
-
-| Placeholder | Contents |
-|---|---|
-| `{JIRA_DATA}` | The full markdown from Phase 1 (unchanged) |
-| `{PHASE2_CALIBRATION_INPUT}` | The verbatim `GAPS:`, `READINESS:`, and `DATA_SOURCES:` blocks from Phase 2's output. SCOPE_DECISION, Codebase Evidence, impact matrix, and prose summary are **excluded** — they contain codebase- or packet-anchored claims a Jira-only verifier cannot adjudicate. |
-
-### Dispatch
-
-```
-Agent({
-  subagent_type: "ps:task-auditor-verifier",   // plugin install; "task-auditor-verifier" when the agent file is installed bare
-  description: "Calibration verifier for <ISSUE_KEY>",
-  prompt: <contents of references/calibration-prompt.md with placeholders filled>
-})
-```
-
-The `task-auditor-verifier` agent ships beside this skill (`agents/task-auditor-verifier.md` in the plugin; the user's agents directory when installed bare) and pins `model: sonnet` + `effort: high`; the Agent tool takes no `effort` argument, so a bare `model: "sonnet"` dispatch runs at session effort. Try `ps:task-auditor-verifier`, then `task-auditor-verifier`. If neither exists, dispatch a general-purpose subagent with `model: "sonnet"` and the full `references/calibration-prompt.md`, say in the calibration line that it ran unpinned, and set `calibration:` to `skipped` if that dispatch fails.
-
-### Parse the response
-
-The verifier returns a YAML-style block beginning `verifier_status: aligned | flagged`. Extract:
-
-- `calibration_status` ∈ {`aligned`, `flagged`, `skipped`}
-- `disagreements` — possibly empty list, each with `gap_ref`, `analysis_claim`, `verifier_view`, `severity`
-  (renamed from `sonnet_claim` / `haiku_view` on 2026-07-27 — the field names encoded model tiers, which is
-  what let the tier drift go unnoticed. Keep them role-named so a tier change never invalidates the schema.)
-
-Carry both forward into Phase 3.
-
-### Failure handling
-
-| Failure mode | calibration_status | Action |
-|---|---|---|
-| Verifier call errors / timeout | skipped | Print raw stderr to user; continue to Phase 3 |
-| Response missing required fields | skipped | Print raw output to stderr; continue to Phase 3 |
-| Response is `aligned` with empty disagreements | aligned | Continue to Phase 3 |
-| Response is `flagged` with ≥1 disagreement | flagged | Continue to Phase 3 |
-
-Phase 2.5 is **non-blocking by design**. A failed verifier never aborts the audit; it only changes the `## Calibration` body section's content. Raw unparseable output is printed to stderr — never embedded in the audit note.
-
+The analysis agent returns a structured analysis whose **first required field is `SCOPE_DECISION`** (in-scope modules + excluded modules, each with reasoning citing Jira text or packet evidence). Parse the analysis to extract: scope decision (in_scope, excluded), summary, data sources, codebase evidence (module scope, primary locus, confirmed non-impact, candidate leads, adjacent/excluded, anticipated new surfaces), gaps (incl. HANDOFF), verdict, first move, decisions, handoffs, and suggested canonical tags (0–3).
