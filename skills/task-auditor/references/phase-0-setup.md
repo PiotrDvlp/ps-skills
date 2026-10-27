@@ -1,7 +1,7 @@
 # Phase 0: Setup
 
 
-Announce to the user before starting: `Auditing <ISSUE_KEY> — verifying prerequisites, then dispatching the fetch, analysis, and calibration subagents (~30–60s).`
+Announce to the user before starting: `Auditing <ISSUE_KEY> — verifying prerequisites, then fetching the issue and dispatching the analysis subagent (~30–60s).`
 
 ### 0a. Verify prerequisites
 
@@ -49,10 +49,9 @@ Create a TaskCreate todo list with these items so the user can see live progress
 
 1. Fetch Jira issue (Phase 1)
 2. Codebase analysis (Phase 2)
-3. Jira-grounding calibration (Phase 2.5)
-4. Write audit note or return it in chat (Phase 3)
-5. Prepend log entry when `Activity log:` is set and a note was written
-6. Run the task-auditor extension when configured and a note was written
+3. Write audit note or return it in chat (Phase 3)
+4. Prepend log entry when `Activity log:` is set and a note was written
+5. Run the task-auditor extension when configured and a note was written
 
 Mark each `in_progress` when starting and `completed` immediately on success — don't batch.
 
