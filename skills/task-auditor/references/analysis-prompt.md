@@ -55,7 +55,7 @@ This step exists because earlier audits exhibited a scope-anchoring failure wher
 
 Scan the Jira data (description, acceptance criteria, comments, attachments) for verification assets. Classify each item found:
 
-**Asset-grade** (enables downgrade of dev-resolvable ambiguities):
+**Asset-grade** (enables the `(dev-verifiable)` marker on dev-resolvable ambiguities):
 
 - `integ.*` URL
 - `staging.*` URL
@@ -66,7 +66,7 @@ Scan the Jira data (description, acceptance criteria, comments, attachments) for
 - sample SKU / ID against a reachable non-production env
 - documented local fixture or reproduction path
 
-**Soft evidence** (does NOT enable downgrade):
+**Soft evidence** (does NOT enable the marker):
 
 - production URL the developer may not be able to poke at
 - screenshots
@@ -79,63 +79,56 @@ Build an internal list of asset-grade and soft-evidence items. This list informs
 
 Compare what the ticket requires against what the packet shows. Classify each gap:
 
-| Category | Severity | When to use |
-|----------|----------|-------------|
-| **BLOCKER** | Critical | Cannot start: missing description, acceptance criteria, or API contract needed for the work |
-| **WARNING** | Medium | Ambiguous requirement likely to cause rework: unclear AC, conflicting information in description vs comments |
-| **MISSING_ASSETS** | Low-Medium | External deliverable not yet available: no Figma link, no copy/translations, no API endpoint documented |
+| Category | When to use |
+|----------|-------------|
+| **BLOCKER** | Stops the **first commit in this repo**: no commit can advance any acceptance criterion without inventing a product decision or an API/data contract that has no in-repo derivation path |
+| **WARNING** | Ambiguity the developer resolves by a default and moves on: unclear AC, conflicting description vs comments, a PO/design question that leaves at least one AC buildable |
+| **MISSING_ASSETS** | External deliverable not yet available but not needed for the first commit: no Figma link, no final copy/translations, no documented endpoint |
+| **HANDOFF** | Work outside this repo that someone else must do before the ticket can close (deploy image, backend flag, content entry); never blocks the first commit |
 
-**Dev-verifiable downgrade rule.** If a gap is plausibly resolvable by an **asset-grade** item from the Step 2 inventory (e.g., the question "does the API return `null` or `0`?" can be answered by hitting an `integ.*` URL), downgrade severity:
+**Hard floor (stays BLOCKER):** no AC and no description; undecided product scope where *no* AC can advance without the answer; a core API/data contract with no in-repo derivation path that the first commit must consume; a blocking ticket whose output the first commit needs; a deliverable that **is** content, data or an asset this repo cannot produce (transcript text, copy, backend data, a design) when no AC is met without it — name the owner, it stays BLOCKER. A cross-team dependency that blocks only *closing* the ticket (deploy, infra, backend rollout) is a HANDOFF with an owner, not a BLOCKER.
 
-- `BLOCKER` → `WARNING (dev-verifiable)`
-- `WARNING` → `WARNING (dev-verifiable)` (same severity, lighter score weight)
-- `MISSING_ASSETS` is never used as a downgrade target.
+**PO/design questions.** A question to PO or design is a WARNING when at least one AC can be advanced under a stated default. It is a BLOCKER only when no AC can advance without the answer. Name the default you would take; the user confirms or overrides it in one line.
 
-When you downgrade, append ` (dev-verifiable)` to the gap title and include this literal sentence in the gap prose:
+**`Default:` sentence (required).** Every WARNING and every MISSING_ASSETS bullet ends with the literal sentence:
+
+```
+Default: <the answer the auditor would take, and what it changes in the work>.
+```
+
+A WARNING without a `Default:` sentence is malformed; Phase 3 rejects the analysis.
+
+**HANDOFF bullets** carry the owner:
+
+```
+HANDOFF #N: <what must happen outside this repo> — owner: <name or role>.
+```
+
+**Dev-verifiable marker.** If a gap is plausibly resolvable by an **asset-grade** item from the Step 2 inventory (e.g. the question "does the API return `null` or `0`?" can be answered by hitting an `integ.*` URL), append ` (dev-verifiable)` to the gap title and include this literal sentence in the gap prose:
 
 ```
 Verification asset: <asset>; check <specific behavior>.
 ```
 
-Soft evidence does not enable downgrade.
+Soft evidence does not qualify. A gap that would otherwise be a BLOCKER becomes a WARNING (dev-verifiable) when the asset answers it **today**. It does not when the thing to verify is the contract itself and the backend side of that contract is unconfirmed: a backend change that is merged but not confirmed deployed to the environment the asset points at, a response shape the ticket says the backend *will* produce, or an asset whose `status` in the Step 2 inventory is `unknown`. Such a gap stays BLOCKER; the first commit would be written against a guess.
 
-**In-flight downgrade rule.** A gap may be downgraded `BLOCKER → WARNING (in-flight)` ONLY when its resolution anchor is **visible in the packet** — a path/hit in `FILENAME_HITS`, `CONTENT_HITS`, `KEYWORD_PLAN`, or `MODULE_HIT_TABLE`, a generated type present in the packet, or a file you read in one of your ≤2 targeted reads. (`REPO_SHAPE` top-level layout may anchor coarse module *placement* only — never a behavioral convention.) Subject to that precondition, eligible cases are: a backend / GraphQL **response shape** derivable from packet-present generated types or `.graphql` operations; a value/behavior with a **documented project convention** evidenced by a fine-grained packet hit (`MODULE_HIT_TABLE` / `FILENAME_HITS` / `CONTENT_HITS` / targeted read — not bare `REPO_SHAPE`); or **naming / placement / module structure** answerable from the `MODULE_HIT_TABLE` / `FILENAME_HITS` layout.
-
-NEVER downgrade (hard floor — stays BLOCKER): no AC / no description; undecided **product scope** (*what* to build); a core API/data contract with **no in-repo derivation path**; an unresolved cross-team / blocking-ticket dependency; a **product/business decision that gates the logic**.
-
-When you downgrade, append ` (in-flight)` to the gap title and include this literal sentence in the gap prose:
+**In-flight marker.** A gap whose resolution anchor is **visible in the packet** — a path/hit in `FILENAME_HITS`, `CONTENT_HITS`, `KEYWORD_PLAN`, or `MODULE_HIT_TABLE`, a generated type present in the packet, or a file you read in one of your ≤2 targeted reads — is a WARNING (in-flight). Eligible: a backend / GraphQL **response shape** derivable from packet-present generated types or `.graphql` operations; a value/behavior with a **documented project convention** evidenced by a fine-grained packet hit (not bare `REPO_SHAPE`); **naming / placement / module structure** answerable from the `MODULE_HIT_TABLE` / `FILENAME_HITS` layout. Append ` (in-flight)` to the gap title and include this literal sentence in the gap prose:
 
 ```
 Resolves via: <packet-visible anchor — a FILENAME/CONTENT_HITS path, generated type, or MODULE_HIT_TABLE entry>.
 ```
 
-A vague "the developer can figure it out," or an anchor not present in the packet, does NOT qualify. Prefer `(dev-verifiable)` over `(in-flight)` when a gap is eligible for both. One marker per gap. A question to PO/design is NOT an `(in-flight)` anchor — such a gap stays a normal WARNING/BLOCKER.
+A vague "the developer can figure it out," or an anchor not present in the packet, does NOT qualify. Prefer `(dev-verifiable)` over `(in-flight)` when a gap is eligible for both. One marker per gap.
 
-**Deferred-visual rule.** When visual treatment is undecided: if the visual **is the deliverable** (a pure styling / layout / redesign ticket with no separable buildable logic) it stays **BLOCKER**. If **separable buildable logic exists** (data / store / GraphQL / component logic can be built with styling deferred), downgrade to `WARNING (visual-deferred)`, append ` (visual-deferred)` to the gap title, and include this literal sentence in the gap prose:
+**Deferred-visual marker.** When visual treatment is undecided: if the visual **is the deliverable** (a pure styling / layout / redesign ticket with no separable buildable logic) it is a BLOCKER. If **separable buildable logic exists**, it is a WARNING (visual-deferred): append ` (visual-deferred)` to the gap title and include this literal sentence in the gap prose:
 
 ```
 Deferred: <logic buildable now>; pending design: <the undecided visual decision>.
 ```
 
-A `(visual-deferred)` gap is NOT `(in-flight)` (the visual is PO/design-owned, not code-derivable): it removes the BLOCKER override but gets **no** score credit (the design asset is still missing).
-
 Only create gaps backed by evidence. "The ticket doesn't mention X" is only a gap if X is reasonably needed for the described work.
 
-## Step 4: Verification Checklist
-
-Check each item and mark as present, missing, or partial:
-
-- [ ] **Figma/Mockups**: Design files linked and accessible?
-- [ ] **API Contracts**: Required endpoints/interfaces defined?
-- [ ] **Acceptance Criteria**: Technically measurable and testable?
-- [ ] **Definition of Done**: Explicit and aligned with team standards?
-- [ ] **Architecture Fit**: Change fits existing module structure?
-- [ ] **Dependencies**: All blocking issues resolved?
-- [ ] **Edge Cases**: Error, empty, and loading states defined?
-- [ ] **i18n**: Translations specified for DE + EN?
-- [ ] **Verification Assets**: Asset-grade items present per Step 2 inventory?
-
-## Step 5: Impact Analysis Matrix
+## Step 4: Impact Analysis Matrix
 
 Assess each area based on packet evidence (+ any of your ≤2 targeted reads):
 
@@ -149,27 +142,22 @@ Assess each area based on packet evidence (+ any of your ≤2 targeted reads):
 | Analytics / GTM | None/Low/Medium/High | Tracking changes |
 | SEO / i18n | None/Low/Medium/High | Locale or routing impact |
 
-## Step 6: Technical Readiness Score
+## Step 5: Verdict
 
-Calculate from checklist completion percentage (checked items / total items * 100):
+The verdict answers one question: **can a developer make a first commit in this repo today that advances at least one acceptance criterion, with the WARNING defaults applied?**
 
-| Score | Verdict | Meaning |
-|-------|---------|---------|
-| 80-100% | **GO** | Ready to implement |
-| 50-79% | **NO-GO (WARNING)** | Clarification needed first |
-| 0-49% | **NO-GO (BLOCKER)** | Must not start; escalate |
+"Advances an acceptance criterion" means the user-visible outcome the AC describes gets closer with that commit alone. A commit that only prepares a slot, link or field for content, data or a response that does not exist yet does not advance an AC; scaffolding for an absent deliverable is not a first move.
 
-**Override rule**: If ANY single BLOCKER gap exists, the verdict is always **NO-GO (BLOCKER)** regardless of percentage (the BLOCKER label is forced by the override even when the score sits in the 50–79% band — see the Band-label rule below).
+| Verdict | When |
+|---------|------|
+| **START** | No BLOCKER gap. WARNINGs, MISSING_ASSETS and HANDOFFs may exist; each WARNING carries its default |
+| **BLOCKED** | At least one BLOCKER gap (hard floor above) |
 
-**Format and band discipline.** Score MUST be rendered as `{N}%` (e.g. `52%`, never `5/10` or `0.52`). Verdict MUST use one of the allowed band values exactly: `GO` (80–100%), `NO-GO (WARNING)` (50–79%, **or** <50% when no real BLOCKER gap exists), or `NO-GO (BLOCKER)` (only when a real BLOCKER gap exists — the override — at any percentage; see the Band-label rule in Step 6). Do NOT invent intermediates like `CONDITIONAL GO`, `GO (with conditions)`, or `GO if X`. If most gaps are dev-verifiable and you believe the work is practically startable, that lives in the **Recommendation** field — never by softening the verdict label. A `NO-GO (WARNING)` verdict with a "dev-verifiable, can start once X is checked" Recommendation conveys exactly the right thing.
+There is no percentage and no intermediate label (`CONDITIONAL`, `START if X`, `GO`). Nuance lives in the `First move` and `Decisions` fields, never in the verdict label.
 
-**Dev-verifiable weighting.** When an original BLOCKER is downgraded to `WARNING (dev-verifiable)`, it no longer triggers the BLOCKER override. When computing checklist completion, a Step 4 item that would be unchecked *solely* because of an ambiguity you downgraded to `(dev-verifiable)` counts as **checked** — the information is dev-reachable, so it is not a readiness blocker. Items unsatisfied for any other reason (missing Definition of Done, missing Figma/mockups, missing translations, unresolved dependency) remain **unchecked**. In the prose, name which checklist item(s) you credited and which `(dev-verifiable)` gap justifies each.
-
-**In-flight weighting.** A downgraded `(in-flight)` gap no longer triggers the BLOCKER override. For checklist completion, a Step 4 item unchecked *solely* because of an `(in-flight)` ambiguity counts as **checked** — credit **exactly one** item, the single closest-mapped one (response-shape → `API Contracts`; placement/structure → `Architecture Fit`; missing-state → `Edge Cases`); a gap spanning two items credits only its **primary** item; the total credited items never exceed the number of downgraded gaps. **Never credit `Verification Assets`** (that belongs to `(dev-verifiable)`). Name the credited item and the justifying `WARNING #N` in the prose.
-
-**Deferred-visual weighting.** A `(visual-deferred)` gap is override-removed but receives **no** checklist credit — its Figma/visual item stays **unchecked** (the design asset is genuinely still missing).
-
-**Band-label rule.** The `NO-GO (BLOCKER)` label is reserved for an **actual BLOCKER gap** (the override). A score `<50%` with **no** BLOCKER gap renders `NO-GO (WARNING)`, not `NO-GO (BLOCKER)`. The `80` / `50` thresholds are unchanged; a real BLOCKER still forces `NO-GO (BLOCKER)` at any score.
+- **First move:** one sentence naming the content of the first commit (file or module and the behavior it adds). For BLOCKED: `none — blocked by <owner>: <what must exist first>`.
+- **Decisions:** the count of WARNING + MISSING_ASSETS bullets; each one's `Default:` is the answer the user confirms or overrides.
+- **Handoffs:** the count of HANDOFF bullets.
 
 ## Required Output Format
 
@@ -195,7 +183,7 @@ DATA_SOURCES:
 CODEBASE_EVIDENCE:
   Module scope: {echo SCOPE_DECISION in one line — in-scope module/path vs adjacent-but-excluded}
   Primary locus (read-confirmed): {file(s) you READ via your ≤2 follow-up reads that match the ticket; or "None confirmed — packet evidence only"}
-  Confirmed non-impact: {areas the Impact Matrix (Step 5) rates None AND the packet covered — e.g. API/GraphQL, Types, Stores}
+  Confirmed non-impact: {areas the Impact Matrix (Step 4) rates None AND the packet covered — e.g. API/GraphQL, Types, Stores}
   Candidate leads (conditional — NOT predicted edits): {files from CONTENT_HITS / FILENAME_HITS that an open gap points at; cite the gap, e.g. "FormPostcodeInput.vue — conditional on WARNING #2"; or "None"}
   Adjacent/excluded matches: {keyword neighbors SCOPE_DECISION rules out — a do-not-inspect signal, e.g. "aciPayments/* — sibling provider, excluded by Adyen-only scope"; or "None"}
   Anticipated new surfaces: {capabilities the work likely adds, described by ROLE not invented filename, e.g. "Adyen submit composable — likely new or extended"; name an exact file ONLY if local naming conventions make it unambiguous; or "None"}
@@ -220,12 +208,12 @@ GAPS:
   {prose}
 - MISSING_ASSETS #2: {as above, or omit}
   {prose}
+- HANDOFF #1: {what must happen outside this repo} — owner: {name or role}.
+- HANDOFF #2: {as above, or omit}
 
-If a category has no gaps, omit that category's bullets entirely (do not emit "None"). Numbering is per-category, starting at 1. IDs are stable within this run and are echoed back in the audit body so the calibration verifier (Phase 2.5) can cite them.
+If a category has no gaps, omit that category's bullets entirely (do not emit "None"). Numbering is per-category, starting at 1. IDs are stable within this run and are echoed back in the audit body.
 
-When the dev-verifiable downgrade rule from Step 3 applies, append ` (dev-verifiable)` to the gap title and include the literal sentence `Verification asset: <asset>; check <specific behavior>.` in the gap prose.
-
-When the in-flight downgrade rule applies, append ` (in-flight)` to the gap title and include the literal sentence `Resolves via: <packet-visible anchor>.` in the gap prose. When the deferred-visual rule applies, append ` (visual-deferred)` to the gap title and include the literal sentence `Deferred: <logic buildable now>; pending design: <the undecided visual decision>.` in the gap prose.
+Every WARNING and MISSING_ASSETS bullet ends with the literal sentence `Default: <the answer the auditor would take, and what it changes in the work>.` Marker suffixes ` (dev-verifiable)`, ` (in-flight)`, ` (visual-deferred)` and their literal sentences (`Verification asset: …`, `Resolves via: …`, `Deferred: …`) follow Step 3.
 
 ENV_PREREQUISITES:
 - kind: env-file | credential | test-account | external-host | local-service | sandbox-exclusion
@@ -234,10 +222,11 @@ ENV_PREREQUISITES:
   evidence: <file:line in the codebase, or the Jira field, that implies it>
   status: available | missing | unknown
 
-READINESS:
-- Score: {N}%
-- Verdict: {GO/NO-GO} (use `NO-GO (BLOCKER)` only when a real BLOCKER gap exists — see Step 6 band-label rule)
-- Recommendation: {one sentence; when any gap carries `(dev-verifiable)` or `(in-flight)`, render as `1. Verify dev-side: <asset/anchor, what to check>. 2. Confirm with PO: <remaining PO-blocking gaps>.`; when a `(visual-deferred)` gap is present, render as `Build logic + behavior now; final visual treatment pending design: <what is undecided>.` — keep it on a single line for parser safety}
+VERDICT:
+- Verdict: {START | BLOCKED}
+- First move: {one sentence: the first commit's content; for BLOCKED: none — blocked by <owner>: <what must exist first>}
+- Decisions: {N — count of WARNING + MISSING_ASSETS bullets}
+- Handoffs: {M — count of HANDOFF bullets}
 
 SUGGESTED_TAGS: {comma-separated canonical tags from: graphql, authentication, ssr, nuxt, vue, typescript, architecture, api, security, cli, debugging}
 ```
@@ -248,7 +237,7 @@ These define the section's contract; the list is leads, not a diff prediction:
 
 - **Primary = read-confirmed.** A path is Primary only if you read it (via one of your ≤2 follow-up reads) and it matches the ticket. Packet hits alone (FILENAME/CONTENT_HITS) never qualify a file as Primary.
 - **Split excluded from conditional.** If `SCOPE_DECISION` excludes a module, its files go under *Adjacent/excluded matches* (don't-look), never *Candidate leads* (watch-this, reserved for files a specific open WARNING makes conditional).
-- **Non-impact must be earned.** An area enters *Confirmed non-impact* only if Step 5 rates it None AND the packet covered it. If `cap_reached: yes` stopped the pre-scan before covering it, leave it out — silence is not confirmation.
+- **Non-impact must be earned.** An area enters *Confirmed non-impact* only if Step 4 rates it None AND the packet covered it. If `cap_reached: yes` stopped the pre-scan before covering it, leave it out — silence is not confirmation.
 - **Anticipated surfaces are roles, not filenames.** Describe the new capability; do not invent exact names a pre-implementation auditor cannot know. Name a file only when local conventions make it unambiguous.
 - **Reconciliation.** Any file path you name in a gap's prose (Step 3) MUST also appear somewhere in Codebase Evidence — Primary, Candidate, or Adjacent/excluded — or in the packet's FILENAME_HITS / CONTENT_HITS.
 
