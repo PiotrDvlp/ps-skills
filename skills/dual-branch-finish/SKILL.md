@@ -147,15 +147,19 @@ git log -p --reverse origin/main..<name> | git patch-id --stable | cut -d' ' -f1
 git log -p --reverse origin/develop..<name>_develop | git patch-id --stable | cut -d' ' -f1
 ```
 
-- **Lists identical** — the sibling carries the exact patch. Say "patch identical, home
-  verification carries over". The Step 1 review covers it too; do not review the sibling again.
-- **Lists differ** — a Step 3 resolution or develop's surrounding code changed the hunks, and
-  the sibling is unverified. Run the Step 1 review on the sibling range
-  (`/codex-review code --base origin/develop`), then, on the files the range touches:
-  `npx vitest related --run <files>` and `npx eslint <files>`. In an ordinary checkout you are
-  still on the sibling after Step 2, so run them before going home; in the worktree case run
-  them in `../<name>_develop`. Quote the decisive line. A failure stops the workflow — report
-  it, no push offer. No typecheck in a worktree (see the `.nuxt` Gotcha).
+- **Lists identical** — the sibling carries the exact patch, so the Step 1 review covers it; do
+  not review the sibling again. Home's checks do not carry over: the same patch on develop's
+  base can still fail (a typecheck error once appeared only on the develop twin).
+- **Lists differ** — a Step 3 resolution or develop's surrounding code changed the hunks. Run
+  the Step 1 review on the sibling range (`/codex-review code --base origin/develop`).
+
+In both cases run the sibling's own checks on the files the range touches:
+`npx vitest related --run <files>` and `npx eslint <files>`, plus the repo's typecheck script
+(`npm run typecheck` when `package.json` has one) in an ordinary checkout. In an ordinary
+checkout you are still on the sibling after Step 2, so run them before going home; in the
+worktree case run them in `../<name>_develop` without typecheck (see the `.nuxt` Gotcha) and
+list typecheck under "Not verified". Quote the decisive line. A failure stops the workflow —
+report it, no push offer.
 
 Then go back to the main-based branch (home) and show both tips:
 
@@ -176,12 +180,13 @@ write each draft to the scratchpad as `mr-<branch, slashes as underscores>.md`. 
   range uses a summary in the same shape. Keep this exact title for the link and verification.
 - Why and What come from `git log origin/main..<name>` and the range diff, not from memory of the
   session.
-- Verification quotes only output produced in this session: home's checks and the Step 4
-  patch-id result. A check that did not run goes under "Not verified" with the reason.
+- Verification quotes only output produced in this session: home's checks in the main draft,
+  the sibling's Step 4 checks in the develop draft, and the patch-id result in both. A check
+  that did not run goes under "Not verified" with the reason.
 - The first line of each draft names its twin branch (`twin MR: <name>_develop` and the reverse);
   MR numbers do not exist before the push.
 - When Step 3 resolved a conflict or Step 4 patch-ids differed, say so in the develop draft's
-  Review notes and quote the sibling's own checks in its Verification.
+  Review notes.
 
 No template in the repo: write a concise description of the change and the checks actually
 run. Keep both non-empty drafts until remote verification succeeds. The drafts are not the
@@ -352,8 +357,8 @@ origin/<branch>` needs one.** Everything else under `.git` is writable — `.git
   (memory `project_worktree_nuxt_symlink_breaks_eslint`).
 - **A Step 4 patch-id mismatch is not proof of a bad pick.** It also fires when only the
   context lines around a hunk differ on develop, even after a clean cherry-pick. That false
-  alarm costs one test run and is accepted; a match is the only signal that lets home's
-  verification carry over.
+  alarm costs one extra review and is accepted; a match lets only the Step 1 review carry
+  over, never the checks.
 - **`_develop` is a repo majority, not a rule.** Repos differ (one runs about 75 `*_develop` to 50 `*_dev`, another 1 to 2). Check with `git branch -r | grep -oE '_develop$|_dev$' | sort | uniq -c` and match the winner.
 - **Bases are configurable.** `main` + `origin/develop` are the defaults when the user names none. If a repo uses different integration branches (or the user names different ones), use those and keep the same two-sibling shape.
 - **Never push and never offer to push; never `--no-verify`, never force-push.** Branch creation and cherry-pick are local and safe; pushing is the outward-facing action and the user runs it from the Step 6 commands. If the user reports a rejected push, stop.
