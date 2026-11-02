@@ -158,6 +158,7 @@ export function collectFollowup(repo, iid, { author = '@me' } = {}) {
   const row = rows.find((r) => r.iid === iid)
   if (!row) throw new Error(`!${iid} is not open or not authored by ${author}`)
   const mr = glab(['mr', 'view', String(iid), '-F', 'json'], repo)
+  if (!String(mr.sha).startsWith(row.headSha)) throw new Error('head moved; re-run')
   const twin = rows.find((r) => r.iid === row.twinIid)
   const out = { row: { ...row, headSha: String(mr.sha), twinBranch: twin?.branch ?? null }, discussions: [], jobs: [], traces: {} }
   if (!FOLLOWUP_STATES.has(row.state)) return out
@@ -198,8 +199,8 @@ export function buildPackage({ row, discussions, jobs, traces, repoUrl, createdA
   })
   const pkg = {
     schema: 'mr-followup/1', createdAt, repo: repoUrl,
-    mr: { iid: row.iid, url: row.url, source: row.branch, target: row.target, headSha: row.headSha, twinIid: row.twinIid, twinBranch: row.twinBranch, state: row.state, next: row.next },
-    threads, failedJobs, ticket: row.branch.match(/[A-Z]+-\d+/)?.[0] ?? null,
+    mr: { iid: row.iid, url: plain(row.url), source: plain(row.branch), target: plain(row.target), headSha: row.headSha, twinIid: row.twinIid, twinBranch: row.twinBranch === null ? null : plain(row.twinBranch), state: row.state, next: plain(row.next) },
+    threads, failedJobs, ticket: plain(row.branch).match(/[A-Z]+-\d+/)?.[0] ?? null,
   }
   return { pkg, spills }
 }
@@ -226,7 +227,12 @@ export function writePackage(outPath, { pkg, spills }) {
 const remoteUrl = (repo) => {
   const r = spawnSync('git', ['remote', 'get-url', 'origin'], { cwd: repo, encoding: 'utf8', timeout: 10_000 })
   if (r.error || r.status !== 0) throw new Error(`git remote get-url origin failed in ${repo}: ${r.error?.message || r.stderr.trim()}`)
-  return r.stdout.trim()
+  const url = r.stdout.trim()
+  if (!/^https?:\/\//.test(url)) return url
+  const parsed = new URL(url)
+  parsed.username = ''
+  parsed.password = ''
+  return parsed.href
 }
 
 const isMain = process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))

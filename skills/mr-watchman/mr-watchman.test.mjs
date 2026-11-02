@@ -24,15 +24,15 @@ const summary = (body) => ({ id: 'd2', individual_note: true, notes: [{ resolvab
 const reply = (author, body, created_at = '2026-01-02T08:27:00Z', system = false) => ({ resolvable: true, resolved: false, system, author: { username: author }, body, created_at })
 const answered = (first, ...replies) => ({ ...first, notes: [...first.notes, ...replies] })
 
-function run(t, { mrs, discussions = {}, jobs = {}, traces = {}, args = [], json = true, glabError = false, malformed = false, followup = null, out, preexisting = false, failTrace = null }) {
+function run(t, { mrs, discussions = {}, jobs = {}, traces = {}, args = [], json = true, glabError = false, malformed = false, followup = null, out, preexisting = false, failTrace = null, origin = 'https://gitlab.example.com/team/shop.git', moveHead = false }) {
   const root = mkdtempSync(join(tmpdir(), 'mr watchman-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const log = join(root, 'calls.jsonl')
-  const config = { mrs, discussions, jobs, traces, glabError, malformed, failTrace }
+  const config = { mrs, discussions, jobs, traces, glabError, malformed, failTrace, moveHead }
   const pkgPath = out === undefined ? join(root, 'pkg.json') : out
   if (followup !== null) {
     spawnSync('git', ['init', '-q'], { cwd: root })
-    spawnSync('git', ['remote', 'add', 'origin', 'https://gitlab.example.com/team/shop.git'], { cwd: root })
+    spawnSync('git', ['remote', 'add', 'origin', origin], { cwd: root })
     args = [...args, '--followup', String(followup), ...(pkgPath === null ? [] : ['--out', pkgPath])]
   }
   if (preexisting) writeFileSync(pkgPath, 'old')
@@ -44,7 +44,11 @@ fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n');
 if (config.glabError) { console.error('x509: certificate error'); process.exit(1); }
 if (config.malformed) { console.log('<html>'); process.exit(0); }
 if (args[0] === 'mr' && args[1] === 'list') console.log(JSON.stringify(config.mrs));
-else if (args[0] === 'mr' && args[1] === 'view') console.log(JSON.stringify(config.mrs.find((m) => String(m.iid) === args[2])));
+else if (args[0] === 'mr' && args[1] === 'view') {
+const found = config.mrs.find((m) => String(m.iid) === args[2]);
+const views = fs.readFileSync(${JSON.stringify(log)}, 'utf8').split('\\n').filter((l) => l.startsWith('["mr","view"')).length;
+console.log(JSON.stringify(config.moveHead && views >= 2 ? { ...found, sha: 'f'.repeat(40) } : found));
+}
 else if (args[0] === 'api' && /\\/jobs\\/\\d+\\/trace/.test(args[1])) {
 if (config.failTrace === args[1].match(/jobs\\/(\\d+)/)[1]) { console.error('x509: certificate error'); process.exit(1); }
 process.stdout.write(config.traces[args[1].match(/jobs\\/(\\d+)/)[1]] ?? '');
@@ -373,4 +377,37 @@ test('writePackage refuses an existing package or spill directory and leaves no 
   rmSync(join(dir, 'pkg.threads'), { recursive: true })
   assert.throws(() => writePackage(out, { pkg: {}, spills: [{ file: '../x.md', text: '' }] }), /spill file/)
   assert.deepEqual(readdirSync(dir), [])
+})
+
+test('followup: credentials in the origin URL never reach the package', (t) => {
+  const r = run(t, { mrs: [followupThreads()], followup: 21, json: false, origin: 'https://bot:s3cret@gitlab.example.com/team/shop.git',
+    discussions: { 21: [thread('alice', 'src/a.vue', 7, 'nit')] } })
+  assert.equal(r.status, 0)
+  assert.equal(readPkg(r).repo, 'https://gitlab.example.com/team/shop.git')
+  assert.doesNotMatch(readFileSync(r.pkgPath, 'utf8'), /s3cret/)
+})
+
+test('followup: an SSH origin is kept as it is', (t) => {
+  const r = run(t, { mrs: [followupThreads()], followup: 21, json: false, origin: 'git@gitlab.example.com:team/shop.git',
+    discussions: { 21: [thread('alice', 'src/a.vue', 7, 'nit')] } })
+  assert.equal(readPkg(r).repo, 'git@gitlab.example.com:team/shop.git')
+})
+
+test('followup: a head that moves between reads exits 2 and writes nothing', (t) => {
+  const r = run(t, { mrs: [followupThreads()], followup: 21, json: false, moveHead: true, discussions: { 21: [thread('alice', 'src/a.vue', 7, 'nit')] } })
+  assert.equal(r.status, 2)
+  assert.match(JSON.parse(r.out).problems[0], /head moved; re-run/)
+  assert.equal(existsSync(r.pkgPath), false)
+  assert.deepEqual(readdirSync(r.root).filter((f) => /threads|tmp/.test(f)), [])
+})
+
+test('followup: MR strings are sanitized like thread text', (t) => {
+  const r = run(t, { mrs: [followupThreads({ source_branch: 'fix/PROJ-1/x\u0007y', web_url: 'https://gitlab.example.com/a\u001bb' }), mr(22, 'fix/PROJ-1/x\u0007y_develop')], followup: 21, json: false,
+    discussions: { 21: [thread('alice', 'src/a.vue', 7, 'nit')] } })
+  assert.equal(r.status, 0)
+  const pkg = readPkg(r)
+  assert.equal(pkg.mr.source, 'fix/PROJ-1/x y')
+  assert.equal(pkg.mr.twinBranch, 'fix/PROJ-1/x y_develop')
+  assert.equal(pkg.mr.url, 'https://gitlab.example.com/a b')
+  assert.doesNotMatch(readFileSync(r.pkgPath, 'utf8'), /\\u0007|\\u001b/)
 })
