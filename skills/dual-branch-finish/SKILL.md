@@ -68,10 +68,11 @@ node "${CLAUDE_SKILL_DIR}/scripts/twin-parity.mjs" --repo . --branch <name> --tw
 
 It compares `origin/main..origin/<name>` with `origin/develop..origin/<name>_develop` by stable
 patch-id, as a set and in order, before anything new is carried; merge commits carry no patch and
-are not compared. Exit 0 prints `parity ok, N patches`: the carry range is then `origin/<name>..HEAD`,
-the unpushed commits only. Exit 1 prints `parity mismatch` and the `home-only` and `twin-only` lists
-(or an `order` line when the same patches sit in a different order): stop the workflow and show both
-lists, because carrying only the new commits would leave the twin missing an earlier fix. Exit 2
+are not compared. Exit 0 prints `parity ok, N patches`: the carry range is then `origin/<name>..HEAD`
+while home is checked out, the unpushed commits only; Step 2 spells it `origin/<name>..<name>`. Exit 1
+prints `parity mismatch` followed by `home-only` and `twin-only` lines, or an `order` line when the
+same patches sit in a different order: stop the workflow and show the script's output, because
+carrying only the new commits would leave the twin missing an earlier fix. Exit 2
 means git failed or a range gave fewer patch-ids than commits with a diff; that also stops the
 workflow. Without a pushed twin, nothing changes here and the range stays `origin/main..HEAD`.
 
@@ -99,16 +100,7 @@ develop suffix (`_develop` below; see Gotchas for how to check): `fix/foo_bar` �
 it off the freshly-fetched `origin/develop` and cherry-pick the range:
 
 The sibling may already exist and be pushed from an earlier session — see Gotchas before
-running `git checkout -b` below. When Step 1's parity check passed, create the local sibling from
-the pushed twin instead of from `origin/develop`, and cherry-pick only `origin/<name>..HEAD`:
-
-```bash
-# ordinary checkout
-git checkout --no-track -b <name>_develop origin/<name>_develop
-
-# home is a linked worktree
-git worktree add --no-track -b <name>_develop ../<name>_develop origin/<name>_develop
-```
+running `git checkout -b` below.
 
 First check whether home is itself a linked worktree, because that changes the primitive:
 
@@ -129,6 +121,20 @@ git cherry-pick <oldest>^..<newest>   # or just `git cherry-pick <sha>` for a si
 # home is a linked worktree (--git-dir != --git-common-dir)
 git worktree add --no-track -b <name>_develop ../<name>_develop origin/develop
 git -C ../<name>_develop cherry-pick <oldest>^..<newest>
+```
+
+When `origin/<name>_develop` already exists and Step 1's parity check passed, this pair replaces
+the block above (run one of the two, never both creation commands). It creates the local sibling
+from the pushed twin instead of from `origin/develop` and cherry-picks only the new commits:
+
+```bash
+# ordinary checkout (--git-dir == --git-common-dir)
+git checkout --no-track -b <name>_develop origin/<name>_develop
+git cherry-pick origin/<name>..<name>
+
+# home is a linked worktree (--git-dir != --git-common-dir)
+git worktree add --no-track -b <name>_develop ../<name>_develop origin/<name>_develop
+git -C ../<name>_develop cherry-pick origin/<name>..<name>
 ```
 
 `--no-track` is load-bearing under the Bash sandbox, not a style choice — see the
