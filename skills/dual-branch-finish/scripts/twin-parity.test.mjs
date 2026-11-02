@@ -71,6 +71,7 @@ test('a missing twin ref exits 2', (t) => {
   const { work } = setup(t);
   const r = run(work, 'fix/none_develop');
   assert.equal(r.status, 2, r.stdout + r.stderr);
+  assert.match(r.stderr, /fix\/none_develop/);
 });
 
 test('a local unpushed home commit does not break parity', (t) => {
@@ -79,4 +80,42 @@ test('a local unpushed home commit does not break parity', (t) => {
   const r = run(work);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /parity ok/);
+});
+
+test('a twin commit missing from home exits 1 and names it', (t) => {
+  const { work } = setup(t);
+  git(work, 'checkout', 'fix/a_develop');
+  commit(work, 'd.txt', 'four\n', 'extra twin');
+  git(work, 'push', 'origin', 'fix/a_develop');
+  const r = run(work);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /twin-only [0-9a-f]{7,} extra twin/);
+});
+
+test('user git config for color and pretty formats does not hide a mismatch', (t) => {
+  const { work } = setup(t);
+  git(work, 'config', 'color.ui', 'always');
+  git(work, 'config', 'format.pretty', 'format:%s');
+  const second = commit(work, 'b.txt', 'two\n', 'second fix');
+  git(work, 'push', 'origin', 'fix/a');
+  const r = run(work);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, new RegExp(`home-only ${second.slice(0, 12)} second fix`));
+});
+
+test('the same patches in a different order exit 1 and name the first differing position', (t) => {
+  const { work } = setup(t);
+  const first = git(work, 'rev-parse', 'fix/a');
+  const second = commit(work, 'b.txt', 'two\n', 'second fix');
+  git(work, 'push', 'origin', 'fix/a');
+  git(work, 'checkout', 'fix/a_develop');
+  git(work, 'reset', '--hard', 'develop');
+  git(work, 'cherry-pick', second);
+  git(work, 'cherry-pick', first);
+  git(work, 'push', '--force', 'origin', 'fix/a_develop');
+  git(work, 'checkout', 'fix/a');
+  const r = run(work);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /parity mismatch/);
+  assert.match(r.stdout, new RegExp(`order 0 home ${first.slice(0, 12)} twin [0-9a-f]{12}`));
 });

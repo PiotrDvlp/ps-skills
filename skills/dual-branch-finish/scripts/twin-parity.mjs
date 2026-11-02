@@ -8,6 +8,7 @@ const HELP = `Compares two pushed twin branches by stable patch-id (Node 22+, gi
 Usage: node twin-parity.mjs --repo <dir> --branch <home> --twin <sibling>
          [--home-base origin/main] [--twin-base origin/develop]
 Compares origin/main..origin/<home> with origin/develop..origin/<sibling>; local branches are never read.
+Matches as a set and in order; merge commits carry no patch and are not compared.
 Exit 0: parity ok. 1: parity mismatch (home-only / twin-only lines follow). 2: a ref is missing or git failed.
 `;
 
@@ -19,16 +20,20 @@ function git(repo, args, input) {
 }
 
 export function patchIds(repo, range) {
-  const subjects = new Map(git(repo, ['log', '--reverse', '--format=%H%x09%s', range, '--'], undefined)
+  const subjects = new Map(git(repo, ['log', '--no-color', '--pretty=format:%H%x09%s', '--reverse', range, '--'])
     .split('\n').filter(Boolean).map((line) => {
       const [sha, ...subject] = line.split('\t');
       return [sha, subject.join('\t')];
     }));
-  const log = git(repo, ['log', '-p', '--reverse', range, '--']);
-  return git(repo, ['patch-id', '--stable'], log).split('\n').filter(Boolean).map((line) => {
+  const withDiff = git(repo, ['log', '--no-color', '--no-merges', '--pretty=format:%x01%H', '--name-only', '--reverse', range, '--'])
+    .split('\x01').filter((chunk) => chunk.split('\n').slice(1).some(Boolean)).length;
+  const log = git(repo, ['log', '-p', '--no-color', '--no-ext-diff', '--pretty=medium', '--reverse', range, '--']);
+  const ids = git(repo, ['patch-id', '--stable'], log).split('\n').filter(Boolean).map((line) => {
     const [id, sha] = line.split(' ');
     return { id, sha, subject: subjects.get(sha) ?? '' };
   });
+  if (ids.length < withDiff) throw new Error(`patch-id produced ${ids.length} ids for ${withDiff} commits with a diff in ${range}`);
+  return ids;
 }
 
 export function compareParity(home, twin) {
@@ -39,7 +44,12 @@ export function compareParity(home, twin) {
     if (at === -1) homeOnly.push(patch);
     else unused.splice(at, 1);
   }
-  return { ok: !homeOnly.length && !unused.length, homeOnly, twinOnly: unused };
+  let order = null;
+  if (!homeOnly.length && !unused.length) {
+    const index = home.findIndex((patch, i) => patch.id !== twin[i].id);
+    if (index !== -1) order = { index, home: home[index].sha, twin: twin[index].sha };
+  }
+  return { ok: !homeOnly.length && !unused.length && !order, homeOnly, twinOnly: unused, order };
 }
 
 function main() {
@@ -54,7 +64,7 @@ function main() {
   }
   const home = patchIds(v.repo, `${v['home-base']}..origin/${v.branch}`);
   const twin = patchIds(v.repo, `${v['twin-base']}..origin/${v.twin}`);
-  const { ok, homeOnly, twinOnly } = compareParity(home, twin);
+  const { ok, homeOnly, twinOnly, order } = compareParity(home, twin);
   if (ok) {
     console.log(`parity ok, ${home.length} patches`);
     return 0;
@@ -62,6 +72,7 @@ function main() {
   console.log('parity mismatch');
   for (const p of homeOnly) console.log(`home-only ${p.sha.slice(0, 12)} ${p.subject}`);
   for (const p of twinOnly) console.log(`twin-only ${p.sha.slice(0, 12)} ${p.subject}`);
+  if (order) console.log(`order ${order.index} home ${order.home.slice(0, 12)} twin ${order.twin.slice(0, 12)}`);
   return 1;
 }
 
