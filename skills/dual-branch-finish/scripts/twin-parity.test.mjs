@@ -119,3 +119,52 @@ test('the same patches in a different order exit 1 and name the first differing 
   assert.match(r.stdout, /parity mismatch/);
   assert.match(r.stdout, new RegExp(`order 0 home ${first.slice(0, 12)} twin [0-9a-f]{12}`));
 });
+
+function setupContext(t, twinSubject = 'fix five') {
+  const root = mkdtempSync(join(tmpdir(), 'twin parity-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const origin = join(root, 'origin.git');
+  const work = join(root, 'work');
+  const lines = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`);
+  const text = (edits) => lines.map((l, i) => edits[i] ?? l).join('\n') + '\n';
+  git(root, 'init', '--bare', '-b', 'main', origin);
+  git(root, 'clone', origin, work);
+  commit(work, 'f.txt', text({}), 'base');
+  git(work, 'branch', '-M', 'main');
+  git(work, 'push', 'origin', 'main');
+  git(work, 'checkout', '-b', 'develop');
+  commit(work, 'f.txt', text({ 2: 'develop three' }), 'develop edits line 3');
+  git(work, 'push', 'origin', 'develop');
+  git(work, 'checkout', '-b', 'fix/a', 'main');
+  const fix = commit(work, 'f.txt', text({ 4: 'fixed five' }), 'fix five');
+  git(work, 'checkout', '-b', 'fix/a_develop', 'develop');
+  git(work, 'cherry-pick', fix);
+  if (twinSubject !== 'fix five') git(work, 'commit', '--amend', '-m', twinSubject);
+  git(work, 'push', 'origin', 'fix/a', 'fix/a_develop');
+  git(work, 'checkout', 'fix/a');
+  return { work, fix, twin: git(work, 'rev-parse', 'fix/a_develop') };
+}
+
+test('a clean cherry-pick onto changed context exits 3 and pairs the commits', (t) => {
+  const { work, fix, twin } = setupContext(t);
+  const r = run(work);
+  assert.equal(r.status, 3, r.stdout + r.stderr);
+  assert.match(r.stdout, /^parity context-only$/m);
+  assert.match(r.stdout, new RegExp(`^changed 0 home ${fix.slice(0, 12)} twin ${twin.slice(0, 12)} fix five$`, 'm'));
+});
+
+test('a twin with a different subject at the position still exits 1', (t) => {
+  const { work } = setupContext(t, 'another subject');
+  const r = run(work);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /parity mismatch/);
+});
+
+test('a different count of unmatched patches still exits 1', (t) => {
+  const { work } = setupContext(t);
+  git(work, 'checkout', 'fix/a_develop');
+  commit(work, 'g.txt', 'x\n', 'extra twin');
+  git(work, 'push', 'origin', 'fix/a_develop');
+  const r = run(work);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+});

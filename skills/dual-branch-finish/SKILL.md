@@ -58,14 +58,23 @@ pushed commits, both passes below cover only what is not pushed yet: `origin/<na
 (`/codex-review code --base origin/<name>`). Re-reviewing the pushed range repeats findings
 the MR threads already hold.
 
-When `origin/<name>_develop` already exists, prove first that the two pushed branches carry the
-same patches. Run `git fetch origin` (the script reads pushed `origin/*` refs and never fetches),
-then:
+When a twin may already be pushed, refresh every remote ref first (the `git fetch origin main develop`
+above does not update `origin/<name>_develop`), then test for it:
+
+```bash
+git fetch origin --quiet
+git rev-parse --verify -q refs/remotes/origin/<name>_develop
+```
+
+When that prints a sha, the twin is pushed: prove that the two pushed branches carry the same
+patches. The script reads pushed `origin/*` refs and never fetches:
 
 ```bash
 node "${CLAUDE_SKILL_DIR}/scripts/twin-parity.mjs" --repo . --branch <name> --twin <name>_develop
 ```
 
+Pass `--home-base` and `--twin-base` when the repo's bases are not `origin/main` and `origin/develop`,
+and name the twin with the repo's own suffix (`_dev` or `_develop`; see the Gotchas on suffix and bases).
 It compares `origin/main..origin/<name>` with `origin/develop..origin/<name>_develop` by stable
 patch-id, as a set and in order, before anything new is carried; merge commits carry no patch and
 are not compared. Exit 0 prints `parity ok, N patches`: the carry range is then `origin/<name>..HEAD`
@@ -74,7 +83,18 @@ prints `parity mismatch` followed by `home-only` and `twin-only` lines, or an `o
 same patches sit in a different order: stop the workflow and show the script's output, because
 carrying only the new commits would leave the twin missing an earlier fix. Exit 2
 means git failed or a range gave fewer patch-ids than commits with a diff; that also stops the
-workflow. Without a pushed twin, nothing changes here and the range stays `origin/main..HEAD`.
+workflow. Exit 3 prints `parity context-only` and one `changed <i> home <sha> twin <sha> <subject>`
+line per pair: every unmatched patch pairs by position with a twin patch of the same subject. The
+patch-id includes context lines, so this is what a clean cherry-pick looks like when develop changed
+lines near the hunk. Run and show
+
+```bash
+git range-diff origin/<home-base>..origin/<name> origin/<twin-base>..origin/<name>_develop
+```
+
+(defaults `origin/main` and `origin/develop`), then continue only on the user's explicit yes;
+otherwise stop. After a yes the carry range is the one for exit 0. Without a pushed twin, nothing
+changes here and the range stays `origin/main..HEAD`.
 
 Then, if the ponytail plugin is installed (`/ponytail-review` exists), run one `ponytail-review` pass on the full range (`git diff origin/main...HEAD`)
 before anything is cherry-picked. This is the last point where a cut lands once instead of
@@ -97,10 +117,11 @@ one line and mark the range unreviewed in Step 5's Verification.
 Derive the develop branch name from the current (main-based) branch by appending the repo's
 develop suffix (`_develop` below; see Gotchas for how to check): `fix/foo_bar` →
 `fix/foo_bar_develop`. (Underscores in the descriptive segment, per repo convention.) Create
-it off the freshly-fetched `origin/develop` and cherry-pick the range:
+it off the freshly-fetched `origin/develop`, or off `origin/<name>_develop` when that exists (the
+twin pair below), and cherry-pick the range.
 
-The sibling may already exist and be pushed from an earlier session — see Gotchas before
-running `git checkout -b` below.
+When `origin/<name>_develop` exists, skip the next block and use the twin pair after it (Step 1's
+parity check must have passed). For a local `<name>_develop`, see that pair's local-branch check.
 
 First check whether home is itself a linked worktree, because that changes the primitive:
 
@@ -123,19 +144,50 @@ git worktree add --no-track -b <name>_develop ../<name>_develop origin/develop
 git -C ../<name>_develop cherry-pick <oldest>^..<newest>
 ```
 
-When `origin/<name>_develop` already exists and Step 1's parity check passed, this pair replaces
-the block above (run one of the two, never both creation commands). It creates the local sibling
-from the pushed twin instead of from `origin/develop` and cherry-picks only the new commits:
+When `origin/<name>_develop` exists and Step 1's parity check passed (exit 0, or exit 3 with the
+user's yes), this pair replaces the block above; run the creation commands only when no local
+sibling exists. Local branch refs are shared by all worktrees, so an earlier run may have left one,
+and `checkout -b` exits 128 on it. Check first:
 
 ```bash
-# ordinary checkout (--git-dir == --git-common-dir)
-git checkout --no-track -b <name>_develop origin/<name>_develop
-git cherry-pick origin/<name>..<name>
-
-# home is a linked worktree (--git-dir != --git-common-dir)
-git worktree add --no-track -b <name>_develop ../<name>_develop origin/<name>_develop
-git -C ../<name>_develop cherry-pick origin/<name>..<name>
+git rev-parse --verify -q refs/heads/<name>_develop
 ```
+
+- **No output, exit 1: no local sibling.** Create it from the pushed twin and cherry-pick only the
+  new commits:
+
+  ```bash
+  # ordinary checkout (--git-dir == --git-common-dir)
+  git checkout --no-track -b <name>_develop origin/<name>_develop
+  git cherry-pick origin/<name>..<name>
+
+  # home is a linked worktree (--git-dir != --git-common-dir)
+  git worktree add --no-track -b <name>_develop ../<name>_develop origin/<name>_develop
+  git -C ../<name>_develop cherry-pick origin/<name>..<name>
+  ```
+
+- **A sha: a local sibling exists.** Require
+  `git rev-parse refs/heads/<name>_develop` to equal `git rev-parse refs/remotes/origin/<name>_develop`.
+  When they differ, stop and name the mismatch (the local sibling holds commits that are not pushed,
+  or is behind the push): do not reset it or force anything. When they match, reuse it. Run
+  `git worktree list --porcelain`; if it shows `branch refs/heads/<name>_develop` checked out at
+  `<path>`, confirm `git -C <path> status --porcelain` is empty and use `git -C <path>` for the
+  cherry-pick. Otherwise check it out where you are, or add a worktree for it:
+
+  ```bash
+  # ordinary checkout (--git-dir == --git-common-dir)
+  git checkout <name>_develop
+  git cherry-pick origin/<name>..<name>
+
+  # home is a linked worktree (--git-dir != --git-common-dir)
+  git worktree add ../<name>_develop <name>_develop
+  git -C ../<name>_develop cherry-pick origin/<name>..<name>
+
+  # the sibling is already checked out at <path>
+  git -C <path> cherry-pick origin/<name>..<name>
+  ```
+
+A cherry-pick that fails with an empty commit set means home has no unpushed commits: nothing is left to carry, so stop.
 
 `--no-track` is load-bearing under the Bash sandbox, not a style choice — see the
 `.git/config` Gotcha. Step 6's `git push --set-upstream` sets the tracking config anyway, so
@@ -166,7 +218,7 @@ git diff   # inspect the conflict hunks
   resolution to keep the workflow moving; a wrong cherry-pick resolution is worse than a pause.
 
 If the user wants out entirely, `git cherry-pick --abort` leaves the develop branch clean
-at `origin/develop`.
+at `origin/develop` (at `origin/<name>_develop` in the twin case).
 
 ## Step 4 — Confirm the patch, then return home
 
@@ -179,14 +231,15 @@ git log -p --reverse origin/main..<name> | git patch-id --stable | cut -d' ' -f1
 git log -p --reverse origin/develop..<name>_develop | git patch-id --stable | cut -d' ' -f1
 ```
 
-When Step 1's parity check passed, compare `origin/<name>..<name>` with
-`origin/<name>_develop..<name>_develop` instead, so both lists cover only the new commits.
+When Step 1's parity check passed (exit 0, or exit 3 with the user's yes), compare
+`origin/<name>..<name>` with `origin/<name>_develop..<name>_develop` instead, so both lists cover
+only the new commits.
 
 - **Lists identical** — the sibling carries the exact patch. Say "patch identical, home
   verification carries over". The Step 1 review covers it too; do not review the sibling again.
 - **Lists differ** — a Step 3 resolution or develop's surrounding code changed the hunks, and
   the sibling is unverified. Run the Step 1 review on the sibling range
-  (`/codex-review code --base origin/develop`), then, on the files the range touches:
+  (`/codex-review code --base origin/develop`; `--base origin/<name>_develop` in the twin case), then, on the files the range touches:
   `npx vitest related --run <files>` and `npx eslint <files>`. In an ordinary checkout you are
   still on the sibling after Step 2, so run them before going home; in the worktree case run
   them in `../<name>_develop`. Quote the decisive line. A failure stops the workflow — report
@@ -233,6 +286,10 @@ git status --porcelain                      # must be empty: a staged revert tha
 git rev-list --count origin/main..<name>    # must be > 0
 git rev-list --count origin/develop..<name>_develop   # must be > 0
 ```
+
+In the twin case the two counts are `origin/<name>..<name>` and
+`origin/<name>_develop..<name>_develop`: the pushed range is not new, and the full-range counts
+would pass on a branch with nothing new to push.
 
 A non-empty status or a zero count stops the workflow: commit (via the `commit` skill) or
 explain, never push. Also stop when the branch's upstream shows `[gone]` in `git branch -vv`:
@@ -349,11 +406,13 @@ runtime's normal approval flow. Do not weaken the check when the network is unav
 
 ## Gotchas
 
-- **The develop sibling may already exist.** Check `git rev-parse --verify` /
-  `git branch -r` first. If only `origin/<name>_develop` exists, follow the parity paragraph in
-  Step 1 and the creation commands in Step 2. If a local copy exists, `git worktree add <path> <name>_develop` (or check
-  it out where it is not already checked out) instead of `git checkout -b`; `checkout -b`
-  fails, and forcing it discards the pushed sibling.
+- **The develop sibling may already exist.** Run `git fetch origin`, then check
+  `git rev-parse --verify -q refs/remotes/origin/<name>_develop` and
+  `git rev-parse --verify -q refs/heads/<name>_develop`. When the twin is pushed, follow the parity
+  paragraph in Step 1 and the twin pair in Step 2, whose local-branch check covers a local copy:
+  `checkout -b` exits 128 on an existing branch, and forcing it discards the pushed sibling. A local
+  sibling with no pushed twin: `git worktree add <path> <name>_develop` (or check it out where it is
+  not already checked out) instead of `git checkout -b`.
 - **The Bash sandbox denies writes to `.git/config`, and a plain `git checkout -b <name>
 origin/<branch>` needs one.** Everything else under `.git` is writable — `.git/index`,
   refs, objects, and `.git/worktrees/**` all work, so commits and worktree creation are fine.
@@ -375,11 +434,20 @@ origin/<branch>` needs one.** Everything else under `.git` is writable — `.git
   `reset --hard` to undo and pushed an empty branch to origin.
 - **The session may start on the develop twin, with home checked out in another worktree.**
   Then the flow runs in reverse: commit on the twin you are on, carry that commit to home,
-  and end there. When the session's worktree guard refuses git in the other worktree, switch
-  the session with `EnterWorktree` (`path` = that worktree), confirm `git status --porcelain`
-  is empty, cherry-pick, and compare patch-ids. Never hand the cherry-pick to the user; only
-  the push is theirs. Handing it over once had to be corrected with "you always cherrypick
-  yourself".
+  and end there. With `origin/<name>` pushed, first run the Step 1 `twin-parity.mjs` command with
+  unchanged `--branch <name> --twin <name>_develop` arguments (it is symmetric and reads only
+  `origin/*`). On exit 0, or exit 3 with the user's yes, carry only
+  `origin/<name>_develop..<name>_develop` onto `<name>`. If no local `<name>` exists, create it with
+  `git checkout --no-track -b <name> origin/<name>` (or `git worktree add --no-track -b <name>
+  ../<name> origin/<name>`). If it exists, apply the Step 2 local-branch check to it:
+  `git rev-parse refs/heads/<name>` must equal `git rev-parse refs/remotes/origin/<name>`, else stop
+  and name the mismatch. Step 4 compares the same narrowed pair, `origin/<name>_develop..<name>_develop`
+  against `origin/<name>..<name>`. Without a pushed `origin/<name>` there is nothing to prove: carry
+  `origin/develop..<name>_develop` onto a `<name>` created off `origin/main`. When the session's
+  worktree guard refuses git in the other worktree, switch the session with `EnterWorktree` (`path` =
+  that worktree), confirm `git status --porcelain` is empty, cherry-pick, and compare patch-ids.
+  Never hand the cherry-pick to the user; only the push is theirs. Handing it over once had to be
+  corrected with "you always cherrypick yourself".
 - **Vitest in a fresh worktree needs three symlinks, not two.** `node_modules`, `generated`
   and `.nuxt`. Without `.nuxt` the `tsconfig.json` extends chain is unresolvable and every
   spec reports "no tests". Symlink `.nuxt` for vitest only — never run `nuxt prepare`,
@@ -389,7 +457,8 @@ origin/<branch>` needs one.** Everything else under `.git` is writable — `.git
 - **A Step 4 patch-id mismatch is not proof of a bad pick.** It also fires when only the
   context lines around a hunk differ on develop, even after a clean cherry-pick. That false
   alarm costs one test run and is accepted; a match is the only signal that lets home's
-  verification carry over.
+  verification carry over. Step 1's parity check on a pushed twin has the same false alarm, and
+  there it is exit 3: the range-diff and the user's yes in Step 1 are the way forward.
 - **`_develop` is a repo majority, not a rule.** Repos differ (one runs about 75 `*_develop` to 50 `*_dev`, another 1 to 2). Check with `git branch -r | grep -oE '_develop$|_dev$' | sort | uniq -c` and match the winner.
 - **Bases are configurable.** `main` + `origin/develop` are the defaults when the user names none. If a repo uses different integration branches (or the user names different ones), use those and keep the same two-sibling shape.
 - **Never push and never offer to push; never `--no-verify`, never force-push.** Branch creation and cherry-pick are local and safe; pushing is the outward-facing action and the user runs it from the Step 6 commands. If the user reports a rejected push, stop.

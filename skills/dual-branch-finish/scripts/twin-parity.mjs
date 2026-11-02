@@ -10,6 +10,8 @@ Usage: node twin-parity.mjs --repo <dir> --branch <home> --twin <sibling>
 Compares origin/main..origin/<home> with origin/develop..origin/<sibling>; local branches are never read.
 Matches as a set and in order; merge commits carry no patch and are not compared.
 Exit 0: parity ok. 1: parity mismatch (home-only / twin-only lines follow). 2: a ref is missing or git failed.
+Exit 3: parity context-only; the unmatched patches pair up by position with equal subjects (changed lines follow),
+so only the context around a hunk may differ. Compare them with git range-diff before carrying on.
 `;
 
 function git(repo, args, input) {
@@ -49,7 +51,9 @@ export function compareParity(home, twin) {
     const index = home.findIndex((patch, i) => patch.id !== twin[i].id);
     if (index !== -1) order = { index, home: home[index].sha, twin: twin[index].sha };
   }
-  return { ok: !homeOnly.length && !unused.length && !order, homeOnly, twinOnly: unused, order };
+  const paired = !order && homeOnly.length > 0 && homeOnly.length === unused.length
+    && homeOnly.every((patch, i) => patch.subject === unused[i].subject);
+  return { ok: !homeOnly.length && !unused.length && !order, homeOnly, twinOnly: unused, order, contextOnly: paired };
 }
 
 function main() {
@@ -64,10 +68,15 @@ function main() {
   }
   const home = patchIds(v.repo, `${v['home-base']}..origin/${v.branch}`);
   const twin = patchIds(v.repo, `${v['twin-base']}..origin/${v.twin}`);
-  const { ok, homeOnly, twinOnly, order } = compareParity(home, twin);
+  const { ok, homeOnly, twinOnly, order, contextOnly } = compareParity(home, twin);
   if (ok) {
     console.log(`parity ok, ${home.length} patches`);
     return 0;
+  }
+  if (contextOnly) {
+    console.log('parity context-only');
+    homeOnly.forEach((p, i) => console.log(`changed ${i} home ${p.sha.slice(0, 12)} twin ${twinOnly[i].sha.slice(0, 12)} ${p.subject}`));
+    return 3;
   }
   console.log('parity mismatch');
   for (const p of homeOnly) console.log(`home-only ${p.sha.slice(0, 12)} ${p.subject}`);
