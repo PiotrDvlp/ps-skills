@@ -1,11 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { assertReadOnly, baseName, tailLines, unresolved, verdict } from './mr-watchman.mjs'
+import { assertReadOnly, baseName, buildPackage, INLINE_CHARS, plainBody, tailLines, unresolved, verdict, writePackage } from './mr-watchman.mjs'
 
 const CLI = fileURLToPath(new URL('./mr-watchman.mjs', import.meta.url))
 const SHA = 'a'.repeat(40)
@@ -24,11 +24,18 @@ const summary = (body) => ({ id: 'd2', individual_note: true, notes: [{ resolvab
 const reply = (author, body, created_at = '2026-01-02T08:27:00Z', system = false) => ({ resolvable: true, resolved: false, system, author: { username: author }, body, created_at })
 const answered = (first, ...replies) => ({ ...first, notes: [...first.notes, ...replies] })
 
-function run(t, { mrs, discussions = {}, jobs = {}, traces = {}, args = [], json = true, glabError = false, malformed = false }) {
+function run(t, { mrs, discussions = {}, jobs = {}, traces = {}, args = [], json = true, glabError = false, malformed = false, followup = null, out, preexisting = false, failTrace = null }) {
   const root = mkdtempSync(join(tmpdir(), 'mr watchman-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const log = join(root, 'calls.jsonl')
-  const config = { mrs, discussions, jobs, traces, glabError, malformed }
+  const config = { mrs, discussions, jobs, traces, glabError, malformed, failTrace }
+  const pkgPath = out === undefined ? join(root, 'pkg.json') : out
+  if (followup !== null) {
+    spawnSync('git', ['init', '-q'], { cwd: root })
+    spawnSync('git', ['remote', 'add', 'origin', 'https://gitlab.example.com/team/shop.git'], { cwd: root })
+    args = [...args, '--followup', String(followup), ...(pkgPath === null ? [] : ['--out', pkgPath])]
+  }
+  if (preexisting) writeFileSync(pkgPath, 'old')
   writeFileSync(join(root, 'glab'), `#!${process.execPath}
 const fs = require('node:fs');
 const args = process.argv.slice(2);
@@ -38,16 +45,19 @@ if (config.glabError) { console.error('x509: certificate error'); process.exit(1
 if (config.malformed) { console.log('<html>'); process.exit(0); }
 if (args[0] === 'mr' && args[1] === 'list') console.log(JSON.stringify(config.mrs));
 else if (args[0] === 'mr' && args[1] === 'view') console.log(JSON.stringify(config.mrs.find((m) => String(m.iid) === args[2])));
-else if (args[0] === 'api' && /\\/jobs\\/\\d+\\/trace/.test(args[1])) process.stdout.write(config.traces[args[1].match(/jobs\\/(\\d+)/)[1]] ?? '');
+else if (args[0] === 'api' && /\\/jobs\\/\\d+\\/trace/.test(args[1])) {
+if (config.failTrace === args[1].match(/jobs\\/(\\d+)/)[1]) { console.error('x509: certificate error'); process.exit(1); }
+process.stdout.write(config.traces[args[1].match(/jobs\\/(\\d+)/)[1]] ?? '');
+}
 else if (args[0] === 'api' && /discussions/.test(args[1])) console.log(JSON.stringify(config.discussions[args[1].match(/merge_requests\\/(\\d+)/)[1]] ?? []));
 else if (args[0] === 'api' && /pipelines/.test(args[1])) console.log(JSON.stringify(config.jobs[args[1].match(/pipelines\\/(\\d+)/)[1]] ?? []));
 else process.exit(1);
 `, { mode: 0o755 })
   const result = spawnSync(process.execPath, [CLI, '--repo', root, ...(json ? ['--json'] : []), ...args],
     { encoding: 'utf8', env: { ...process.env, PATH: `${root}:${process.env.PATH}` } })
-  const calls = readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+  const calls = (existsSync(log) ? readFileSync(log, 'utf8') : '').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
   for (const c of calls) assertReadOnly(c)
-  return { status: result.status, out: result.stdout, rows: json && result.status !== 2 ? JSON.parse(result.stdout) : null, calls }
+  return { root, pkgPath, status: result.status, out: result.stdout, rows: json && result.status !== 2 ? JSON.parse(result.stdout) : null, calls }
 }
 
 test('baseName strips the develop twin suffix only', () => {
@@ -229,4 +239,138 @@ test('only answered threads: the next action is to read the replies and resolve'
 test('verdict and unresolved are pure', () => {
   assert.equal(verdict(mr(1, 'x', { head_pipeline: null }), [], []).state, 'ci-none')
   assert.equal(unresolved([summary('x')]).length, 0)
+})
+
+const followupThreads = (over = {}) => mr(21, 'fix/PROJ-1/x', { detailed_merge_status: 'discussions_not_resolved', ...over })
+const readPkg = (r) => JSON.parse(readFileSync(r.pkgPath, 'utf8'))
+
+test('followup: a threads MR writes a package with full bodies', (t) => {
+  const r = run(t, { mrs: [followupThreads()], followup: 21, json: false,
+    discussions: { 21: [answered(thread('review-bot', 'src/a.vue', 7, 'first line\nsecond line'), reply('alice', 'Fixed in abc1234.\nmore'))] } })
+  assert.equal(r.status, 0)
+  assert.equal(r.out.trim(), r.pkgPath)
+  const pkg = readPkg(r)
+  assert.equal(pkg.schema, 'mr-followup/1')
+  assert.equal(pkg.repo, 'https://gitlab.example.com/team/shop.git')
+  assert.equal(pkg.mr.headSha.length, 40)
+  assert.equal(pkg.mr.state, 'threads')
+  assert.equal(pkg.mr.source, 'fix/PROJ-1/x')
+  assert.equal(pkg.ticket, 'PROJ-1')
+  assert.equal(pkg.threads[0].body, 'first line\nsecond line')
+  assert.equal(pkg.threads[0].where, 'src/a.vue:7')
+  assert.equal(pkg.threads[0].answered, true)
+  assert.equal(pkg.threads[0].truncated, undefined)
+  assert.deepEqual(pkg.threads[0].replies.map((x) => [x.author, x.body]), [['alice', 'Fixed in abc1234.\nmore']])
+  assert.deepEqual(pkg.failedJobs, [])
+})
+
+test('followup: the twin is named in the package', (t) => {
+  const r = run(t, { mrs: [followupThreads(), mr(22, 'fix/PROJ-1/x_develop')], followup: 21, json: false,
+    discussions: { 21: [thread('alice', 'src/a.vue', 7, 'nit')] } })
+  const pkg = readPkg(r)
+  assert.equal(pkg.mr.twinIid, 22)
+  assert.equal(pkg.mr.twinBranch, 'fix/PROJ-1/x_develop')
+})
+
+test('followup: conflicts writes nothing', (t) => {
+  const r = run(t, { mrs: [mr(21, 'fix/a', { has_conflicts: true, detailed_merge_status: 'conflict' })], followup: 21, json: false })
+  assert.equal(r.status, 1)
+  assert.match(r.out, /conflicts: rebase fix\/a onto main/)
+  assert.equal(existsSync(r.pkgPath), false)
+  assert.deepEqual(readdirSync(r.root).filter((f) => f.includes('threads')), [])
+})
+
+test('followup: an IID that is not open exits 2', (t) => {
+  const r = run(t, { mrs: [mr(21, 'fix/a')], followup: 99, json: false })
+  assert.equal(r.status, 2)
+  assert.match(JSON.parse(r.out).problems[0], /not open or not authored/)
+})
+
+test('followup: existing --out exits 2', (t) => {
+  const r = run(t, { mrs: [followupThreads()], followup: 21, json: false, preexisting: true })
+  assert.equal(r.status, 2)
+  assert.equal(JSON.parse(r.out).status, 'unavailable')
+  assert.equal(readFileSync(r.pkgPath, 'utf8'), 'old')
+})
+
+test('followup: --followup without --out exits 2 before any glab call', (t) => {
+  const r = run(t, { mrs: [followupThreads()], followup: 21, json: false, out: null })
+  assert.equal(r.status, 2)
+  assert.match(JSON.parse(r.out).problems[0], /--out/)
+  assert.equal(r.calls.length, 0)
+})
+
+test('followup: a relative --out exits 2', (t) => {
+  const r = run(t, { mrs: [followupThreads()], followup: 21, json: false, out: 'pkg.json' })
+  assert.equal(r.status, 2)
+  assert.match(JSON.parse(r.out).problems[0], /absolute/)
+  assert.equal(r.calls.length, 0)
+})
+
+test('followup: a long body is spilled', (t) => {
+  const body = 'x'.repeat(5000)
+  const r = run(t, { mrs: [followupThreads()], followup: 21, json: false, discussions: { 21: [thread('alice', 'src/a.vue', 7, body)] } })
+  assert.equal(r.status, 0)
+  const th = readPkg(r).threads[0]
+  assert.equal(th.truncated, true)
+  assert.equal(th.chars, 5000)
+  assert.equal(th.body.length, 4000)
+  assert.equal(th.spill, 'pkg.threads/d1.md')
+  assert.ok(readFileSync(join(r.root, th.spill), 'utf8').includes(body))
+})
+
+test('followup: control characters are stripped and newlines kept', (t) => {
+  const r = run(t, { mrs: [followupThreads()], followup: 21, json: false, discussions: { 21: [thread('alice', 'src/a.vue', 7, 'a\u0007b\nc')] } })
+  assert.equal(readPkg(r).threads[0].body, 'a b\nc')
+  assert.equal(plainBody('a\tb\r\nc\u001b[0m'), 'a\tb \nc [0m')
+})
+
+test('followup: ci-failed carries trace tails', (t) => {
+  const lines = Array.from({ length: 200 }, (_, i) => `line ${i + 1}`)
+  lines[149] = '\u001b[31mline 150\u001b[0m\r'
+  const r = run(t, { mrs: [mr(23, 'fix/c', { detailed_merge_status: 'ci_must_pass', head_pipeline: { id: 123, status: 'failed', sha: SHA } })], followup: 23, json: false,
+    jobs: { 123: [{ id: 9, name: 'test', stage: 'test', allow_failure: false, failure_reason: 'script_failure', web_url: 'https://gitlab.example.com/team/shop/-/jobs/9' }] },
+    traces: { 9: `${lines.join('\n')}\n` } })
+  assert.equal(r.status, 0)
+  const pkg = readPkg(r)
+  assert.equal(pkg.mr.state, 'ci-failed')
+  const [job] = pkg.failedJobs
+  assert.deepEqual([job.id, job.name, job.stage, job.failureReason, job.webUrl], [9, 'test', 'test', 'script_failure', 'https://gitlab.example.com/team/shop/-/jobs/9'])
+  const tail = job.traceTail.split('\n')
+  assert.equal(tail.length, 120)
+  assert.equal(tail.at(-1), 'line 200')
+  assert.equal(tail[149 - 80], 'line 150 ')
+  assert.doesNotMatch(job.traceTail, /\u001b/)
+  assert.ok(r.calls.some((c) => c[0] === 'api' && c[1] === 'projects/:id/jobs/9/trace'))
+})
+
+test('followup: a glab failure after discussions leaves no package', (t) => {
+  const r = run(t, { mrs: [mr(23, 'fix/c', { detailed_merge_status: 'ci_must_pass', head_pipeline: { id: 123, status: 'failed', sha: SHA } })], followup: 23, json: false, failTrace: '9',
+    discussions: { 23: [] }, jobs: { 123: [{ id: 9, name: 'test', stage: 'test', allow_failure: false }] } })
+  assert.equal(r.status, 2)
+  assert.equal(existsSync(r.pkgPath), false)
+  assert.deepEqual(readdirSync(r.root).filter((f) => /threads|tmp/.test(f)), [])
+  assert.ok(r.calls.some((c) => c[1]?.includes('discussions')))
+})
+
+test('followup: an oversized trace becomes traceError, not a failed package', () => {
+  const row = { iid: 1, url: 'u', branch: 'fix/A-1/x', target: 'main', headSha: SHA, twinIid: null, twinBranch: null, state: 'ci-failed', next: 'n' }
+  const { pkg } = buildPackage({ row, discussions: [], jobs: [{ id: 9, name: 'test', stage: 'test' }], traces: { 9: { error: 'too large' } }, repoUrl: 'r', createdAt: 'now', spillDir: '/x/pkg.threads' })
+  assert.deepEqual([pkg.failedJobs[0].traceTail, pkg.failedJobs[0].traceError], [null, 'too large'])
+  assert.equal(INLINE_CHARS, 4000)
+})
+
+test('writePackage refuses an existing package or spill directory and leaves no temp names', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mr-watchman-write-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const out = join(dir, 'pkg.json')
+  writePackage(out, { pkg: { a: 1 }, spills: [{ file: 'd1.md', text: 'full' }] })
+  assert.deepEqual(readdirSync(dir).sort(), ['pkg.json', 'pkg.threads'])
+  assert.equal(readFileSync(join(dir, 'pkg.threads', 'd1.md'), 'utf8'), 'full')
+  assert.throws(() => writePackage(out, { pkg: {}, spills: [] }), /exists/)
+  rmSync(out)
+  assert.throws(() => writePackage(out, { pkg: {}, spills: [] }), /exists/)
+  rmSync(join(dir, 'pkg.threads'), { recursive: true })
+  assert.throws(() => writePackage(out, { pkg: {}, spills: [{ file: '../x.md', text: '' }] }), /spill file/)
+  assert.deepEqual(readdirSync(dir), [])
 })
