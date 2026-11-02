@@ -58,6 +58,23 @@ pushed commits, both passes below cover only what is not pushed yet: `origin/<na
 (`/codex-review code --base origin/<name>`). Re-reviewing the pushed range repeats findings
 the MR threads already hold.
 
+When `origin/<name>_develop` already exists, prove first that the two pushed branches carry the
+same patches. Run `git fetch origin` (the script reads pushed `origin/*` refs and never fetches),
+then:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/scripts/twin-parity.mjs" --repo . --branch <name> --twin <name>_develop
+```
+
+It compares `origin/main..origin/<name>` with `origin/develop..origin/<name>_develop` by stable
+patch-id, as a set and in order, before anything new is carried; merge commits carry no patch and
+are not compared. Exit 0 prints `parity ok, N patches`: the carry range is then `origin/<name>..HEAD`,
+the unpushed commits only. Exit 1 prints `parity mismatch` and the `home-only` and `twin-only` lists
+(or an `order` line when the same patches sit in a different order): stop the workflow and show both
+lists, because carrying only the new commits would leave the twin missing an earlier fix. Exit 2
+means git failed or a range gave fewer patch-ids than commits with a diff; that also stops the
+workflow. Without a pushed twin, nothing changes here and the range stays `origin/main..HEAD`.
+
 Then, if the ponytail plugin is installed (`/ponytail-review` exists), run one `ponytail-review` pass on the full range (`git diff origin/main...HEAD`)
 before anything is cherry-picked. This is the last point where a cut lands once instead of
 twice: a `delete:`/`yagni:`/`shrink:` finding fixed here is carried to develop by Step 2 for
@@ -82,7 +99,16 @@ develop suffix (`_develop` below; see Gotchas for how to check): `fix/foo_bar` �
 it off the freshly-fetched `origin/develop` and cherry-pick the range:
 
 The sibling may already exist and be pushed from an earlier session — see Gotchas before
-running `git checkout -b` below.
+running `git checkout -b` below. When Step 1's parity check passed, create the local sibling from
+the pushed twin instead of from `origin/develop`, and cherry-pick only `origin/<name>..HEAD`:
+
+```bash
+# ordinary checkout
+git checkout --no-track -b <name>_develop origin/<name>_develop
+
+# home is a linked worktree
+git worktree add --no-track -b <name>_develop ../<name>_develop origin/<name>_develop
+```
 
 First check whether home is itself a linked worktree, because that changes the primitive:
 
@@ -146,6 +172,9 @@ normalised out, hunk content is not):
 git log -p --reverse origin/main..<name> | git patch-id --stable | cut -d' ' -f1
 git log -p --reverse origin/develop..<name>_develop | git patch-id --stable | cut -d' ' -f1
 ```
+
+When Step 1's parity check passed, compare `origin/<name>..<name>` with
+`origin/<name>_develop..<name>_develop` instead, so both lists cover only the new commits.
 
 - **Lists identical** — the sibling carries the exact patch. Say "patch identical, home
   verification carries over". The Step 1 review covers it too; do not review the sibling again.
@@ -315,7 +344,8 @@ runtime's normal approval flow. Do not weaken the check when the network is unav
 ## Gotchas
 
 - **The develop sibling may already exist.** Check `git rev-parse --verify` /
-  `git branch -r` first. If it exists, `git worktree add <path> <name>_develop` (or check
+  `git branch -r` first. If only `origin/<name>_develop` exists, follow the parity paragraph in
+  Step 1 and the creation commands in Step 2. If a local copy exists, `git worktree add <path> <name>_develop` (or check
   it out where it is not already checked out) instead of `git checkout -b`; `checkout -b`
   fails, and forcing it discards the pushed sibling.
 - **The Bash sandbox denies writes to `.git/config`, and a plain `git checkout -b <name>
