@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { assertReadOnly, baseName, unresolved, verdict } from './mr-watchman.mjs'
+import { assertReadOnly, baseName, tailLines, unresolved, verdict } from './mr-watchman.mjs'
 
 const CLI = fileURLToPath(new URL('./mr-watchman.mjs', import.meta.url))
 const SHA = 'a'.repeat(40)
@@ -24,11 +24,11 @@ const summary = (body) => ({ id: 'd2', individual_note: true, notes: [{ resolvab
 const reply = (author, body, created_at = '2026-01-02T08:27:00Z', system = false) => ({ resolvable: true, resolved: false, system, author: { username: author }, body, created_at })
 const answered = (first, ...replies) => ({ ...first, notes: [...first.notes, ...replies] })
 
-function run(t, { mrs, discussions = {}, jobs = {}, args = [], json = true, glabError = false, malformed = false }) {
+function run(t, { mrs, discussions = {}, jobs = {}, traces = {}, args = [], json = true, glabError = false, malformed = false }) {
   const root = mkdtempSync(join(tmpdir(), 'mr watchman-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const log = join(root, 'calls.jsonl')
-  const config = { mrs, discussions, jobs, glabError, malformed }
+  const config = { mrs, discussions, jobs, traces, glabError, malformed }
   writeFileSync(join(root, 'glab'), `#!${process.execPath}
 const fs = require('node:fs');
 const args = process.argv.slice(2);
@@ -38,6 +38,7 @@ if (config.glabError) { console.error('x509: certificate error'); process.exit(1
 if (config.malformed) { console.log('<html>'); process.exit(0); }
 if (args[0] === 'mr' && args[1] === 'list') console.log(JSON.stringify(config.mrs));
 else if (args[0] === 'mr' && args[1] === 'view') console.log(JSON.stringify(config.mrs.find((m) => String(m.iid) === args[2])));
+else if (args[0] === 'api' && /\\/jobs\\/\\d+\\/trace/.test(args[1])) process.stdout.write(config.traces[args[1].match(/jobs\\/(\\d+)/)[1]] ?? '');
 else if (args[0] === 'api' && /discussions/.test(args[1])) console.log(JSON.stringify(config.discussions[args[1].match(/merge_requests\\/(\\d+)/)[1]] ?? []));
 else if (args[0] === 'api' && /pipelines/.test(args[1])) console.log(JSON.stringify(config.jobs[args[1].match(/pipelines\\/(\\d+)/)[1]] ?? []));
 else process.exit(1);
@@ -99,6 +100,17 @@ test('ci-failed lists failed jobs and drops allow_failure ones', (t) => {
   assert.match(rows[0].next, /Lint/)
   assert.doesNotMatch(rows[0].next, /Audit/)
   assert.ok(calls.some((c) => c[0] === 'api' && c[1].includes('pipelines/103/jobs')))
+})
+
+test('merged-results pipeline still lists failed jobs', (t) => {
+  const { rows } = run(t, { mrs: [mr(7, 'fix/g', { detailed_merge_status: 'ci_must_pass', head_pipeline: { id: 105, status: 'failed', sha: 'b'.repeat(40), source_sha: SHA } })],
+    jobs: { 105: [{ id: 9, name: 'test', stage: 'test', allow_failure: false, failure_reason: 'script_failure' }] } })
+  assert.equal(rows[0].state, 'ci-failed')
+  assert.match(rows[0].next, /failed: test/)
+})
+
+test('tailLines keeps the last n lines', () => {
+  assert.equal(tailLines('a\nb\nc\n', 2), 'b\nc')
 })
 
 test('ci-stale when the head pipeline ran on an older commit', (t) => {

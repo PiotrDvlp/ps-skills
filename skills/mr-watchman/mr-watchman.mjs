@@ -28,6 +28,19 @@ function glab(args, cwd) {
   try { return JSON.parse(r.stdout) } catch { throw new Error(`${what} returned invalid JSON`) }
 }
 
+function glabText(args, cwd, { maxBuffer = 32 * 1024 * 1024 } = {}) {
+  assertReadOnly(args)
+  const r = spawnSync('glab', args, { cwd, encoding: 'utf8', timeout: 30_000, maxBuffer,
+    env: { ...process.env, GLAB_CHECK_UPDATE: 'false' } })
+  const what = `glab ${args.slice(0, 2).join(' ')}`
+  if (r.error || r.status !== 0) throw new Error(`${what} unavailable: ${r.error?.message || r.stderr.trim() || `exit ${r.status}`}`)
+  return r.stdout
+}
+
+export const pipelineSha = (p) => p.source_sha ?? p.sha
+
+export const tailLines = (text, n) => text.replace(/\n$/, '').split('\n').slice(-n).join('\n')
+
 export const baseName = (branch) => branch.replace(/_dev(elop)?$/, '')
 
 const plain = (text) => String(text ?? '').replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, ' ').trim()
@@ -77,8 +90,7 @@ export function verdict(mr, threads, failedJobs) {
   }
   const p = mr.head_pipeline
   if (!p) return { state: 'ci-none', next: 'no pipeline for the head commit' }
-  const pipelineSha = p.source_sha ?? p.sha
-  if (pipelineSha !== mr.sha) return { state: 'ci-stale', next: `pipeline ${p.id} ran on ${String(pipelineSha).slice(0, 8)}, head is ${mr.sha.slice(0, 8)}; wait for the new pipeline` }
+  if (pipelineSha(p) !== mr.sha) return { state: 'ci-stale', next: `pipeline ${p.id} ran on ${String(pipelineSha(p)).slice(0, 8)}, head is ${mr.sha.slice(0, 8)}; wait for the new pipeline` }
   if (RUNNING.has(p.status)) return { state: 'ci-running', next: `pipeline ${p.id} is ${p.status}; re-run later` }
   if (p.status !== 'success') {
     const jobs = failedJobs.length ? `failed: ${failedJobs.join(', ')}` : `pipeline ${p.id} ${p.status}`
@@ -106,7 +118,7 @@ export function collect(repo, { branch, author = '@me' } = {}) {
     const mr = glab(['mr', 'view', String(m.iid), '-F', 'json'], repo)
     const threads = unresolved(page(`discussions of !${m.iid}`, glab(['api', `projects/:id/merge_requests/${m.iid}/discussions?per_page=100`], repo)))
     const p = mr.head_pipeline
-    const failedJobs = p && p.sha === mr.sha && !RUNNING.has(p.status) && p.status !== 'success'
+    const failedJobs = p && pipelineSha(p) === mr.sha && !RUNNING.has(p.status) && p.status !== 'success'
       ? page(`failed jobs of pipeline ${p.id}`, glab(['api', `projects/:id/pipelines/${p.id}/jobs?scope[]=failed&per_page=100`], repo)).filter((j) => !j.allow_failure).map((j) => j.name)
       : []
     return { iid: mr.iid, branch: mr.source_branch, target: mr.target_branch, headSha: String(mr.sha).slice(0, 8), twin: baseName(mr.source_branch), twinIid: null, url: mr.web_url, threads, ...verdict(mr, threads, failedJobs) }
