@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { assertReadOnly, baseName, buildPackage, INLINE_CHARS, plainBody, tailLines, unresolved, verdict, writePackage } from './mr-watchman.mjs'
+import { assertReadOnly, baseName, buildPackage, INLINE_CHARS, leftoverTemps, plainBody, tailLines, unresolved, verdict, writePackage } from './mr-watchman.mjs'
 
 const CLI = fileURLToPath(new URL('./mr-watchman.mjs', import.meta.url))
 const SHA = 'a'.repeat(40)
@@ -24,9 +24,10 @@ const summary = (body) => ({ id: 'd2', individual_note: true, notes: [{ resolvab
 const reply = (author, body, created_at = '2026-01-02T08:27:00Z', system = false) => ({ resolvable: true, resolved: false, system, author: { username: author }, body, created_at })
 const answered = (first, ...replies) => ({ ...first, notes: [...first.notes, ...replies] })
 
-function run(t, { mrs, discussions = {}, jobs = {}, traces = {}, args = [], json = true, glabError = false, malformed = false, followup = null, out, preexisting = false, failTrace = null, origin = 'https://gitlab.example.com/team/shop.git', moveHead = false }) {
+function run(t, { mrs, discussions = {}, jobs = {}, traces = {}, args = [], json = true, glabError = false, malformed = false, followup = null, out, preexisting = false, failTrace = null, origin = 'https://gitlab.example.com/team/shop.git', moveHead = false, leftovers = [] }) {
   const root = mkdtempSync(join(tmpdir(), 'mr watchman-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
+  for (const name of leftovers) writeFileSync(join(root, name), 'old')
   const log = join(root, 'calls.jsonl')
   const config = { mrs, discussions, jobs, traces, glabError, malformed, failTrace, moveHead }
   const pkgPath = out === undefined ? join(root, 'pkg.json') : out
@@ -61,7 +62,7 @@ else process.exit(1);
     { encoding: 'utf8', env: { ...process.env, PATH: `${root}:${process.env.PATH}` } })
   const calls = (existsSync(log) ? readFileSync(log, 'utf8') : '').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
   for (const c of calls) assertReadOnly(c)
-  return { root, pkgPath, status: result.status, out: result.stdout, rows: json && result.status !== 2 ? JSON.parse(result.stdout) : null, calls }
+  return { root, pkgPath, status: result.status, stderr: result.stderr, out: result.stdout, rows: json && result.status !== 2 ? JSON.parse(result.stdout) : null, calls }
 }
 
 test('baseName strips the develop twin suffix only', () => {
@@ -362,6 +363,30 @@ test('followup: an oversized trace becomes traceError, not a failed package', ()
   const { pkg } = buildPackage({ row, discussions: [], jobs: [{ id: 9, name: 'test', stage: 'test' }], traces: { 9: { error: 'too large' } }, repoUrl: 'r', createdAt: 'now', spillDir: '/x/pkg.threads' })
   assert.deepEqual([pkg.failedJobs[0].traceTail, pkg.failedJobs[0].traceError], [null, 'too large'])
   assert.equal(INLINE_CHARS, 4000)
+})
+
+test('followup: a leftover temp name from an earlier run is listed on stderr and kept', (t) => {
+  const r = run(t, { mrs: [followupThreads()], followup: 21, json: false, leftovers: ['pkg.json.tmp-111', 'pkg.threads.tmp-222', 'other.tmp-333'],
+    discussions: { 21: [thread('alice', 'src/a.vue', 7, 'fix it')] } })
+  assert.equal(r.status, 0)
+  assert.match(r.stderr, new RegExp(`^leftover temp: ${join(r.root, 'pkg.json.tmp-111').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'))
+  assert.match(r.stderr, /^leftover temp: .*pkg\.threads\.tmp-222$/m)
+  assert.doesNotMatch(r.stderr, /other\.tmp/)
+  assert.ok(existsSync(join(r.root, 'pkg.json.tmp-111')))
+})
+
+test('followup: no leftover temp names means a silent stderr', (t) => {
+  const r = run(t, { mrs: [followupThreads()], followup: 21, json: false, discussions: { 21: [thread('alice', 'src/a.vue', 7, 'fix it')] } })
+  assert.equal(r.stderr, '')
+  assert.deepEqual(leftoverTemps(join(r.root, 'nope', 'pkg.json')), [])
+})
+
+test('followup: a trace tail is capped at 20000 characters, keeping the end', () => {
+  const row = { iid: 1, url: 'u', branch: 'fix/A-1/x', target: 'main', headSha: SHA, twinIid: null, twinBranch: null, state: 'ci-failed', next: 'n' }
+  const text = `${'x'.repeat(50_000)}END`
+  const { pkg } = buildPackage({ row, discussions: [], jobs: [{ id: 9, name: 'test', stage: 'test' }], traces: { 9: { text } }, repoUrl: 'r', createdAt: 'now', spillDir: '/x/pkg.threads' })
+  assert.equal(pkg.failedJobs[0].traceTail.length, 20_000)
+  assert.ok(pkg.failedJobs[0].traceTail.endsWith('xxxEND'))
 })
 
 test('writePackage refuses an existing package or spill directory and leaves no temp names', (t) => {

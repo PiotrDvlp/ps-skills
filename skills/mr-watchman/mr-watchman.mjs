@@ -12,6 +12,7 @@ Order per MR: conflicts, then unresolved review threads, then CI. Twins (<name> 
 Exit 0: every MR ready or waiting for approval; 1: at least one MR needs action, GitLab is still checking, or --branch matched nothing;
 2: glab unavailable, invalid input, or a list at the 100-entry cap.
 --followup writes a package for one MR in state threads or ci-failed (exit 0, path printed); any other state prints state and next and exits 1; an existing --out exits 2.
+Temp names left by an interrupted run (<out>.tmp-*, <stem>.threads.tmp-*) are listed on stderr as "leftover temp: <path>" and kept.
 `
 
 export function assertReadOnly(args) {
@@ -145,11 +146,18 @@ export function collect(repo, { branch, author = '@me' } = {}) {
 
 export const INLINE_CHARS = 4000
 export const TRACE_LINES = 120
+export const TRACE_CHARS = 20_000
 const TOO_LARGE = /ENOBUFS|maxBuffer/
 const ANSI_CSI = /\x1b\[[0-9;?]*[ -\/]*[@-~]/g
 const FOLLOWUP_STATES = new Set(['threads', 'ci-failed'])
 
 export const spillDirOf = (out) => path.join(path.dirname(out), `${path.basename(out, path.extname(out))}.threads`)
+
+export const leftoverTemps = (out) => {
+  const dir = path.dirname(out)
+  if (!fs.existsSync(dir)) return []
+  return [out, spillDirOf(out)].flatMap((p) => fs.readdirSync(dir).filter((n) => n.startsWith(`${path.basename(p)}.tmp-`)).map((n) => path.join(dir, n)))
+}
 
 export function collectFollowup(repo, iid, { author = '@me' } = {}) {
   const mine = listMine(repo, author).find((m) => m.iid === iid)
@@ -194,7 +202,7 @@ export function buildPackage({ row, discussions, jobs, traces, repoUrl, createdA
   const failedJobs = jobs.map((j) => {
     const trace = traces[j.id] ?? {}
     const job = { id: j.id, name: plain(j.name), stage: plain(j.stage), failureReason: plain(j.failure_reason), webUrl: plain(j.web_url),
-      traceTail: trace.text === undefined ? null : plainBody(trace.text.replace(ANSI_CSI, '')) }
+      traceTail: trace.text === undefined ? null : plainBody(trace.text.replace(ANSI_CSI, '')).slice(-TRACE_CHARS) }
     return trace.error ? { ...job, traceError: trace.error } : job
   })
   const pkg = {
@@ -247,6 +255,7 @@ if (isMain) {
       if (!values.out) throw new Error('--followup needs --out <absolute file>')
       if (!path.isAbsolute(values.out)) throw new Error('--out must be an absolute path')
       if (fs.existsSync(values.out) || fs.existsSync(spillDirOf(values.out))) throw new Error(`${values.out} or its .threads directory already exists`)
+      for (const leftover of leftoverTemps(values.out)) console.error(`leftover temp: ${leftover}`)
       const repo = path.resolve(values.repo ?? process.cwd())
       const { row, discussions, jobs, traces } = collectFollowup(repo, Number(values.followup), { author: values.author })
       if (!FOLLOWUP_STATES.has(row.state)) {
