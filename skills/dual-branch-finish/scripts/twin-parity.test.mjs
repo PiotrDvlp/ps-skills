@@ -168,3 +168,33 @@ test('a different count of unmatched patches still exits 1', (t) => {
   const r = run(work);
   assert.equal(r.status, 1, r.stdout + r.stderr);
 });
+
+test('a reorder combined with a context change exits 1, not context-only', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'twin parity-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const origin = join(root, 'origin.git');
+  const work = join(root, 'work');
+  const lines = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`);
+  const text = (edits) => lines.map((l, i) => edits[i] ?? l).join('\n') + '\n';
+  git(root, 'init', '--bare', '-b', 'main', origin);
+  git(root, 'clone', origin, work);
+  commit(work, 'f.txt', text({}), 'base');
+  git(work, 'branch', '-M', 'main');
+  git(work, 'push', 'origin', 'main');
+  git(work, 'checkout', '-b', 'develop');
+  commit(work, 'f.txt', text({ 2: 'develop three' }), 'develop edits line 3');
+  git(work, 'push', 'origin', 'develop');
+  git(work, 'checkout', '-b', 'fix/a', 'main');
+  const a = commit(work, 'f.txt', text({ 7: 'fixed eight' }), 'fix eight');
+  const x = commit(work, 'f.txt', text({ 7: 'fixed eight', 0: 'fixed one' }), 'fix one');
+  const b = commit(work, 'g.txt', 'g\n', 'add g');
+  git(work, 'checkout', '-b', 'fix/a_develop', 'develop');
+  git(work, 'cherry-pick', a);
+  git(work, 'cherry-pick', b);
+  git(work, 'cherry-pick', x);
+  git(work, 'push', 'origin', 'fix/a', 'fix/a_develop');
+  git(work, 'checkout', 'fix/a');
+  const r = run(work);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /parity mismatch/);
+});

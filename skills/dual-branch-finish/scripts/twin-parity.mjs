@@ -51,8 +51,9 @@ export function compareParity(home, twin) {
     const index = home.findIndex((patch, i) => patch.id !== twin[i].id);
     if (index !== -1) order = { index, home: home[index].sha, twin: twin[index].sha };
   }
-  const paired = !order && homeOnly.length > 0 && homeOnly.length === unused.length
-    && homeOnly.every((patch, i) => patch.subject === unused[i].subject);
+  const paired = homeOnly.length > 0 && homeOnly.length === unused.length && home.length === twin.length
+    && homeOnly.every((patch, i) => patch.subject === unused[i].subject)
+    && home.every((patch, i) => patch.id === twin[i].id || patch.subject === twin[i].subject);
   return { ok: !homeOnly.length && !unused.length && !order, homeOnly, twinOnly: unused, order, contextOnly: paired };
 }
 

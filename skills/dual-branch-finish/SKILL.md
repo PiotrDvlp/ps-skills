@@ -89,10 +89,11 @@ patch-id includes context lines, so this is what a clean cherry-pick looks like 
 lines near the hunk. Run and show
 
 ```bash
-git range-diff origin/<home-base>..origin/<name> origin/<twin-base>..origin/<name>_develop
+git range-diff <home-base>..origin/<name> <twin-base>..origin/<name>_develop
 ```
 
-(defaults `origin/main` and `origin/develop`), then continue only on the user's explicit yes;
+(`--home-base` and `--twin-base` hold full refs; the defaults are `origin/main` and `origin/develop`),
+then continue only on the user's explicit yes;
 otherwise stop. After a yes the carry range is the one for exit 0. Without a pushed twin, nothing
 changes here and the range stays `origin/main..HEAD`.
 
@@ -121,7 +122,7 @@ it off the freshly-fetched `origin/develop`, or off `origin/<name>_develop` when
 twin pair below), and cherry-pick the range.
 
 When `origin/<name>_develop` exists, skip the next block and use the twin pair after it (Step 1's
-parity check must have passed). For a local `<name>_develop`, see that pair's local-branch check.
+parity check must have passed). In that case, a local `<name>_develop` is handled by that pair's local-branch check.
 
 First check whether home is itself a linked worktree, because that changes the primitive:
 
@@ -434,16 +435,39 @@ origin/<branch>` needs one.** Everything else under `.git` is writable — `.git
   `reset --hard` to undo and pushed an empty branch to origin.
 - **The session may start on the develop twin, with home checked out in another worktree.**
   Then the flow runs in reverse: commit on the twin you are on, carry that commit to home,
-  and end there. With `origin/<name>` pushed, first run the Step 1 `twin-parity.mjs` command with
+  and end there. The parity script needs both `origin/<name>` and `origin/<name>_develop` (it exits 2
+  on a missing ref). When both are pushed, first run the Step 1 `twin-parity.mjs` command with
   unchanged `--branch <name> --twin <name>_develop` arguments (it is symmetric and reads only
-  `origin/*`). On exit 0, or exit 3 with the user's yes, carry only
-  `origin/<name>_develop..<name>_develop` onto `<name>`. If no local `<name>` exists, create it with
-  `git checkout --no-track -b <name> origin/<name>` (or `git worktree add --no-track -b <name>
-  ../<name> origin/<name>`). If it exists, apply the Step 2 local-branch check to it:
-  `git rev-parse refs/heads/<name>` must equal `git rev-parse refs/remotes/origin/<name>`, else stop
-  and name the mismatch. Step 4 compares the same narrowed pair, `origin/<name>_develop..<name>_develop`
-  against `origin/<name>..<name>`. Without a pushed `origin/<name>` there is nothing to prove: carry
-  `origin/develop..<name>_develop` onto a `<name>` created off `origin/main`. When the session's
+  `origin/*`); on exit 0, or exit 3 with the user's yes, the carry range is
+  `origin/<name>_develop..<name>_develop`, and Step 4 compares that range with `origin/<name>..<name>`.
+  When either ref is missing, skip parity: there is nothing pushed to prove against, and the carry
+  range is the whole twin range `origin/develop..<name>_develop`, the mirror of the forward no-twin
+  range `origin/main..HEAD`; Step 4 then compares `origin/develop..<name>_develop` with
+  `origin/main..<name>`.
+  Get `<name>` first. If no local `<name>` exists, create it, off `origin/<name>` when that is
+  pushed, else off `origin/main`: `git checkout --no-track -b <name> origin/<name>` (or `git worktree
+  add --no-track -b <name> ../<name> origin/<name>`). If it exists, require `git rev-parse
+  refs/heads/<name>` to equal `git rev-parse refs/remotes/origin/<name>` (skip this check when
+  `origin/<name>` is not pushed), else stop and name the mismatch. Then reuse it; `git worktree list
+  --porcelain` shows where it is checked out. Carry with the range chosen above (`<range>`):
+
+  ```bash
+  # ordinary checkout, <name> not checked out anywhere
+  git checkout <name>
+  git cherry-pick <range>
+
+  # linked worktree, <name> not checked out anywhere
+  git worktree add ../<name> <name>
+  git -C ../<name> cherry-pick <range>
+
+  # <name> already checked out at <path>
+  git -C <path> cherry-pick <range>
+  ```
+
+  A `<name>` just created above is already checked out, so only the cherry-pick line applies. With
+  both branches pushed, `<range>` is `origin/<name>_develop..<name>_develop`, so after
+  `git worktree add --no-track -b <name> ../<name> origin/<name>` the carry is
+  `git -C ../<name> cherry-pick origin/<name>_develop..<name>_develop`. When the session's
   worktree guard refuses git in the other worktree, switch the session with `EnterWorktree` (`path` =
   that worktree), confirm `git status --porcelain` is empty, cherry-pick, and compare patch-ids.
   Never hand the cherry-pick to the user; only the push is theirs. Handing it over once had to be
