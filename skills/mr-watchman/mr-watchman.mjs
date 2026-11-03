@@ -7,9 +7,12 @@ import { parseArgs } from 'node:util'
 
 const HELP = `Read-only GitLab MR status pass (Node 22+, authenticated glab). Never merges, rebases, retries or comments.
 Usage: node mr-watchman.mjs --repo <path> [--branch <name>] [--author <user>] [--replies] [--json]
+       node mr-watchman.mjs --repo <path> --followup <iid> --out <absolute file> [--author <user>]
 Order per MR: conflicts, then unresolved review threads, then CI. Twins (<name> and <name>_develop) are grouped.
 Exit 0: every MR ready or waiting for approval; 1: at least one MR needs action, GitLab is still checking, or --branch matched nothing;
 2: glab unavailable, invalid input, or a list at the 100-entry cap.
+--followup writes a package for one MR in state threads or ci-failed (exit 0, path printed); any other state prints state and next and exits 1; an existing --out exits 2.
+Temp names left by an interrupted run (<out>.tmp-*, <stem>.threads.tmp-*) are listed on stderr as "leftover temp: <path>" and kept.
 `
 
 export function assertReadOnly(args) {
@@ -28,14 +31,30 @@ function glab(args, cwd) {
   try { return JSON.parse(r.stdout) } catch { throw new Error(`${what} returned invalid JSON`) }
 }
 
+function glabText(args, cwd, { maxBuffer = 32 * 1024 * 1024 } = {}) {
+  assertReadOnly(args)
+  const r = spawnSync('glab', args, { cwd, encoding: 'utf8', timeout: 30_000, maxBuffer,
+    env: { ...process.env, GLAB_CHECK_UPDATE: 'false' } })
+  const what = `glab ${args.slice(0, 2).join(' ')}`
+  if (r.error || r.status !== 0) throw new Error(`${what} unavailable: ${r.error?.message || r.stderr.trim() || `exit ${r.status}`}`)
+  return r.stdout
+}
+
+export const pipelineSha = (p) => p.source_sha ?? p.sha
+
+export const tailLines = (text, n) => text.replace(/\n$/, '').split('\n').slice(-n).join('\n')
+
 export const baseName = (branch) => branch.replace(/_dev(elop)?$/, '')
+
+export const plainBody = (text) => String(text ?? '').replace(/(?![\n\t])[\p{Cc}\p{Zl}\p{Zp}]/gu, ' ')
 
 const plain = (text) => String(text ?? '').replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, ' ').trim()
 
 const REVIEWED = /<!--[^>]*\bsha=([0-9a-f]{7,40})/
 
-export const unresolved = (discussions) => discussions
-  .filter((d) => !d.individual_note && d.notes?.[0]?.resolvable && !d.notes[0].resolved)
+const openThreads = (discussions) => discussions.filter((d) => !d.individual_note && d.notes?.[0]?.resolvable && !d.notes[0].resolved)
+
+export const unresolved = (discussions) => openThreads(discussions)
   .map(({ id, notes: [n, ...rest] }) => {
     const author = plain(n.author?.username ?? 'unknown')
     const replies = rest.filter((r) => !r.system).map((r) => ({
@@ -77,8 +96,7 @@ export function verdict(mr, threads, failedJobs) {
   }
   const p = mr.head_pipeline
   if (!p) return { state: 'ci-none', next: 'no pipeline for the head commit' }
-  const pipelineSha = p.source_sha ?? p.sha
-  if (pipelineSha !== mr.sha) return { state: 'ci-stale', next: `pipeline ${p.id} ran on ${String(pipelineSha).slice(0, 8)}, head is ${mr.sha.slice(0, 8)}; wait for the new pipeline` }
+  if (pipelineSha(p) !== mr.sha) return { state: 'ci-stale', next: `pipeline ${p.id} ran on ${String(pipelineSha(p)).slice(0, 8)}, head is ${mr.sha.slice(0, 8)}; wait for the new pipeline` }
   if (RUNNING.has(p.status)) return { state: 'ci-running', next: `pipeline ${p.id} is ${p.status}; re-run later` }
   if (p.status !== 'success') {
     const jobs = failedJobs.length ? `failed: ${failedJobs.join(', ')}` : `pipeline ${p.id} ${p.status}`
@@ -99,16 +117,22 @@ const page = (what, list) => {
   return list
 }
 
+const listMine = (repo, author) => page('glab mr list', glab(['mr', 'list', '--author', author, '--per-page', '100', '-F', 'json'], repo))
+
+const failedJobsOf = (repo, mr) => {
+  const p = mr.head_pipeline
+  return p && pipelineSha(p) === mr.sha && !RUNNING.has(p.status) && p.status !== 'success'
+    ? page(`failed jobs of pipeline ${p.id}`, glab(['api', `projects/:id/pipelines/${p.id}/jobs?scope[]=failed&per_page=100`], repo)).filter((j) => !j.allow_failure)
+    : []
+}
+
 export function collect(repo, { branch, author = '@me' } = {}) {
-  const list = page('glab mr list', glab(['mr', 'list', '--author', author, '--per-page', '100', '-F', 'json'], repo))
+  const list = listMine(repo, author)
   const wanted = branch ? list.filter((m) => baseName(m.source_branch) === baseName(branch)) : list
   const rows = wanted.map((m) => {
     const mr = glab(['mr', 'view', String(m.iid), '-F', 'json'], repo)
     const threads = unresolved(page(`discussions of !${m.iid}`, glab(['api', `projects/:id/merge_requests/${m.iid}/discussions?per_page=100`], repo)))
-    const p = mr.head_pipeline
-    const failedJobs = p && p.sha === mr.sha && !RUNNING.has(p.status) && p.status !== 'success'
-      ? page(`failed jobs of pipeline ${p.id}`, glab(['api', `projects/:id/pipelines/${p.id}/jobs?scope[]=failed&per_page=100`], repo)).filter((j) => !j.allow_failure).map((j) => j.name)
-      : []
+    const failedJobs = failedJobsOf(repo, mr).map((j) => j.name)
     return { iid: mr.iid, branch: mr.source_branch, target: mr.target_branch, headSha: String(mr.sha).slice(0, 8), twin: baseName(mr.source_branch), twinIid: null, url: mr.web_url, threads, ...verdict(mr, threads, failedJobs) }
   }).sort((a, b) => a.twin.localeCompare(b.twin) || a.branch.length - b.branch.length)
   for (const r of rows) {
@@ -120,13 +144,133 @@ export function collect(repo, { branch, author = '@me' } = {}) {
   return rows
 }
 
+export const INLINE_CHARS = 4000
+export const TRACE_LINES = 120
+export const TRACE_CHARS = 20_000
+const TOO_LARGE = /ENOBUFS|maxBuffer/
+const ANSI_CSI = /\x1b\[[0-9;?]*[ -\/]*[@-~]/g
+const FOLLOWUP_STATES = new Set(['threads', 'ci-failed'])
+
+export const spillDirOf = (out) => path.join(path.dirname(out), `${path.basename(out, path.extname(out))}.threads`)
+
+export const leftoverTemps = (out) => {
+  const dir = path.dirname(out)
+  if (!fs.existsSync(dir)) return []
+  return [out, spillDirOf(out)].flatMap((p) => fs.readdirSync(dir).filter((n) => n.startsWith(`${path.basename(p)}.tmp-`)).map((n) => path.join(dir, n)))
+}
+
+export function collectFollowup(repo, iid, { author = '@me' } = {}) {
+  const mine = listMine(repo, author).find((m) => m.iid === iid)
+  if (!mine) throw new Error(`!${iid} is not open or not authored by ${author}`)
+  const rows = collect(repo, { branch: mine.source_branch, author })
+  const row = rows.find((r) => r.iid === iid)
+  if (!row) throw new Error(`!${iid} is not open or not authored by ${author}`)
+  const mr = glab(['mr', 'view', String(iid), '-F', 'json'], repo)
+  if (!String(mr.sha).startsWith(row.headSha)) throw new Error('head moved; re-run')
+  const twin = rows.find((r) => r.iid === row.twinIid)
+  const out = { row: { ...row, headSha: String(mr.sha), twinBranch: twin?.branch ?? null }, discussions: [], jobs: [], traces: {} }
+  if (!FOLLOWUP_STATES.has(row.state)) return out
+  out.discussions = page(`discussions of !${iid}`, glab(['api', `projects/:id/merge_requests/${iid}/discussions?per_page=100`], repo))
+  out.jobs = failedJobsOf(repo, mr)
+  for (const j of out.jobs) {
+    try {
+      out.traces[j.id] = { text: tailLines(glabText(['api', `projects/:id/jobs/${j.id}/trace`], repo), TRACE_LINES) }
+    } catch (error) {
+      if (!TOO_LARGE.test(error.message)) throw error
+      out.traces[j.id] = { error: 'too large' }
+    }
+  }
+  return out
+}
+
+const threadText = (th, replies) => [`# thread ${th.id} by ${th.author} at ${th.where}`, th.body,
+  ...replies.map((r) => `## reply by ${r.author} at ${r.at}\n${r.body}`)].join('\n\n') + '\n'
+
+export function buildPackage({ row, discussions, jobs, traces, repoUrl, createdAt, spillDir }) {
+  const spills = []
+  const raw = openThreads(discussions)
+  const threads = unresolved(discussions).map((th, i) => {
+    const [first, ...rest] = raw[i].notes
+    const body = plainBody(first.body)
+    const replies = rest.filter((r) => !r.system).map((r) => ({ author: plain(r.author?.username ?? 'unknown'), at: plain(r.created_at), body: plainBody(r.body) }))
+    const chars = body.length + replies.reduce((sum, r) => sum + r.body.length, 0)
+    const out = { id: th.id, author: th.author, where: th.where, body, replies, answered: th.answered, reviewed: th.reviewed }
+    if (![body, ...replies.map((r) => r.body)].some((b) => b.length > INLINE_CHARS)) return out
+    spills.push({ file: `${th.id}.md`, text: threadText(out, replies) })
+    return { ...out, body: body.slice(0, INLINE_CHARS), replies: replies.map((r) => ({ ...r, body: r.body.slice(0, INLINE_CHARS) })), truncated: true, chars, spill: `${path.basename(spillDir)}/${th.id}.md` }
+  })
+  const failedJobs = jobs.map((j) => {
+    const trace = traces[j.id] ?? {}
+    const job = { id: j.id, name: plain(j.name), stage: plain(j.stage), failureReason: plain(j.failure_reason), webUrl: plain(j.web_url),
+      traceTail: trace.text === undefined ? null : plainBody(trace.text.replace(ANSI_CSI, '')).slice(-TRACE_CHARS) }
+    return trace.error ? { ...job, traceError: trace.error } : job
+  })
+  const pkg = {
+    schema: 'mr-followup/1', createdAt, repo: repoUrl,
+    mr: { iid: row.iid, url: plain(row.url), source: plain(row.branch), target: plain(row.target), headSha: row.headSha, twinIid: row.twinIid, twinBranch: row.twinBranch === null ? null : plain(row.twinBranch), state: row.state, next: plain(row.next) },
+    threads, failedJobs, ticket: plain(row.branch).match(/[A-Z]+-\d+/)?.[0] ?? null,
+  }
+  return { pkg, spills }
+}
+
+export function writePackage(outPath, { pkg, spills }) {
+  const spillDir = spillDirOf(outPath)
+  if (fs.existsSync(outPath) || fs.existsSync(spillDir)) throw new Error(`${outPath} or ${spillDir} already exists`)
+  for (const { file } of spills) if (path.basename(file) !== file) throw new Error(`invalid spill file name ${file}`)
+  const tmpDir = `${spillDir}.tmp-${process.pid}`
+  const tmpOut = `${outPath}.tmp-${process.pid}`
+  let moved = false
+  try {
+    fs.writeFileSync(tmpOut, `${JSON.stringify(pkg, null, 2)}\n`)
+    fs.mkdirSync(tmpDir)
+    for (const { file, text } of spills) fs.writeFileSync(path.join(tmpDir, file), text)
+    fs.renameSync(tmpDir, spillDir)
+    moved = true
+    fs.renameSync(tmpOut, outPath)
+  } catch (error) {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+    fs.rmSync(tmpOut, { force: true })
+    if (moved) fs.rmSync(spillDir, { recursive: true, force: true })
+    throw error
+  }
+}
+
+const remoteUrl = (repo) => {
+  const r = spawnSync('git', ['remote', 'get-url', 'origin'], { cwd: repo, encoding: 'utf8', timeout: 10_000 })
+  if (r.error || r.status !== 0) throw new Error(`git remote get-url origin failed in ${repo}: ${r.error?.message || r.stderr.trim()}`)
+  const url = r.stdout.trim()
+  if (!/^https?:\/\//.test(url)) return url
+  const parsed = new URL(url)
+  parsed.username = ''
+  parsed.password = ''
+  return parsed.href
+}
+
 const isMain = process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))
 
 if (isMain) {
   try {
-    const { values } = parseArgs({ options: { repo: { type: 'string' }, branch: { type: 'string' }, author: { type: 'string' }, json: { type: 'boolean' }, replies: { type: 'boolean' }, help: { type: 'boolean' } } })
+    const { values } = parseArgs({ options: { repo: { type: 'string' }, branch: { type: 'string' }, author: { type: 'string' }, json: { type: 'boolean' }, replies: { type: 'boolean' }, followup: { type: 'string' }, out: { type: 'string' }, help: { type: 'boolean' } } })
     if (values.help) { console.log(HELP); process.exit(0) }
     if (values.branch?.startsWith('-') || values.author?.startsWith('-')) throw new Error('invalid --branch or --author')
+    if (values.followup !== undefined || values.out !== undefined) {
+      if (!/^\d+$/.test(values.followup ?? '')) throw new Error('--followup <iid> needs a numeric IID')
+      if (!values.out) throw new Error('--followup needs --out <absolute file>')
+      if (!path.isAbsolute(values.out)) throw new Error('--out must be an absolute path')
+      if (fs.existsSync(values.out) || fs.existsSync(spillDirOf(values.out))) throw new Error(`${values.out} or its .threads directory already exists`)
+      for (const leftover of leftoverTemps(values.out)) console.error(`leftover temp: ${leftover}`)
+      const repo = path.resolve(values.repo ?? process.cwd())
+      const { row, discussions, jobs, traces } = collectFollowup(repo, Number(values.followup), { author: values.author })
+      if (!FOLLOWUP_STATES.has(row.state)) {
+        console.log(plain(`!${row.iid} ${row.state}: ${row.next}`))
+        process.exitCode = 1
+        process.exit()
+      }
+      const built = buildPackage({ row, discussions, jobs, traces, repoUrl: remoteUrl(repo), createdAt: new Date().toISOString(), spillDir: spillDirOf(values.out) })
+      writePackage(values.out, built)
+      console.log(values.out)
+      process.exit()
+    }
     const rows = collect(path.resolve(values.repo ?? process.cwd()), { branch: values.branch, author: values.author })
     if (values.branch && !rows.length) {
       console.log(values.json ? '[]' : `no open MR for branch ${plain(values.branch)}`)
