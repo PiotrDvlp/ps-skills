@@ -219,15 +219,18 @@ export function writePackage(outPath, { pkg, spills }) {
   for (const { file } of spills) if (path.basename(file) !== file) throw new Error(`invalid spill file name ${file}`)
   const tmpDir = `${spillDir}.tmp-${process.pid}`
   const tmpOut = `${outPath}.tmp-${process.pid}`
+  let moved = false
   try {
+    fs.writeFileSync(tmpOut, `${JSON.stringify(pkg, null, 2)}\n`)
     fs.mkdirSync(tmpDir)
     for (const { file, text } of spills) fs.writeFileSync(path.join(tmpDir, file), text)
     fs.renameSync(tmpDir, spillDir)
-    fs.writeFileSync(tmpOut, `${JSON.stringify(pkg, null, 2)}\n`)
+    moved = true
     fs.renameSync(tmpOut, outPath)
   } catch (error) {
     fs.rmSync(tmpDir, { recursive: true, force: true })
     fs.rmSync(tmpOut, { force: true })
+    if (moved) fs.rmSync(spillDir, { recursive: true, force: true })
     throw error
   }
 }

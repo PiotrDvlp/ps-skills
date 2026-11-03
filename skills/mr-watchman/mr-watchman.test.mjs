@@ -404,6 +404,16 @@ test('writePackage refuses an existing package or spill directory and leaves no 
   assert.deepEqual(readdirSync(dir), [])
 })
 
+test('writePackage that fails writing the package leaves no spill directory behind', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mr-watchman-write-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const out = join(dir, 'pkg.json')
+  assert.throws(() => writePackage(out, { pkg: { n: 1n }, spills: [{ file: 'd1.md', text: 'full' }] }), /BigInt/)
+  assert.deepEqual(readdirSync(dir), [])
+  writePackage(out, { pkg: { a: 1 }, spills: [{ file: 'd1.md', text: 'full' }] })
+  assert.deepEqual(readdirSync(dir).sort(), ['pkg.json', 'pkg.threads'])
+})
+
 test('followup: credentials in the origin URL never reach the package', (t) => {
   const r = run(t, { mrs: [followupThreads()], followup: 21, json: false, origin: 'https://bot:s3cret@gitlab.example.com/team/shop.git',
     discussions: { 21: [thread('alice', 'src/a.vue', 7, 'nit')] } })
