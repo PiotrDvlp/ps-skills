@@ -22,7 +22,7 @@ npx skills@latest add PiotrDvlp/ps-skills
 | Skill | What it does | Needs |
 | --- | --- | --- |
 | `commit` | Groups unstaged changes into logical commits; derives the message shape from `git log` | — |
-| `dual-branch-finish` | Lands one change on two integration branches and verifies both MR handoffs | Node 22+, authenticated `glab` |
+| `dual-branch-finish` | Lands one change on two integration branches and verifies both MR handoffs; for a pushed branch with a pushed twin, checks patch parity first and carries only the new commits | Node 22+, authenticated `glab` |
 | `codex-review` | Independent read-only Codex review of a design, plan or diff | Codex CLI 0.130+ |
 | `second-view` | Independent Codex proposal on a problem still being decided | Codex CLI 0.130+ |
 | `task-auditor` | Start/blocked audit of a Jira ticket before implementation | `cs-atlassian` MCP (ask the author for the `cs-tools` repo) |
@@ -33,7 +33,7 @@ npx skills@latest add PiotrDvlp/ps-skills
 | `dev-browser` | Fork of SawyerHood/dev-browser; targets CLI 0.2.9 | `dev-browser@0.2.9` |
 | `worktree-audit` | Read-only inventory of a repo's git worktrees: target, ahead/behind, dirty, deps, MRs | `glab` for `--mr` |
 | `prove-ui` | Proves a browser-visible change with a baseline-vs-candidate run and an attested line | a repo adapter at `.claude/prove-ui/adapter.md` |
-| `mr-watchman` | One read-only status pass over your open MRs: conflicts, then review threads, then CI; twins grouped | Node 22+, authenticated `glab` |
+| `mr-watchman` | One read-only status pass over your open MRs: conflicts, then review threads, then CI; twins grouped. `--followup <iid> --out <file>` writes a local package of one MR's unresolved threads and failed jobs for a fix session | Node 22+, authenticated `glab` |
 | `test-teeth` | Sampled-mutation audit of a feature's vitest tests: which mutants each test case kills and whether zero-kill cases are removable | Node 22+, vitest 3 in the audited repo |
 | `teeth-build` | Builds an approved plan task by task: red-first tests from a separate writer, locked test files, scope and removed-test checks, and a Stryker gate on each task's changed lines | Node 22+, vitest 3; Stryker 10 installed outside the repo by `setup` |
 
@@ -72,7 +72,7 @@ This costs about 170 lines of context per session. Without the line, the skill i
 
 ## Configuration
 
-`commit` and `dual-branch-finish` share the read-only MR verifier `skills/dual-branch-finish/scripts/verify-mr.mjs` (`--help`).
+`commit` and `dual-branch-finish` share the read-only MR verifier `skills/dual-branch-finish/scripts/verify-mr.mjs` (`--help`). `dual-branch-finish` also uses `skills/dual-branch-finish/scripts/twin-parity.mjs` (`--help`), which compares two pushed twin branches by stable patch-id.
 
 Five optional lines in your `~/.claude/CLAUDE.md`:
 
