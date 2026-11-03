@@ -1,15 +1,19 @@
 # <repo> prove-ui adapter
 
+Main checkout: <absolute path of the repo's main checkout>
+
 ## Harness
 
-`PROVE_UI_PHASE=<baseline|candidate> <harness command> .claude/prove-ui/checks/<id>.mjs`
-run from the repo root. Name the readiness signal and the teardown the harness owns.
+`PROVE_UI_PHASE=<baseline|candidate> <prove-ui skill dir>/bin/browser.mjs run <this folder>/checks/<id>.mjs --serve --timeout 180`
+run from the root of the checkout being proven (or the repo's own harness command). Name the
+readiness signal and the teardown the harness owns.
+`shot(name)` saves the viewport, `shot(name, { fullPage: true })` the whole page.
 
 ## Harness preconditions
 
 Conditions the harness itself needs (branch, ports, env files, other servers).
-`.distro/` and `.claude/` must be gitignored (or in `.git/info/exclude`); `createProof`
-refuses with `DISTRO_NOT_IGNORED` otherwise.
+`.distro/` must be gitignored (or in `.git/info/exclude`); `createProof` refuses with
+`DISTRO_NOT_IGNORED` otherwise.
 
 ## Base checkout
 

@@ -12,7 +12,7 @@ const EXP = { baseline: 'rgba(0, 0, 0, 0)', candidate: { not: 'rgba(0, 0, 0, 0)'
 
 const setup = (over = {}) => {
   const r = makeRepo()
-  const opts = { id: r.id, feature: 'f', route: '/', interaction: 'focus link', baseUrl: 'http://127.0.0.1:4100', file: r.file, shot: r.shot, phase: 'baseline', ...over }
+  const opts = { id: r.id, feature: 'f', route: '/', interaction: 'focus link', baseUrl: 'http://127.0.0.1:4100', file: r.file, shot: r.shot, phase: 'baseline', cwd: r.root, ...over }
   const manifestPath = (phase = opts.phase) => path.join(manifestDir(r.root, r.id), `${phase}.json`)
   const manifest = (phase) => (fs.existsSync(manifestPath(phase)) ? JSON.parse(fs.readFileSync(manifestPath(phase), 'utf8')) : null)
   return { r, opts, manifestPath, manifest }

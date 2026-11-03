@@ -1,6 +1,6 @@
 # Output — Audit Note, Log Entry and Chat Template
 
-Mechanical scaffolding for Phase 3 of the task-auditor skill: the exact shape of the audit note, the activity-log line and the chat summary. Consulted after Phase 2.5 completes.
+Mechanical scaffolding for Phase 3 of the task-auditor skill: the exact shape of the audit note, the activity-log line and the chat summary. Consulted after Phase 2 completes.
 
 ## Filename
 
@@ -22,22 +22,16 @@ type: task-audit
 project: <project>
 aliases: [<ISSUE_KEY>]
 date: <YYYY-MM-DD>
-verdict: GO | NO-GO
-score: <0-100>
+verdict: START | BLOCKED
 gaps: <count>
-calibration: aligned | flagged | skipped
+decisions: <N>
+handoffs: <M>
 issue_keys: [<ISSUE_KEY>]
 tags: [jira, <project>, <up to 3 canonical tags>]
 ---
 ```
 
-**Calibration field:** Records the Phase 2.5 verifier outcome.
-
-- `aligned` — verifier ran, no disagreements.
-- `flagged` — verifier ran, ≥1 disagreement.
-- `skipped` — verifier failed (timeout, parse failure, dispatch error). Audit ships normally.
-
-Queryable: `grep -l "^calibration: flagged" "<notes root>"/*/task-audits/*.md` lists every audit where the verifier disagreed with the analysis on Jira-side evidence.
+**Verdict fields:** `verdict` is `START` or `BLOCKED` from Phase 2's `VERDICT:` block; `decisions` is the count of WARNING + MISSING_ASSETS bullets (each carries a `Default:`); `handoffs` is the count of HANDOFF bullets. Queryable: `grep -l "^verdict: START" "<notes root>"/*/task-audits/*.md` lists every startable audit; sort by `decisions:` for the ticket with the fewest open calls.
 
 **Tag rule:**
 - Mechanical (always): `jira` first, `<project>` second.
@@ -53,11 +47,10 @@ Body sections in this order:
 3. `## Data Sources`
 4. `## Codebase Evidence`
 5. `## Impact Matrix`
-6. `## Gaps` (with `### BLOCKER`, `### WARNING`, `### MISSING_ASSETS` subsections; numbered bullets inside)
-7. `## Technical Readiness`
+6. `## Gaps` (with `### BLOCKER`, `### WARNING`, `### MISSING_ASSETS`, `### HANDOFF` subsections; numbered bullets inside)
+7. `## Verdict`
 8. `## Environment Prerequisites`
-9. `## Calibration` ← MANDATORY, emitted on every audit
-10. `## Related`
+9. `## Related`
 
 ### Scope Decision section
 
@@ -96,7 +89,7 @@ _Evidence for readiness/gap analysis — not predicted edits. Trust the scope no
 
 ### Gaps section
 
-Gap bullets carry per-category numbered IDs that Phase 2.5 references:
+Gap bullets carry per-category numbered IDs; every WARNING and MISSING_ASSETS bullet ends with its `Default:` sentence:
 
 ```markdown
 ## Gaps
@@ -112,10 +105,25 @@ Gap bullets carry per-category numbered IDs that Phase 2.5 references:
 
 ### MISSING_ASSETS
 
-- **MISSING_ASSETS #1:** <prose>
+- **MISSING_ASSETS #1:** <prose> Default: <answer>.
+
+### HANDOFF
+
+- **HANDOFF #1:** <what must happen outside this repo> — owner: <name or role>.
 ```
 
-If a category has no gaps, keep the subsection header and emit a single `- _None._` bullet beneath it. All three subsections are always present; Phase 3 fills in `- _None._` for empty categories.
+If a category has no gaps, keep the subsection header and emit a single `- _None._` bullet beneath it. All four subsections are always present; Phase 3 fills in `- _None._` for empty categories. A WARNING or MISSING_ASSETS bullet without a `Default:` sentence is malformed: re-dispatch Phase 2 once, naming the gap IDs that lack it, before writing.
+
+### Verdict section
+
+```markdown
+## Verdict
+
+- **Verdict:** START | BLOCKED
+- **First move:** <the first commit's content, or `none — blocked by <owner>: <what must exist first>`>
+- **Decisions:** <N> (each WARNING and MISSING_ASSETS bullet above carries its default)
+- **Handoffs:** <M>
+```
 
 ### Environment Prerequisites section
 
@@ -131,45 +139,6 @@ Everything the implementer must have before work starts, from Phase 2 `ENV_PRERE
 ```
 
 Rows with status `missing` or `unknown` are the first thing to ask the user for in the implementation session.
-
-### Calibration section
-
-Three variants, picked by the parsed `calibration_status` from Phase 2.5:
-
-**When `calibration: aligned`:**
-
-```markdown
-## Calibration
-
-Verifier: aligned (Jira-only, 0 disagreements).
-```
-
-**When `calibration: flagged`:**
-
-```markdown
-## Calibration
-
-Verifier: flagged (Jira-only, <N> disagreements).
-
-A Jira-grounded verifier reviewed the analysis gap list against the Jira data alone and disagreed on:
-
-- **<gap_ref>** (analysis: "<analysis_claim>") — verifier view: <verifier_view>. (<severity>)
-- ...
-
-These are advisory and Jira-grounded only — the verdict above reflects the analysis agent's full codebase analysis, which the verifier did not see. Calibration disagreements warrant a quick re-read of the cited gap evidence before acting on the verdict.
-```
-
-`<gap_ref>` is one of: `BLOCKER #N`, `WARNING #N`, `MISSING_ASSETS #N`, `MISSING_GAP #N`, `READINESS_SCORE`, `JIRA_VERDICT_DIRECTION`.
-
-**When `calibration: skipped`:**
-
-```markdown
-## Calibration
-
-Verifier: skipped (<short reason>). Audit continued without independent calibration.
-```
-
-`<short reason>` examples: "verifier call timed out", "response failed schema parse", "dispatch error". The raw verifier output (when unparseable) is printed to stderr only — never embedded in the audit body.
 
 ### Related section
 
@@ -195,7 +164,7 @@ Never emit a `[[<KEY>]]` wikilink to a key that has no resolving file — that c
 Only when a note was written in Phase 3 step 2, the user's CLAUDE.md has an `Activity log: <file>` line and that file exists, and not when re-audit chose overwrite. Prepend immediately after the `<!-- log:entries -->` sentinel:
 
 ```markdown
-## [<YYYY-MM-DD>] task-audit | <ISSUE_KEY>: <title> (<verdict>, score <score>) → [[<dated-slug>]]
+## [<YYYY-MM-DD>] task-audit | <ISSUE_KEY>: <title> (<verdict>, <N> decisions, <M> handoffs) → [[<dated-slug>]]
 ```
 
 Use `Read` first, then `Edit` with `replace_all: false` on the sentinel line. If the sentinel is missing, say so in one sentence and keep the note; do not append elsewhere.
@@ -228,13 +197,14 @@ Format using:
 
 #### Gaps
 - **BLOCKER**: <list or "None">
-- **WARNING**: <list or "None">
-- **MISSING_ASSETS**: <list or "None">
+- **WARNING**: <list with each `Default:`, or "None">
+- **MISSING_ASSETS**: <list with each `Default:`, or "None">
+- **HANDOFF**: <list with owners, or "None">
 
-#### Technical Readiness
-- **Score**: <N>%
-- **Verdict**: <GO / NO-GO>
-- **Recommendation**: <brief action>
+#### Verdict
+- **Verdict**: <START / BLOCKED>
+- **First move**: <one sentence>
+- **Decisions**: <N> · **Handoffs**: <M>
 
 #### Environment prerequisites
 Environment prerequisites: <N> item(s), <M> missing or unknown
@@ -249,5 +219,5 @@ Or, when the field was `none`: `Environment prerequisites: none (<reason>)`
 Omit the "Saved to" block when no notes root is configured; the audit above is the deliverable.
 
 End with:
-- If GO: "Task is ready for implementation. Shall I proceed?"
-- If NO-GO: "Clarification needed before implementation can begin."
+- If START: "Defaults above apply unless you override; reply `go recommended` or list changes, then I start."
+- If BLOCKED: "Blocked by <owner>: <what must exist first>."

@@ -208,6 +208,12 @@ export function buildPatch(repoRoot, target, scope = {}, { tmpDir } = {}) {
       git(repoRoot, ['add', '-N', '--', ...untracked], { env });
     }
   }
+  // A staged-new path is neither in HEAD nor untracked, so the HEAD-built index would drop it.
+  const stagedNew = git(repoRoot, ['diff', '--cached', '--name-only', '--no-renames', '--diff-filter=A', '-z', ...sep])
+    .split('\0').filter(Boolean);
+  if (stagedNew.length) {
+    git(repoRoot, ['add', '-N', '--', ...stagedNew], { env });
+  }
   return git(repoRoot, ['diff', 'HEAD', ...DIFF_FLAGS, ...sep], { env });
 }
 
@@ -392,17 +398,10 @@ export function validateSemantics(result) {
   return result;
 }
 
-export function validateCitations(result, citations) {
-  for (const issue of result.issues) {
-    const k = `${issue.path}\0${issue.side}`;
-    const set = citations.get(k);
-    if (!set || !set.has(issue.line)) {
-      throw new ReviewError('citation_invalid',
-        `issue "${issue.title}" cites ${issue.path}:${issue.line} (${issue.side}), `
-        + 'which is not an added or deleted line in the reviewed patch');
-    }
-  }
-  return result;
+/** Indexes of issues whose citation is not an added or deleted line of the reviewed patch. */
+export function findUnanchoredIssues(result, citations) {
+  return result.issues.flatMap((issue, n) =>
+    citations.get(`${issue.path}\0${issue.side}`)?.has(issue.line) ? [] : [n]);
 }
 
 /** Coverage cap. A DERIVATION, never a validation failure. */
@@ -468,7 +467,7 @@ export function assemblePrompt({ rubric, manifest, patch, context = null }) {
 // Rendering
 // ---------------------------------------------------------------------------
 
-export function renderBody(result, { finalVerdict, unreviewable = [], untrackedIncluded = 0 }) {
+export function renderBody(result, { finalVerdict, unreviewable = [], untrackedIncluded = 0, unanchored = [] }) {
   const out = ['## Verdict', ''];
   out.push(finalVerdict === result.verdict
     ? finalVerdict
@@ -478,7 +477,8 @@ export function renderBody(result, { finalVerdict, unreviewable = [], untrackedI
     out.push('No findings.');
   } else {
     result.issues.forEach((i, n) => {
-      out.push(`${n + 1}. [${i.severity}] ${i.title} — \`${i.path}:${i.line}\` (${i.side})`);
+      const anchor = unanchored.includes(n) ? ' — *unanchored: not a changed line of the patch*' : '';
+      out.push(`${n + 1}. [${i.severity}] ${i.title} — \`${i.path}:${i.line}\` (${i.side})${anchor}`);
       out.push(`   ${i.body}`);
       out.push('');
     });

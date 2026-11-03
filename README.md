@@ -25,7 +25,7 @@ npx skills@latest add PiotrDvlp/ps-skills
 | `dual-branch-finish` | Lands one change on two integration branches and verifies both MR handoffs | Node 22+, authenticated `glab` |
 | `codex-review` | Independent read-only Codex review of a design, plan or diff | Codex CLI 0.130+ |
 | `second-view` | Independent Codex proposal on a problem still being decided | Codex CLI 0.130+ |
-| `task-auditor` | Readiness audit of a Jira ticket before implementation | `cs-atlassian` MCP (ask the author for the `cs-tools` repo) |
+| `task-auditor` | Start/blocked audit of a Jira ticket before implementation | `cs-atlassian` MCP (ask the author for the `cs-tools` repo) |
 | `why` | Explains why existing code is the way it is, from history | `cs-atlassian` MCP for tickets; `glab` or `gh` for MR lookups |
 | `blast-radius` | What a diff could break elsewhere | — |
 | `layer-lint` | SHOPin `pageModules/` layer-boundary linter | Node 22 |
@@ -74,14 +74,17 @@ This costs about 170 lines of context per session. Without the line, the skill i
 
 `commit` and `dual-branch-finish` share the read-only MR verifier `skills/dual-branch-finish/scripts/verify-mr.mjs` (`--help`).
 
-Four optional lines in your `~/.claude/CLAUDE.md`:
+Five optional lines in your `~/.claude/CLAUDE.md`:
 
 ```
 Notes root: /absolute/path/to/your/notes
 Activity log: /absolute/path/to/your/notes/log.md
 task-auditor extension: /absolute/path/to/a-markdown-file.md
 codex-review extension: /absolute/path/to/a-markdown-file.md
+prove-ui projects: /absolute/path/to/a-directory
 ```
+
+`prove-ui projects:` holds one folder per repo, named after the repo's main checkout directory, with that project's `adapter.md`, `features/` and `checks/`; every worktree of the repo resolves the same folder. Without it, `prove-ui` reads `.claude/prove-ui/` in the main checkout.
 
 Without `Notes root:`, `task-auditor` answers in chat, `codex-review` writes to `$TMPDIR/codex-reviews/`, and `second-view --save` is refused. With `Activity log:`, skills that save a note prepend `## [date] <op> | <title> → [[slug]]` after a `<!-- log:entries -->` line in that file. The extension files are plain Markdown instructions the skill follows after its own work is done.
 
