@@ -17,7 +17,7 @@ Below, `G` stands for `node ${CLAUDE_SKILL_DIR}/scripts/relay-gate.mjs` and `F` 
 4. The working tree is clean, unless the plan's last result block has status `blocked, review finding`; then go to step 7 with the tree as it is. Otherwise stop and ask the user to commit, stash or stop.
 5. Cache: `~/.cache/teeth-build` unless the user names another directory. If the sandbox blocks writes there, every command exits 3; ask the user to allow the directory or name a writable one.
 6. In a Nuxt repo, `.nuxt/` exists. Otherwise ask the user to run `npx nuxi prepare`.
-7. Resume: read the plan. Skip a task whose `teeth-build result` block says `done`, `done, waiver pending`, `done, not mutation-checked` or `done, review overridden`. For a `blocked` task, ask the user whether to retry it. For `blocked, review finding`, show its `review:` line and `git status --short`, and ask override, retry or stop as in Review step 5. A task with no result block and a dirty working tree: show `git status --short` and ask the user to discard those edits or stop.
+7. Resume: read the plan. Skip a task whose `teeth-build result` block says `done`, `done, waiver pending`, `done, not mutation-checked`, or any of them followed by `, review overridden`. For a `blocked` task, ask the user whether to retry it. For `blocked, review finding`, show its `review:` line and `git status --short`, and ask override, retry or stop as in Review step 5. A task with no result block and a dirty working tree: show `git status --short` and ask the user to discard those edits or stop.
 
 ## Per task
 
@@ -99,8 +99,8 @@ Once per task diff, before Done: after `mutants` exits 0, or exits 1 when every 
 3. Dispatch the reviewer (see Agents) with `references/reviewer.md` and the packet. Never dispatch a second reviewer on the same diff. If the reply's first non-empty line is not a `verdict:` line, send one message to the same reviewer agent asking for the report form; that is a format repair of the same review, not a second review. A second reply without one counts as `verdict: blocking finding` with `finding: reviewer returned no verdict`.
 4. `verdict: clear`: go to Done. Copy the `not proved` items into the `review:` line.
 5. `verdict: blocking finding`: write the result block with status `blocked, review finding` and the reviewer's `finding` lines on the `review:` line. Commit nothing. Show the findings and ask the user to choose:
-   - override: the user gives a reason. Change the status to `done, review overridden`, add the reason to the `review:` line, and commit as in Done.
-   - retry: the user corrects the plan task. Show `git status --short` and ask the user to discard the task's edits. Then run the task again from Route; its new diff gets its own review.
+   - override: the user gives a reason. Replace `blocked, review finding` with the status the task would have in Done (`done`, `done, waiver pending` or `done, not mutation-checked`) followed by `, review overridden`, add the reason to the `review:` line, and commit as in Done.
+   - retry: remove its `blocked, review finding` result block from the plan, and the user corrects the plan task. Show `git status --short` and ask the user to discard the task's edits: the files the task lists and the untracked paths from the packet, never the plan file. When the plan file lives inside the repo, commit the plan change alone through the `commit` skill, so `baseline` finds a clean tree. Then run the task again from Route with fresh repair rounds; its new diff gets its own review.
    - stop: the run ends and the working tree stays as it is.
 
 ### Done
@@ -122,14 +122,14 @@ Once per task diff, before Done: after `mutants` exits 0, or exits 1 when every 
    - assumptions: implementer: callers pass finite numbers
    ```
 
-   The `tests` line depends on the path: relay `N red-proven, M mutation-proven repair`; gate `N written by implementer, M mutation-proven repair`; refactor `N new, M mutation-proven repair`. `planned removals` lists each `cases` line the plan task names, or `none`. The status is `done`, `done, waiver pending`, `done, not mutation-checked` or `blocked`. Use `done, not mutation-checked` when N in `killed of N` is 0 and the block lists at least one `not covered` line: the gate tested none of the task's changes, for example a template-only change. `killed of N` counts `passed` against `passed` plus findings plus `timed out` from the last `mutants` summary. `checks` lists each gate in run order with every exit code it returned, the last one decisive; a gate the path does not run is left out. The status list adds `done, review overridden` and `blocked, review finding`.
+   The `tests` line depends on the path: relay `N red-proven, M mutation-proven repair`; gate `N written by implementer, M mutation-proven repair`; refactor `N new, M mutation-proven repair`. `planned removals` lists each `cases` line the plan task names, or `none`. The status is `done`, `done, waiver pending`, `done, not mutation-checked` or `blocked`. Use `done, not mutation-checked` when N in `killed of N` is 0 and the block lists at least one `not covered` line: the gate tested none of the task's changes, for example a template-only change. `killed of N` counts `passed` against `passed` plus findings plus `timed out` from the last `mutants` summary. `checks` lists each gate in run order with every exit code it returned, the last one decisive; a gate the path does not run is left out. The status can also be `blocked, review finding`, and any `done` status can end with `, review overridden`.
 2. Commit the task's files through the `commit` skill; when the plan file lives inside the repo, commit it in the same commit, so the next `baseline` finds a clean tree. Never push. A `blocked` task writes its result block and commits nothing; the run stops there.
 
 ## After the last task: waiver review
 
 List every proposed equivalent from all result blocks (task, `file:line mutator → replacement`, reason) and ask the user to approve or reject each one. Mark an approved one `approved` in its result block. For a rejected one, reopen its task: the writer (relay, refactor) or the implementer (gate) gets the mutant. Run the feature suite, then `G mutants F --base <base from that task's result block>`. A fresh baseline would see no changed lines, because the task's code is already committed. The rejected mutant must no longer be a finding; findings on lines from later tasks belong to those tasks. Commit the follow-up as a new commit and update the result block.
 
-Then list every task with status `done, not mutation-checked` and its `not covered` lines, and ask the user to accept each one. Append `, accepted` to an accepted status. For a rejected one, tell the user that no gate checks those lines and leave the follow-up to them. The run is done when no waiver is pending and the user has answered for every `done, not mutation-checked` task.
+Then list every task whose status starts with `done, not mutation-checked` and its `not covered` lines, and ask the user to accept each one. Append `, accepted` to an accepted status. For a rejected one, tell the user that no gate checks those lines and leave the follow-up to them. The run is done when no waiver is pending and the user has answered for every such task.
 
 ## Agents
 
