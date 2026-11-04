@@ -50,7 +50,7 @@ export function syncWork(root, workDir) {
   rmSync(join(workDir, '.stryker-tmp'), { recursive: true, force: true });
   let r;
   try {
-    r = spawnSync('rsync', ['-a', '--delete', '--exclude=.git', '--exclude=node_modules', '--exclude=.env*', '--exclude=/.output', '--exclude=/.stryker-tmp', '--exclude=/reports', `${root}/`, `${workDir}/`]);
+    r = spawnSync('rsync', ['-a', '--delete', '--no-specials', '--no-links', '--exclude=.git', '--exclude=node_modules', '--exclude=.env*', '--exclude=/.output', '--exclude=/.stryker-tmp', '--exclude=/reports', `${root}/`, `${workDir}/`]);
   } finally {
     chmodSync(workDir, 0o700);
   }
