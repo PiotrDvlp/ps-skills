@@ -124,7 +124,7 @@ Once per task diff, before Done: after `mutants` exits 0, or exits 1 when every 
    ```
 
    The `tests` line depends on the path: relay `N red-proven, M mutation-proven repair`; gate `N written by implementer, M mutation-proven repair`; refactor `N new, M mutation-proven repair`. `planned removals` lists each `cases` line the plan task names, or `none`. The status is `done`, `done, waiver pending`, `done, not mutation-checked` or `blocked`. Use `done, not mutation-checked` when N in `killed of N` is 0 and the block lists at least one `not covered` line: the gate tested none of the task's changes, for example a template-only change. `killed of N` counts `passed` against `passed` plus findings plus `timed out` from the last `mutants` summary. `checks` lists each gate in run order with every exit code it returned, the last one decisive; a gate the path does not run is left out. The status can also be `blocked, review finding`, and any `done` status can end with `, review overridden`.
-2. Commit the task's files through the `commit` skill; when the plan file lives inside the repo, commit it in the same commit, so the next `baseline` finds a clean tree. Never push. A `blocked` task writes its result block and commits nothing; the run stops there.
+2. Commit the task's files through the `commit` skill; when the plan file lives inside the repo, commit it in the same commit, so the next `baseline` finds a clean tree. If the commit skill proposes cuts to files the gates checked, do not apply them: the gates ran on this tree. Commit as is and add the suggestion to the result block as `commit-skill note:`. Never push. A `blocked` task writes its result block and commits nothing; the run stops there.
 
 ## After the last task: waiver review
 
