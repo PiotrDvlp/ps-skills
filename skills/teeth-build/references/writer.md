@@ -20,4 +20,4 @@ The gate reads only the first failing test of each mutant. If an earlier test cr
 
 ## Report
 
-List each test file and case name with the defect it catches. In repair mode, also name the mutant each test targets. If you think the contract or the implementation is wrong, say so instead of writing a test that hides it.
+List each test file and case name with the defect it catches. In repair mode, also name the mutant each test targets. If you think the contract or the implementation is wrong, say so instead of writing a test that hides it. List every assumption you made that the contract does not state, one line each, or `assumptions: none`.
