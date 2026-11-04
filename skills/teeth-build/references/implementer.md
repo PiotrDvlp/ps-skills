@@ -6,7 +6,7 @@ You implement one task of an implementation plan. The controller gives you the c
 
 - Change only the files the contract lists. Any other changed path fails the `scope` gate and comes back to you to revert.
 - Do not delete or weaken an existing test case. In gate mode only, a removal or replacement the contract names is allowed. The `cases` gate names every case that disappears.
-- When you are done, run the feature suite and report the files you changed and the suite result.
+- When you are done, run the feature suite and report the files you changed, the suite result, and every assumption you made that the contract does not state (or `assumptions: none`).
 
 ## Relay and refactor mode
 
