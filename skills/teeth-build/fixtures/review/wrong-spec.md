@@ -41,7 +41,7 @@ new file mode 100644
 +  })
 +
 +  it('throws when min equals max', () => {
-+    expect(() => clamp(1, 3, 3)).toThrow(RangeError)
++    expect(() => clamp(1, 3, 3)).toThrow('min > max')
 +  })
 +})
 ```

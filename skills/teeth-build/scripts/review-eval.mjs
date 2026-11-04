@@ -7,8 +7,12 @@ const VERDICT = /^verdict: (clear|blocking finding)\s*$/;
 const RUN_TIMEOUT_MS = 300_000;
 
 export function parseVerdict(stdout) {
-  const first = stdout.split('\n').find((line) => line.trim() !== '');
-  return first?.match(VERDICT)?.[1] ?? null;
+  const lines = stdout.split('\n').filter((line) => line.trim() !== '');
+  const verdict = lines[0]?.match(VERDICT)?.[1];
+  const at = lines.findIndex((line) => line.trim() === 'finding:');
+  if (!verdict || at === -1 || at + 1 >= lines.length) return null;
+  const none = /^-?\s*none$/.test(lines[at + 1].trim());
+  return none === (verdict === 'clear') ? verdict : null;
 }
 
 function parse(argv) {
@@ -56,7 +60,7 @@ export function main(argv) {
       console.error(e.message);
       return 3;
     }
-    if (got !== opts.expect) misses.push(`run ${run}: got ${got ?? 'no verdict line'}`);
+    if (got !== opts.expect) misses.push(`run ${run}: got ${got ?? 'no consistent verdict'}`);
   }
   console.log(`${opts.runs - misses.length}/${opts.runs} verdict: ${opts.expect}`);
   for (const m of misses) console.log(m);
