@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 
 const VERDICT = /^verdict: (clear|blocking finding)\s*$/;
 const RUN_TIMEOUT_MS = 300_000;
@@ -10,26 +11,18 @@ export function parseVerdict(stdout) {
   return first?.match(VERDICT)?.[1] ?? null;
 }
 
-export function claudeArgs(model) {
-  return ['-p', '--model', model, '--no-session-persistence', '--tools', ''];
-}
-
 function parse(argv) {
-  const opts = {
-    runs: 3,
-    model: 'claude-opus-5-5',
-    prompt: fileURLToPath(new URL('../references/reviewer.md', import.meta.url)),
-  };
-  for (let i = 0; i < argv.length; i += 2) {
-    const [flag, value] = [argv[i], argv[i + 1]];
-    if (value === undefined) throw new Error(`${flag} needs a value`);
-    if (flag === '--packet') opts.packet = value;
-    else if (flag === '--expect') opts.expect = value;
-    else if (flag === '--runs') opts.runs = Number(value);
-    else if (flag === '--model') opts.model = value;
-    else if (flag === '--prompt') opts.prompt = value;
-    else throw new Error(`unknown flag ${flag}`);
-  }
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      packet: { type: 'string' },
+      expect: { type: 'string' },
+      runs: { type: 'string', default: '3' },
+      model: { type: 'string', default: 'claude-opus-5-5' },
+      prompt: { type: 'string', default: fileURLToPath(new URL('../references/reviewer.md', import.meta.url)) },
+    },
+  });
+  const opts = { ...values, runs: Number(values.runs) };
   if (!opts.packet) throw new Error('--packet is required');
   if (opts.expect !== 'clear' && opts.expect !== 'blocking finding') throw new Error('--expect must be "clear" or "blocking finding"');
   if (!Number.isInteger(opts.runs) || opts.runs < 1) throw new Error('--runs must be a positive integer');
@@ -37,7 +30,8 @@ function parse(argv) {
 }
 
 function callClaude(model, input) {
-  const r = spawnSync('claude', claudeArgs(model), { input, encoding: 'utf8', timeout: RUN_TIMEOUT_MS, killSignal: 'SIGKILL' });
+  const args = ['-p', '--model', model, '--no-session-persistence', '--tools', ''];
+  const r = spawnSync('claude', args, { input, encoding: 'utf8', timeout: RUN_TIMEOUT_MS, killSignal: 'SIGKILL' });
   if (r.error) throw r.error;
   if (r.status !== 0) throw new Error(`claude exited ${r.status ?? r.signal}: ${r.stderr.trim()}`);
   return r.stdout;

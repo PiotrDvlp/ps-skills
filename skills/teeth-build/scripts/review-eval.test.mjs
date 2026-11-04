@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { claudeArgs, parseVerdict } from './review-eval.mjs';
+import { parseVerdict } from './review-eval.mjs';
 import { tmp } from './test-tmp.mjs';
 
 const script = fileURLToPath(new URL('./review-eval.mjs', import.meta.url));
@@ -18,10 +18,6 @@ test('review-eval: parseVerdict reads the first non-empty line only', () => {
   assert.equal(parseVerdict('verdict: maybe'), null);
   assert.equal(parseVerdict(''), null);
   assert.equal(parseVerdict('**verdict: clear**'), null);
-});
-
-test('review-eval: claudeArgs runs print mode without tools or a saved session', () => {
-  assert.deepEqual(claudeArgs('claude-opus-5-5'), ['-p', '--model', 'claude-opus-5-5', '--no-session-persistence', '--tools', '']);
 });
 
 function setup() {
