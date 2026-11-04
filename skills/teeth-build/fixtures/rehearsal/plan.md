@@ -1,6 +1,6 @@
 # Rehearsal plan for teeth-build
 
-Three tasks on a copy of `fixtures/mini`. Task 1 routes to relay by folder, Task 2 to gate, Task 3 to refactor by its Route line.
+Four tasks on a copy of `fixtures/mini`. Task 1 routes to relay by folder, Task 2 to gate, Task 3 to refactor by its Route line. Task 4 routes to gate and has two clashing lines on purpose: it must end `blocked, review finding`.
 
 ### Task 1: clamp helper
 
@@ -25,3 +25,13 @@ The label shows `99+` for counts above 99 and the count itself otherwise. The ex
 - Modify: `sum.ts`
 
 `sum` returns `[a, b].reduce((x, y) => x + y, 0)`. Behaviour does not change.
+
+### Task 4: adult check
+
+**Files:**
+- Create: `age.ts`
+- Create: `__tests__/age.test.ts`
+
+`export function isAdult(age: number): boolean` returns `true` for an age of 18 or above and `false` below 18.
+
+Acceptance: `isAdult(18)` returns `false`.
