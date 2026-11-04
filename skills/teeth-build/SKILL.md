@@ -14,7 +14,7 @@ Below, `G` stands for `node ${CLAUDE_SKILL_DIR}/scripts/relay-gate.mjs` and `F` 
 1. The user approved the plan. A `/teeth-build <plan>` invocation counts as approval; if the plan reached you another way and you cannot tell, ask.
 2. The repo has vitest 3 in `node_modules`; Node 22+; `npm` and `rsync` are on the PATH.
 3. `git branch --show-current` is not `main`, `master` or `develop`. Otherwise stop and ask for a branch.
-4. The working tree is clean, unless the plan's last result block has status `blocked, review finding`; then go to step 7 with the tree as it is. Otherwise stop and ask the user to commit, stash or stop.
+4. The working tree is clean, unless any result block in the plan has status `blocked, review finding`; then go to step 7 with the tree as it is. Otherwise stop and ask the user to commit, stash or stop.
 5. Cache: `~/.cache/teeth-build` unless the user names another directory. If the sandbox blocks writes there, every command exits 3; ask the user to allow the directory or name a writable one.
 6. In a Nuxt repo, `.nuxt/` exists. Otherwise ask the user to run `npx nuxi prepare`.
 7. Resume: read the plan. Skip a task whose status starts with `done`, whatever follows it (`, waiver pending`, `, not mutation-checked`, `, review overridden`, `, accepted`). For a `blocked` task, ask the user whether to retry it. For `blocked, review finding`, show its `review:` line and `git status --short`, and ask override, retry or stop as in Review step 5. A task with no result block and a dirty working tree: show `git status --short` and ask the user to discard those edits or stop.

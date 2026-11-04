@@ -28,6 +28,13 @@ test('review-eval: parseVerdict accepts a verdict only when it agrees with the f
   assert.equal(parseVerdict('verdict: clear\nproved:\n- x'), null);
 });
 
+test('review-eval: parseVerdict reads the whole finding section', () => {
+  assert.equal(parseVerdict('verdict: clear\nfinding:\n- none\n- a.ts:2: contradicts the contract'), null);
+  assert.equal(parseVerdict('verdict: blocking finding\nfinding:\ndid we miss anything?\n- no'), null);
+  assert.equal(parseVerdict('verdict: blocking finding\nfinding:\n- a.ts:2: x\n- b.ts:3: y\ndid we miss anything?\n- no'), 'blocking finding');
+  assert.equal(parseVerdict('verdict: clear\nfinding:\n- none\ndid we miss anything?\n- no'), 'clear');
+});
+
 function setup() {
   const dir = tmp('review-eval-');
   const bin = join(dir, 'bin');

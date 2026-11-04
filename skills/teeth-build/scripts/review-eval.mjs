@@ -10,9 +10,12 @@ export function parseVerdict(stdout) {
   const lines = stdout.split('\n').filter((line) => line.trim() !== '');
   const verdict = lines[0]?.match(VERDICT)?.[1];
   const at = lines.findIndex((line) => line.trim() === 'finding:');
-  if (!verdict || at === -1 || at + 1 >= lines.length) return null;
-  const none = /^-?\s*none$/.test(lines[at + 1].trim());
-  return none === (verdict === 'clear') ? verdict : null;
+  if (!verdict || at === -1) return null;
+  const end = lines.findIndex((line, i) => i > at && !line.trim().startsWith('-'));
+  const items = lines.slice(at + 1, end === -1 ? lines.length : end).map((line) => line.trim().replace(/^-\s*/, ''));
+  const nones = items.filter((item) => item === 'none').length;
+  if (items.length === 0 || (nones > 0 && items.length > 1)) return null;
+  return (nones === 1) === (verdict === 'clear') ? verdict : null;
 }
 
 function parse(argv) {
