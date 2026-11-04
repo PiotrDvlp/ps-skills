@@ -24,7 +24,7 @@ The label shows `99+` for counts above 99 and the count itself otherwise. The ex
 **Files:**
 - Modify: `sum.ts`
 
-`sum` returns `[a, b].reduce((x, y) => x + y, 0)`. Behaviour does not change.
+`sum` returns `[a, b].reduce((x, y) => x + y)`. Behaviour does not change.
 
 ### Task 4: adult check
 
