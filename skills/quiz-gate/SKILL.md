@@ -18,7 +18,7 @@ Run `node "${CLAUDE_SKILL_DIR}/scripts/quiz.mjs" install` at the start of every 
 Run `Q pick`, with `--plan <file>` and `--remote <name>` when the user gave them. It prints one JSON object:
 
 - `{"status":"nothing to quiz"}`: every unpushed commit has a pass. Say so and stop.
-- `{"status":"no eligible lines","attempt":"<id>"}`: the range changes only tests, docs or lockfiles. Run `Q record --no-eligible --attempt <id>`, say that the range had no eligible lines and the pass is recorded, and stop.
+- `{"status":"no eligible lines","attempt":"<id>"}`: the range adds no lines of yours to quiz: only tests, docs or lockfiles changed, or every added line came from commits already on the remote (merged in). Run `Q record --no-eligible --attempt <id>`, say that the range had no eligible lines and the pass is recorded, and stop.
 - `{"status":"quiz","attempt":"<id>","questions":[...],"skipped":[...]}`: show each `skipped` line to the user as it is, then go on.
 
 Right after `pick`, save the repo path (`git rev-parse --show-toplevel`) and the tip sha (`git rev-parse HEAD`) for the packet.

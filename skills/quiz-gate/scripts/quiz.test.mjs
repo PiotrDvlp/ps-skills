@@ -490,6 +490,34 @@ test('pick: a line added only in a conflict resolution of the merge stays eligib
   assert.deepEqual(lineQuestions.map((q) => [q.file, q.line]), [['shared.ts', 1]]);
 });
 
+test('pick: a commit listed in blame.ignoreRevsFile is still quizzed', () => {
+  const { dir } = repoWithRemote();
+  commit(dir, 'feat.ts', numberedLines(20, 'old'), 'pushed feature');
+  git(dir, 'push', '-q', 'origin', 'main');
+  const rewrite = commit(dir, 'feat.ts', numberedLines(20, 'new'), 'rewrite all lines');
+  const ignoreFile = join(tmp('qg-ignore-'), 'ignore-revs');
+  writeFileSync(ignoreFile, `${rewrite}\n`);
+  git(dir, 'config', 'blame.ignoreRevsFile', ignoreFile);
+  const out = pick(dir);
+  assert.equal(out.status, 'quiz');
+  const lineQuestions = out.questions.filter((q) => q.kind === 'line');
+  assert.ok(lineQuestions.length > 0);
+  assert.deepEqual([...new Set(lineQuestions.map((q) => q.file))], ['feat.ts']);
+});
+
+test('pick: a submodule pointer in the range is skipped and the normal file is quizzed', () => {
+  const { dir } = repoWithRemote();
+  writeFileSync(join(dir, 'feat.ts'), numberedLines(10));
+  git(dir, 'add', 'feat.ts');
+  git(dir, 'update-index', '--add', '--cacheinfo', `160000,${'a'.repeat(40)},sub`);
+  git(dir, 'commit', '-q', '-m', 'feature and submodule');
+  const out = pick(dir);
+  assert.equal(out.status, 'quiz');
+  const lineQuestions = out.questions.filter((q) => q.kind === 'line');
+  assert.ok(lineQuestions.length > 0);
+  assert.deepEqual([...new Set(lineQuestions.map((q) => q.file))], ['feat.ts']);
+});
+
 function lcg(seed) {
   let state = seed;
   return (n) => {

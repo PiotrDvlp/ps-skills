@@ -222,9 +222,19 @@ function addedLines(patch) {
   return found;
 }
 
+function gitlinkPaths(cwd, diffArgs, base, tip) {
+  const fields = gitRaw(cwd, [...diffArgs, '--raw', '-z', base, tip]).split('\0');
+  const paths = new Set();
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    const [oldMode, newMode] = fields[i].slice(1).split(' ');
+    if (oldMode === '160000' || newMode === '160000') paths.add(fields[i + 1]);
+  }
+  return paths;
+}
+
 function blamedCommits(cwd, tip, file) {
   const byLine = new Map();
-  for (const row of gitRaw(cwd, ['blame', '--porcelain', tip, '--', file]).split('\n')) {
+  for (const row of gitRaw(cwd, ['blame', '--porcelain', '--ignore-revs-file', '', tip, '--', file]).split('\n')) {
     const header = /^([0-9a-f]{40,64}) \d+ (\d+)(?: \d+)?$/.exec(row);
     if (header) byLine.set(Number(header[2]), header[1]);
   }
@@ -239,12 +249,13 @@ function blamedCommits(cwd, tip, file) {
 export function eligibleLines(cwd, base, tip, ownCommits) {
   const diffArgs = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames'];
   const stats = gitRaw(cwd, [...diffArgs, '--numstat', '-z', base, tip]).split('\0').filter(Boolean);
+  const gitlinks = gitlinkPaths(cwd, diffArgs, base, tip);
   const lines = [];
   const hunkIds = new Map();
   for (const stat of stats) {
     const [added, , ...rest] = stat.split('\t');
     const file = rest.join('\t');
-    if (added === '-' || added === '0' || excludedFile(file)) continue;
+    if (added === '-' || added === '0' || excludedFile(file) || gitlinks.has(file)) continue;
     const patch = gitRaw(cwd, [...diffArgs, base, tip, '--', `:(literal)${file}`]);
     const blamed = ownCommits ? blamedCommits(cwd, tip, file) : null;
     for (const { line, code, hunkText } of addedLines(patch)) {
