@@ -317,7 +317,7 @@ function lookupPriority(cwd, tip, entry, eligible) {
 }
 
 function contextBlock(cwd, tip, file, line) {
-  const rows = gitRaw(cwd, ['show', `${tip}:${file}`]).split('\n');
+  const rows = gitRaw(cwd, ['show', `${tip}:${file}`]).replace(/\n$/, '').split('\n');
   const from = Math.max(1, line - CONTEXT_RADIUS);
   const to = Math.min(rows.length, line + CONTEXT_RADIUS);
   const width = String(to).length;

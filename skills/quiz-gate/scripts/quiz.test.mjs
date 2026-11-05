@@ -383,7 +383,10 @@ test('pick: one new 300-line file gives four line questions and one assumption q
   for (let i = 1; i < numbers.length; i++) assert.ok(numbers[i] - numbers[i - 1] >= 5, numbers.join(','));
   for (const q of out.questions.slice(0, 4)) {
     assert.equal(q.file, 'big.ts');
-    assert.equal(q.context.split('\n').length, 7);
+    const rows = q.context.split('\n');
+    assert.equal(rows.length, Math.min(q.line + 3, 300) - Math.max(1, q.line - 3) + 1);
+    assert.equal(rows.filter((r) => r.startsWith('>')).length, 1);
+    assert.match(rows.find((r) => r.startsWith('>')), new RegExp(`^> +${q.line}  const v${q.line} = `));
   }
   assert.deepEqual(out.skipped, []);
 });
@@ -417,6 +420,23 @@ test('pick: the remote is the upstream remote unless --remote is given', () => {
   assert.equal(read(pick(dir).attempt), 'upstream');
   assert.equal(read(pick(dir, '--remote', 'elsewhere').attempt), 'elsewhere');
   assert.ok(remote);
+});
+
+test('pick: the context block is clipped at the first and last line and shows no row after the file end', () => {
+  const { dir } = repoWithRemote();
+  commit(dir, 'one.ts', 'const answer = compute(42);\n', 'A');
+  assert.equal(pick(dir).questions[0].context, '> 1  const answer = compute(42);');
+  commit(dir, 'ten.ts', numberedLines(10, 'k'), 'B');
+  const contexts = new Map();
+  for (let run = 0; run < 40 && contexts.size < 3; run++) {
+    for (const q of pick(dir).questions) if (q.file === 'ten.ts') contexts.set(q.line, q.context);
+  }
+  for (const [line, context] of contexts) {
+    const rows = context.split('\n');
+    assert.equal(rows.length, Math.min(line + 3, 10) - Math.max(1, line - 3) + 1);
+    assert.ok(rows.every((r) => /\S$/.test(r)), JSON.stringify(context));
+  }
+  assert.ok(contexts.size > 0);
 });
 
 test('pick: a pushed commit is not in the range', () => {
@@ -522,7 +542,7 @@ test('pick --plan: a priority entry with unique text is the first question at it
   const first = out.questions[0];
   assert.deepEqual([first.kind, first.file, first.line], ['equivalent', 'src/a.ts', 4]);
   assert.equal(first.text, '`src/a.ts:4` is `if (n > max) return max;`. Mutation testing (`RelationalOperator`) replaced part of it with `n >= max` and no test failed. Can any caller see a difference? Explain why or why not.');
-  assert.equal(first.context.split('\n').length, 7);
+  assert.equal(first.context.split('\n').length, 6);
   assert.deepEqual(out.skipped, []);
   assert.equal(out.questions.length, 5);
 });
