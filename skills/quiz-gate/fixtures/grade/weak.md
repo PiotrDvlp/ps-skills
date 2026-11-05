@@ -46,7 +46,7 @@ Hunk:
 Answer:
 
 ```text
-When total is 0 the function returns 0 before it divides. Without it, percent(0, 0) is 0/0 = NaN and percent(3, 0) is Infinity, so a caller with an empty total gets NaN or Infinity instead of 0.
+Stops a divide by zero; without it percent(x, 0) gives NaN or Infinity.
 ```
 
 ## q2 (line) helpers/clamp.ts:3
@@ -75,7 +75,7 @@ Hunk:
 Answer:
 
 ```text
-It returns max when n is below min.
+This line clamps n into the range by applying Math.max first and then Math.min. Because Math.min runs last against max, a value of n below min comes back as max, which is how clamp tells callers the input was out of range. If the line were removed, clamp would fall through and return n unchanged, so out-of-range values would leak through to callers.
 ```
 
 ## q3 (line) helpers/percent.ts:5
@@ -112,7 +112,7 @@ Hunk:
 Answer:
 
 ```text
-It turns the share into a whole-number percentage, rounded to the nearest integer, so percent(1, 3) is 33. Without Math.round it returns 33.333333333333336, and formatPercent would print the long decimal.
+Rounds to a whole percent; without it percent(1, 3) is 33.33... instead of 33.
 ```
 
 ## q4 (equivalent) helpers/clamp.ts:2
@@ -141,7 +141,7 @@ Hunk:
 Answer:
 
 ```text
-It compares min and max.
+No caller can see a difference. The only extra input the new check rejects is min === max, and that range is empty, so there is no value clamp could return for it anyway; for every real range both versions behave the same, which is why no test failed.
 ```
 
 ## q5 (assumption)
@@ -151,5 +151,5 @@ Question: The build recorded these assumptions and decisions: implementer: calle
 Answer:
 
 ```text
-It depends on callers passing finite numbers. The guard only catches total === 0, so if a caller passes NaN, say a total parsed from an empty string, percent returns NaN: Math.round(NaN) is NaN, and clamp(NaN, 0, 100) is NaN as well because Math.max and Math.min pass NaN through. The caller then shows NaN instead of a percentage.
+Finite numbers: a NaN input slips past the zero guard and through clamp, so callers get NaN.
 ```

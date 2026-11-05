@@ -112,7 +112,7 @@ Hunk:
 Answer:
 
 ```text
-It turns the share into a whole-number percentage, rounded to the nearest integer, so percent(1, 3) is 33. Without Math.round it returns 33.333333333333336, and formatPercent would print the long decimal.
+It turns the share into a whole-number percentage, rounded to the nearest integer, so percent(1, 3) is 33. Without Math.round it returns 33.33333333333333, and formatPercent would print the long decimal.
 ```
 
 ## q4 (equivalent) helpers/clamp.ts:2
