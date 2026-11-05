@@ -87,7 +87,7 @@ function main(argv) {
       const summary = git(process.cwd(), ['log', '-1', '--format=%h %s', sha]).trim();
       console.error(`no quiz pass: ${summary}`);
     }
-    console.error('run /ps:quiz-gate in this worktree, then push again (or with --remote <name>)');
+    console.error('run the quiz-gate skill (/ps:quiz-gate or /quiz-gate) in this worktree, then push again (or with --remote <name>)');
   } catch (e) {
     console.error(`quiz-gate check failed: ${e.message}`);
     console.error('git push --no-verify bypasses this check');

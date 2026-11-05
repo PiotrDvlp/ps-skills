@@ -157,7 +157,7 @@ test('CLI blocks a real git push without a pass and lets it through with one', (
   const blocked = spawnSync('git', ['push', 'origin', 'f'], { cwd: dir, encoding: 'utf8' });
   assert.notEqual(blocked.status, 0);
   assert.match(blocked.stderr, /no quiz pass: [0-9a-f]+ add four/);
-  assert.match(blocked.stderr, /run \/ps:quiz-gate in this worktree, then push again \(or with --remote <name>\)/);
+  assert.match(blocked.stderr, /run the quiz-gate skill \(\/ps:quiz-gate or \/quiz-gate\) in this worktree, then push again \(or with --remote <name>\)/);
   pass(dir, sha);
   const allowed = spawnSync('git', ['push', 'origin', 'f'], { cwd: dir, encoding: 'utf8' });
   assert.equal(allowed.status, 0, allowed.stderr);

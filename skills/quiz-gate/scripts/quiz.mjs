@@ -19,7 +19,7 @@ const HUSKY_HOOK = `#!/usr/bin/env sh
 # quiz-gate hook v1
 t=$(mktemp) || exit 1
 trap 'rm -f "$t"' EXIT
-cat > "$t"
+cat > "$t" || exit 1
 node "$(dirname "$0")/quiz-check.mjs" "$@" < "$t" || exit $?
 . "$(dirname "$0")/h" "$@" < "$t"
 `;
@@ -35,6 +35,13 @@ class SetupError extends Error {}
 class Finding extends Error {}
 
 const FLAGS = new Set(['no-eligible']);
+const COMMAND_FLAGS = {
+  install: ['root'],
+  uninstall: ['root'],
+  status: ['root'],
+  pick: ['plan', 'remote', 'root'],
+  record: ['attempt', 'grades', 'no-eligible', 'root'],
+};
 const ATTEMPT_ID = /^[\w-]+$/;
 
 function git(cwd, args) {
@@ -70,8 +77,10 @@ function parseArgs(argv) {
   const opts = {};
   for (let i = 0; i < rest.length; i++) {
     if (!rest[i].startsWith('--')) throw new SetupError(`unexpected argument: ${rest[i]}`);
-    if (FLAGS.has(rest[i].slice(2))) {
-      opts[rest[i].slice(2)] = true;
+    const name = rest[i].slice(2);
+    if (COMMAND_FLAGS[command] && !COMMAND_FLAGS[command].includes(name)) throw new SetupError(`unknown flag --${name}`);
+    if (FLAGS.has(name)) {
+      opts[name] = true;
       continue;
     }
     const value = rest[i + 1];
@@ -213,11 +222,21 @@ function addedLines(patch) {
   return found;
 }
 
+function blamedCommits(cwd, tip, file) {
+  const byLine = new Map();
+  for (const row of gitRaw(cwd, ['blame', '--porcelain', tip, '--', file]).split('\n')) {
+    const header = /^([0-9a-f]{40,64}) \d+ (\d+)(?: \d+)?$/.exec(row);
+    if (header) byLine.set(Number(header[2]), header[1]);
+  }
+  return byLine;
+}
+
 /**
  * Added lines of `git diff base tip` that a question may use. `hunk` numbers hunks across the whole diff;
  * `hunkText` is the diff text of that hunk, for the grader packet.
+ * With `ownCommits`, only lines whose blame at `tip` is one of those commits count, so lines merged in from the remote are skipped.
  */
-export function eligibleLines(cwd, base, tip) {
+export function eligibleLines(cwd, base, tip, ownCommits) {
   const diffArgs = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames'];
   const stats = gitRaw(cwd, [...diffArgs, '--numstat', '-z', base, tip]).split('\0').filter(Boolean);
   const lines = [];
@@ -227,8 +246,10 @@ export function eligibleLines(cwd, base, tip) {
     const file = rest.join('\t');
     if (added === '-' || added === '0' || excludedFile(file)) continue;
     const patch = gitRaw(cwd, [...diffArgs, base, tip, '--', `:(literal)${file}`]);
+    const blamed = ownCommits ? blamedCommits(cwd, tip, file) : null;
     for (const { line, code, hunkText } of addedLines(patch)) {
       if (excludedLine(code)) continue;
+      if (blamed && !ownCommits.has(blamed.get(line))) continue;
       if (!hunkIds.has(hunkText)) hunkIds.set(hunkText, hunkIds.size + 1);
       lines.push({ file, line, code, hunk: hunkIds.get(hunkText), hunkText: hunkText.join('\n') });
     }
@@ -377,8 +398,9 @@ function pick(root, opts) {
   const tip = gitOut(root, ['rev-parse', 'HEAD']);
   const base = quizBase(root, tip, remote, readLedger(ledgerPath(root)));
   if (base === null) return JSON.stringify({ status: 'nothing to quiz' });
-  const ids = unpushed(root, tip, remote).map((sha) => commitIdentity(root, sha)).filter((id) => id !== null);
-  const eligible = eligibleLines(root, base, tip);
+  const unpushedShas = unpushed(root, tip, remote);
+  const ids = unpushedShas.map((sha) => commitIdentity(root, sha)).filter((id) => id !== null);
+  const eligible = eligibleLines(root, base, tip, new Set(unpushedShas));
   if (eligible.length === 0) {
     const attempt = writeAttempt(root, { tip, base, remote, ids, questions: [] });
     return JSON.stringify({ status: 'no eligible lines', attempt });
@@ -440,6 +462,7 @@ function record(root, opts) {
   const { file, attempt } = readAttempt(root, id);
   if (attempt.tip !== gitOut(root, ['rev-parse', 'HEAD'])) throw new SetupError('range changed; run pick again');
   const n = attempt.questions.length;
+  if (attempt.score !== undefined && attempt.score !== null && attempt.score !== `${n}/${n}`) throw new SetupError('attempt already graded; run pick again');
   let score = null;
   if (opts['no-eligible'] !== undefined) {
     if (n > 0) throw new SetupError('attempt has questions; --no-eligible refused');

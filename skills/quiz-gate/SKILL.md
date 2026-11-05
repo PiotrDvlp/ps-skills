@@ -1,6 +1,6 @@
 ---
 name: quiz-gate
-description: Use before pushing agent-built code, to prove you can explain it — "/quiz-gate", "quiz me before I push", "quiz-gate this branch", or when a push was blocked with `run /ps:quiz-gate`. Asks up to five questions on the unpushed diff, a fresh agent grades them, and a full score records a pass that the local pre-push hook checks. Skip for reviewing code correctness (code-review, codex-review) or auditing tests (test-teeth).
+description: Use before pushing agent-built code, to prove you can explain it — "/quiz-gate", "quiz me before I push", "quiz-gate this branch", or when a push was blocked with `no quiz pass`. Asks up to five questions on the unpushed diff, a fresh agent grades them, and a full score records a pass that the local pre-push hook checks. Skip for reviewing code correctness (code-review, codex-review) or auditing tests (test-teeth).
 ---
 
 # quiz-gate
@@ -46,7 +46,7 @@ Build the packet in the shape of `fixtures/grade/right.md`:
 
 Each context block, hunk and answer goes in its own fence (`text` for context and answer, `diff` for the hunk), and each fence is longer than the longest run of backticks inside it, at least three. A user's answer can contain ```.
 
-Save `git status --porcelain`. Dispatch the grader with the Agent tool: a new `general-purpose` agent, no `model`, no `effort`, never a fork (a fork inherits this conversation). Its prompt is the content of `references/grader.md` followed by the packet. After the reply, run `git status --porcelain` again; any change fails the attempt: list the changed paths, do not run `record`, and go to step 6.
+Save `git status --porcelain`. Dispatch the grader with the Agent tool: a new `general-purpose` agent, no `model`, no `effort`, never a fork (a fork inherits this conversation). Its prompt is the content of `references/grader.md` followed by the packet. After the reply, run `git status --porcelain` again; any change fails the attempt: do not run `record`, tell the user the attempt failed because the grader changed files, list the changed paths, and offer a new attempt (step 2).
 
 ## 5. Record
 
@@ -54,7 +54,7 @@ Write the grader's reply, byte for byte as returned, to `quiz-grades-<attempt>.t
 
 - Exit 0, `recorded N commits`: the attempt passed; the hook now lets these commits out.
 - Exit 1, `score K/N; nothing recorded`: the attempt failed.
-- Exit 3, `grader reply does not match the attempt`: send one format-repair message to the same grader agent (SendMessage), asking for the reply form of `references/grader.md` and nothing else. Write its new reply to the file the same way and run `record` again. A second exit 3 is a failed attempt.
+- Exit 3, `grader reply does not match the attempt`: send one format-repair message to the same grader agent (SendMessage), asking for the reply form of `references/grader.md` and nothing else. After that reply, compare `git status --porcelain` again, as after the first reply; a change fails the attempt as in step 4. Write the new reply to the file the same way and run `record` again. A second exit 3 is a failed attempt.
 - Exit 3, `range changed; run pick again`: a commit or checkout moved `HEAD` during the quiz. The attempt failed; say so.
 - Any other exit 3: show the message and stop.
 

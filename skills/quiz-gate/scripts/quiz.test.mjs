@@ -446,6 +446,50 @@ test('pick: a pushed commit is not in the range', () => {
   assert.deepEqual(pick(dir), { status: 'nothing to quiz' });
 });
 
+function teammateRepo() {
+  const { dir, remote } = repoWithRemote();
+  commit(dir, 'shared.ts', 'const shared = original();\nconst keep = 1;\n', 'shared');
+  git(dir, 'push', '-q', 'origin', 'main');
+  const other = tmp('qg-other-');
+  git(other, 'clone', '-q', remote, '.');
+  git(other, 'config', 'user.email', 't@t');
+  git(other, 'config', 'user.name', 't');
+  git(dir, 'checkout', '-q', '-b', 'feat');
+  return { dir, other };
+}
+
+function teammatePushes(dir, other, files) {
+  commitFiles(other, files, 'teammate');
+  git(other, 'push', '-q', 'origin', 'main');
+  git(dir, 'fetch', '-q', 'origin');
+}
+
+test('pick: lines merged in from a fetched main are never asked about', () => {
+  const { dir, other } = teammateRepo();
+  commit(dir, 'feat.ts', numberedLines(30, 'f'), 'feature');
+  teammatePushes(dir, other, { 'team.ts': numberedLines(30, 't') });
+  git(dir, 'merge', '-q', '--no-ff', 'origin/main', '-m', 'merge main');
+  for (let i = 0; i < 6; i++) {
+    const out = pick(dir);
+    const lineQuestions = out.questions.filter((q) => q.kind === 'line');
+    assert.ok(lineQuestions.length > 0);
+    assert.deepEqual([...new Set(lineQuestions.map((q) => q.file))], ['feat.ts']);
+  }
+});
+
+test('pick: a line added only in a conflict resolution of the merge stays eligible', () => {
+  const { dir, other } = teammateRepo();
+  commit(dir, 'shared.ts', 'const shared = featValue();\nconst keep = 1;\n', 'feature edit');
+  teammatePushes(dir, other, { 'shared.ts': 'const shared = teamValue();\nconst keep = 1;\n', 'team.ts': numberedLines(30, 't') });
+  assert.notEqual(spawnSync('git', ['merge', '--no-ff', 'origin/main', '-m', 'merge main'], { cwd: dir }).status, 0);
+  writeFileSync(join(dir, 'shared.ts'), 'const shared = resolvedValue();\nconst keep = 1;\n');
+  git(dir, 'add', 'shared.ts');
+  git(dir, 'commit', '-q', '--no-edit');
+  const out = pick(dir);
+  const lineQuestions = out.questions.filter((q) => q.kind === 'line');
+  assert.deepEqual(lineQuestions.map((q) => [q.file, q.line]), [['shared.ts', 1]]);
+});
+
 function lcg(seed) {
   let state = seed;
   return (n) => {
@@ -675,6 +719,27 @@ test('record: a reply that does not match the attempt exits 3 and records nothin
   assert.equal(r.code, 3);
   assert.match(r.err, /grader reply does not match the attempt/);
   assert.deepEqual(ledgerLines(dir), []);
+});
+
+test('record: an attempt that already failed cannot be re-graded', () => {
+  const { dir } = repoWithRemote();
+  commit(dir, 'a.ts', numberedLines(60), 'A');
+  const out = pick(dir);
+  const failing = out.questions.map((_, i) => (i === 0 ? 'fail' : 'pass'));
+  assert.equal(record(dir, out.attempt, '--grades', gradesFile(replyText(failing))).code, 1);
+  const again = record(dir, out.attempt, '--grades', gradesFile(replyText(out.questions.map(() => 'pass'))));
+  assert.equal(again.code, 3);
+  assert.match(again.err, /attempt already graded; run pick again/);
+  assert.deepEqual(ledgerLines(dir), []);
+});
+
+test('an unknown flag exits 3 instead of being dropped', () => {
+  const { dir } = repoWithRemote();
+  commit(dir, 'a.ts', numberedLines(4), 'A');
+  const r = quiz(dir, 'pick', '--pln', 'x');
+  assert.equal(r.code, 3);
+  assert.match(r.err, /unknown flag --pln/);
+  assert.equal(quiz(dir, 'status', '--plan', 'x').code, 3);
 });
 
 test('record: a commit made after pick exits 3 with range changed', () => {
