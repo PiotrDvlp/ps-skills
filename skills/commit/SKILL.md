@@ -95,10 +95,12 @@ Check the subject length before each commit, never after: rewording a commit tha
 cherry-pick on top means re-creating both and moving the branch ref.
 
 ```bash
-subject='<subject line>'; [ ${#subject} -le 72 ] || { echo "subject is ${#subject} chars, limit 72"; false; }
+python3 -c 'import sys; n = len(sys.argv[1]); sys.exit(f"subject is {n} chars, limit 72" if n > 72 else 0)' '<subject line>'
 ```
 
-Any output means shorten the subject first. The check exits 1 on a long subject, so chain it to the commit with `&&`, never `;`.
+Run it as its own Bash call and commit in a separate call only after it exits 0. Never chain the
+two: a worktree-isolated session refuses a compound line that contains `git` as "too complex to
+verify" (2026-10-19), so the commit itself stays a single bare `git commit --only …` command.
 
 **One commit**: commit immediately. No need to ask. Report what was committed after it's done.
 
