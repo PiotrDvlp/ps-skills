@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
 import { randomBytes, randomInt } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { commitIdentity, gitCommonDir, ledgerPath, readLedger, unpushed } from './quiz-check.mjs';
@@ -32,6 +32,10 @@ const LOCKFILES = new Set(['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock']);
 const SKIPPED_DIRS = new Set(['__tests__', '__snapshots__', 'docs']);
 
 class SetupError extends Error {}
+class Finding extends Error {}
+
+const FLAGS = new Set(['no-eligible']);
+const ATTEMPT_ID = /^[\w-]+$/;
 
 function git(cwd, args) {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
@@ -66,6 +70,10 @@ function parseArgs(argv) {
   const opts = {};
   for (let i = 0; i < rest.length; i++) {
     if (!rest[i].startsWith('--')) throw new SetupError(`unexpected argument: ${rest[i]}`);
+    if (FLAGS.has(rest[i].slice(2))) {
+      opts[rest[i].slice(2)] = true;
+      continue;
+    }
     const value = rest[i + 1];
     if (value === undefined) throw new SetupError(`${rest[i]} needs a value`);
     opts[rest[i].slice(2)] = value;
@@ -383,7 +391,80 @@ function pick(root, opts) {
   return JSON.stringify({ status: 'quiz', attempt, questions, skipped });
 }
 
-const COMMANDS = { install, uninstall, status, pick };
+/**
+ * Per-question verdicts of a grader reply, or null when the reply is not in the agreed form:
+ * `score: K/N` first, N equal to `n`, `q1..qN` verdict lines in order, K equal to the pass count.
+ */
+export function parseGrades(text, n) {
+  const rows = text.split('\n').map((row) => row.trimEnd());
+  const first = rows.find((row) => row.trim() !== '');
+  const score = /^score: (\d+)\/(\d+)$/.exec(first ?? '');
+  if (!score || Number(score[2]) !== n) return null;
+  const verdicts = [];
+  for (const row of rows) {
+    if (!/^q\d+:/.test(row)) continue;
+    const verdict = /^q(\d+): (pass|fail)$/.exec(row);
+    if (!verdict || Number(verdict[1]) !== verdicts.length + 1) return null;
+    verdicts.push(verdict[2]);
+  }
+  if (verdicts.length !== n || verdicts.filter((v) => v === 'pass').length !== Number(score[1])) return null;
+  return verdicts;
+}
+
+function readAttempt(root, id) {
+  const file = join(gitCommonDir(root), 'quiz', 'attempts', `${id}.json`);
+  if (!ATTEMPT_ID.test(id) || !existsSync(file)) throw new SetupError('unknown attempt');
+  return { file, attempt: JSON.parse(readFileSync(file, 'utf8')) };
+}
+
+function appendPasses(root, attempt, id) {
+  const shaById = new Map();
+  for (const sha of unpushed(root, attempt.tip, attempt.remote)) {
+    const identity = commitIdentity(root, sha);
+    if (identity !== null && !shaById.has(identity)) shaById.set(identity, sha);
+  }
+  const at = new Date().toISOString();
+  const ids = [...new Set(attempt.ids)];
+  const file = ledgerPath(root);
+  mkdirSync(dirname(file), { recursive: true });
+  const existing = existsSync(file) ? readFileSync(file, 'utf8') : '';
+  const torn = existing !== '' && !existing.endsWith('\n');
+  const lines = ids.map((identity) => `${JSON.stringify({ id: identity, sha: shaById.get(identity) ?? null, at, attempt: id })}\n`);
+  appendFileSync(file, (torn ? '\n' : '') + lines.join(''));
+  return ids.length;
+}
+
+function record(root, opts) {
+  const id = opts.attempt ?? '';
+  if ((opts.grades === undefined) === (opts['no-eligible'] === undefined)) throw new SetupError('record needs --attempt and one of --grades or --no-eligible');
+  const { file, attempt } = readAttempt(root, id);
+  if (attempt.tip !== gitOut(root, ['rev-parse', 'HEAD'])) throw new SetupError('range changed; run pick again');
+  const n = attempt.questions.length;
+  let score = null;
+  if (opts['no-eligible'] !== undefined) {
+    if (n > 0) throw new SetupError('attempt has questions; --no-eligible refused');
+  } else {
+    let text;
+    try {
+      text = readFileSync(opts.grades, 'utf8');
+    } catch (e) {
+      throw new SetupError(`cannot read grades ${opts.grades}: ${e.message}`);
+    }
+    const verdicts = n > 0 ? parseGrades(text, n) : null;
+    if (verdicts === null) throw new SetupError('grader reply does not match the attempt');
+    score = `${verdicts.filter((v) => v === 'pass').length}/${n}`;
+  }
+  const scoredAt = new Date().toISOString();
+  if (score !== null && score !== `${n}/${n}`) {
+    writeFileSync(file, JSON.stringify({ ...attempt, score, scoredAt }, null, 2));
+    throw new Finding(`score ${score}; nothing recorded`);
+  }
+  const count = appendPasses(root, attempt, id);
+  writeFileSync(file, JSON.stringify({ ...attempt, score, scoredAt }, null, 2));
+  return `recorded ${count} commits`;
+}
+
+const COMMANDS = { install, uninstall, status, pick, record };
 
 function main(argv) {
   try {
@@ -393,6 +474,10 @@ function main(argv) {
     console.log(run(rootOf(opts), opts));
     return 0;
   } catch (e) {
+    if (e instanceof Finding) {
+      console.log(e.message);
+      return 1;
+    }
     console.error(e.message);
     return 3;
   }

@@ -5,7 +5,7 @@ import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, readFil
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { commitIdentity, ledgerPath, readLedger } from './quiz-check.mjs';
-import { assumptionLines, chooseLines, eligibleLines, priorityEntries, quizBase } from './quiz.mjs';
+import { assumptionLines, chooseLines, eligibleLines, parseGrades, priorityEntries, quizBase } from './quiz.mjs';
 import { commit, git, repoWithRemote } from './test-git.mjs';
 import { tmp } from './test-tmp.mjs';
 
@@ -600,4 +600,194 @@ test('pick: a plan file that cannot be read exits 3', () => {
   const r = quiz(dir, 'pick', '--plan', join(tmp('qg-none-'), 'missing.md'));
   assert.equal(r.code, 3);
   assert.match(r.err, /missing\.md/);
+});
+
+function replyText(verdicts, score = verdicts.filter((v) => v === 'pass').length) {
+  return `score: ${score}/${verdicts.length}\n${verdicts.map((v, i) => `q${i + 1}: ${v}\nreason: r\nfull answer: a\n`).join('')}`;
+}
+
+function gradesFile(text) {
+  const file = join(tmp('qg-grades-'), 'grades.txt');
+  writeFileSync(file, text);
+  return file;
+}
+
+function record(dir, attempt, ...args) {
+  return quiz(dir, 'record', '--attempt', attempt, ...args);
+}
+
+function ledgerLines(dir) {
+  const file = ledgerPath(dir);
+  return existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean) : [];
+}
+
+test('parseGrades: accepts a well-formed five-question reply', () => {
+  assert.deepEqual(parseGrades(replyText(['pass', 'pass', 'pass', 'pass', 'pass']), 5), ['pass', 'pass', 'pass', 'pass', 'pass']);
+  assert.deepEqual(parseGrades(`\n\n${replyText(['pass', 'fail', 'pass', 'pass', 'pass'])}`, 5), ['pass', 'fail', 'pass', 'pass', 'pass']);
+});
+
+test('parseGrades: rejects a fenced reply, a line before score, a wrong score, a short or misordered list', () => {
+  const good = replyText(['pass', 'pass', 'pass', 'pass', 'pass']);
+  assert.equal(parseGrades(`\`\`\`text\n${good}\`\`\``, 5), null);
+  assert.equal(parseGrades(`Here are the grades.\n${good}`, 5), null);
+  assert.equal(parseGrades(replyText(['pass', 'pass', 'pass', 'pass', 'fail'], 5), 5), null);
+  assert.equal(parseGrades(replyText(['pass', 'pass', 'pass', 'pass']), 5), null);
+  assert.equal(parseGrades(good, 4), null);
+  assert.equal(parseGrades(good.replace('q1: pass', 'q9: pass').replace('q2: pass', 'q1: pass').replace('q9: pass', 'q2: pass'), 5), null);
+  assert.equal(parseGrades(good.replace('q3: pass', 'q3: maybe'), 5), null);
+});
+
+test('record: a full score appends one ledger line per unpushed commit and the installed hook then lets the push through', () => {
+  const { dir } = repoWithRemote();
+  quiz(dir, 'install');
+  const first = commit(dir, 'a.ts', numberedLines(4), 'A');
+  const second = commit(dir, 'b.ts', numberedLines(4, 'w'), 'B');
+  const out = pick(dir);
+  assert.notEqual(push(dir).code, 0);
+  const r = record(dir, out.attempt, '--grades', gradesFile(replyText(out.questions.map(() => 'pass'))));
+  assert.deepEqual([r.code, r.out], [0, 'recorded 2 commits']);
+  const lines = ledgerLines(dir).map((l) => JSON.parse(l));
+  assert.deepEqual(lines.map((l) => [l.id, l.sha]).sort(), [[commitIdentity(dir, first), first], [commitIdentity(dir, second), second]].sort());
+  for (const l of lines) {
+    assert.equal(l.attempt, out.attempt);
+    assert.match(l.at, /^\d{4}-\d\d-\d\dT/);
+  }
+  assert.equal(push(dir).code, 0);
+});
+
+test('record: a score below full exits 1 and leaves the ledger unchanged', () => {
+  const { dir } = repoWithRemote();
+  commit(dir, 'a.ts', numberedLines(60), 'A');
+  const out = pick(dir);
+  const verdicts = out.questions.map((_, i) => (i === 0 ? 'fail' : 'pass'));
+  const r = record(dir, out.attempt, '--grades', gradesFile(replyText(verdicts)));
+  assert.equal(r.code, 1);
+  assert.equal(r.out, `score ${verdicts.length - 1}/${verdicts.length}; nothing recorded`);
+  assert.deepEqual(ledgerLines(dir), []);
+});
+
+test('record: a reply that does not match the attempt exits 3 and records nothing', () => {
+  const { dir } = repoWithRemote();
+  commit(dir, 'a.ts', numberedLines(60), 'A');
+  const out = pick(dir);
+  const short = replyText(out.questions.slice(1).map(() => 'pass'));
+  const r = record(dir, out.attempt, '--grades', gradesFile(short));
+  assert.equal(r.code, 3);
+  assert.match(r.err, /grader reply does not match the attempt/);
+  assert.deepEqual(ledgerLines(dir), []);
+});
+
+test('record: a commit made after pick exits 3 with range changed', () => {
+  const { dir } = repoWithRemote();
+  commit(dir, 'a.ts', numberedLines(4), 'A');
+  const out = pick(dir);
+  commit(dir, 'b.ts', numberedLines(4), 'B');
+  const r = record(dir, out.attempt, '--grades', gradesFile(replyText(out.questions.map(() => 'pass'))));
+  assert.equal(r.code, 3);
+  assert.match(r.err, /range changed; run pick again/);
+  assert.deepEqual(ledgerLines(dir), []);
+});
+
+test('record: an unknown attempt, or a path-like attempt id, exits 3', () => {
+  const { dir } = repoWithRemote();
+  commit(dir, 'a.ts', numberedLines(4), 'A');
+  for (const id of ['20990101000000-deadbeef', '../attempts/x', '']) {
+    const r = record(dir, id, '--grades', gradesFile(replyText(['pass'])));
+    assert.equal(r.code, 3, id);
+    assert.match(r.err, /unknown attempt/);
+  }
+});
+
+test('record: needs exactly one of --grades and --no-eligible', () => {
+  const { dir } = repoWithRemote();
+  commit(dir, 'a.ts', numberedLines(4), 'A');
+  const out = pick(dir);
+  assert.equal(record(dir, out.attempt).code, 3);
+  assert.equal(record(dir, out.attempt, '--grades', gradesFile(replyText(['pass'])), '--no-eligible').code, 3);
+});
+
+test('record --no-eligible: refused on an attempt with questions, accepted without a grades file on a docs-only range', () => {
+  const quizzed = repoWithRemote();
+  commit(quizzed.dir, 'a.ts', numberedLines(4), 'A');
+  const asked = pick(quizzed.dir);
+  const refused = record(quizzed.dir, asked.attempt, '--no-eligible');
+  assert.equal(refused.code, 3);
+  assert.match(refused.err, /attempt has questions; --no-eligible refused/);
+  assert.deepEqual(ledgerLines(quizzed.dir), []);
+
+  const docs = repoWithRemote();
+  quiz(docs.dir, 'install');
+  const sha = commitFiles(docs.dir, { 'README.md': '# Title\ntext\n' }, 'docs');
+  const out = pick(docs.dir);
+  assert.equal(out.status, 'no eligible lines');
+  const r = record(docs.dir, out.attempt, '--no-eligible');
+  assert.deepEqual([r.code, r.out], [0, 'recorded 1 commits']);
+  assert.equal(JSON.parse(ledgerLines(docs.dir)[0]).sha, sha);
+  assert.equal(push(docs.dir).code, 0);
+});
+
+test('record: a no-eligible attempt does not accept a grades file', () => {
+  const { dir } = repoWithRemote();
+  commitFiles(dir, { 'README.md': '# Title\ntext\n' }, 'docs');
+  const out = pick(dir);
+  const r = record(dir, out.attempt, '--grades', gradesFile('score: 0/0\n'));
+  assert.equal(r.code, 3);
+  assert.deepEqual(ledgerLines(dir), []);
+});
+
+test('record: a second record of the same attempt adds duplicate lines that readLedger folds', () => {
+  const { dir } = repoWithRemote();
+  commit(dir, 'a.ts', numberedLines(4), 'A');
+  const out = pick(dir);
+  const grades = gradesFile(replyText(out.questions.map(() => 'pass')));
+  record(dir, out.attempt, '--grades', grades);
+  record(dir, out.attempt, '--grades', grades);
+  assert.equal(ledgerLines(dir).length, 2);
+  assert.equal(readLedger(ledgerPath(dir)).size, 1);
+});
+
+test('record: a partial last ledger line from a crash is skipped and the next record starts a fresh line', () => {
+  const { dir } = repoWithRemote();
+  const first = commit(dir, 'a.ts', numberedLines(4), 'A');
+  const second = commit(dir, 'b.ts', numberedLines(4, 'w'), 'B');
+  mkdirSync(join(ledgerPath(dir), '..'), { recursive: true });
+  writeFileSync(ledgerPath(dir), `${JSON.stringify({ id: commitIdentity(dir, first), sha: first, at: 'now', attempt: 'a' })}\n{"id":"par`);
+  assert.deepEqual([...readLedger(ledgerPath(dir))], [commitIdentity(dir, first)]);
+  const out = pick(dir);
+  assert.equal(out.status, 'quiz');
+  record(dir, out.attempt, '--grades', gradesFile(replyText(out.questions.map(() => 'pass'))));
+  assert.ok(readLedger(ledgerPath(dir)).has(commitIdentity(dir, second)));
+});
+
+test('record: a clean rebase onto a moved main keeps the pass and the push of the rebased branch exits 0', () => {
+  const { dir, remote } = repoWithRemote();
+  quiz(dir, 'install');
+  git(dir, 'checkout', '-q', '-b', 'feat');
+  commit(dir, 'feat.ts', numberedLines(4), 'feature');
+  const out = pick(dir);
+  record(dir, out.attempt, '--grades', gradesFile(replyText(out.questions.map(() => 'pass'))));
+  const other = tmp('qg-other-');
+  git(other, 'clone', '-q', remote, '.');
+  git(other, 'config', 'user.email', 't@t');
+  git(other, 'config', 'user.name', 't');
+  commit(other, 'main-change.txt', 'moved\n', 'main moves');
+  git(other, 'push', '-q', 'origin', 'main');
+  git(dir, 'fetch', '-q', 'origin');
+  git(dir, 'rebase', '-q', 'origin/main');
+  const r = spawnSync('git', ['push', 'origin', 'feat'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(pick(dir), { status: 'nothing to quiz' });
+});
+
+test('record then a new commit on top: pick asks only about lines of the new commit', () => {
+  const { dir } = repoWithRemote();
+  commit(dir, 'a.ts', numberedLines(30), 'A');
+  const first = pick(dir);
+  record(dir, first.attempt, '--grades', gradesFile(replyText(first.questions.map(() => 'pass'))));
+  commit(dir, 'b.ts', numberedLines(30, 'w'), 'B');
+  const second = pick(dir);
+  assert.equal(second.status, 'quiz');
+  const lineQuestions = second.questions.filter((q) => q.kind === 'line');
+  assert.ok(lineQuestions.length > 0);
+  assert.ok(lineQuestions.every((q) => q.file === 'b.ts'));
 });
