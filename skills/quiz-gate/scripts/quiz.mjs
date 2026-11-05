@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
+import { randomBytes, randomInt } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gitCommonDir, ledgerPath, readLedger } from './quiz-check.mjs';
+import { commitIdentity, gitCommonDir, ledgerPath, readLedger, unpushed } from './quiz-check.mjs';
 
 const MARKERS = new Set(['# quiz-gate hook v1', '// quiz-gate hook v1']);
 const CHECK_SOURCE = fileURLToPath(new URL('./quiz-check.mjs', import.meta.url));
@@ -23,10 +24,17 @@ node "$(dirname "$0")/quiz-check.mjs" "$@" < "$t" || exit $?
 . "$(dirname "$0")/h" "$@" < "$t"
 `;
 
+const MAX_LINE_QUESTIONS = 4;
+const MAX_PRIORITY = 2;
+const MIN_LINE_GAP = 5;
+const CONTEXT_RADIUS = 3;
+const LOCKFILES = new Set(['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock']);
+const SKIPPED_DIRS = new Set(['__tests__', '__snapshots__', 'docs']);
+
 class SetupError extends Error {}
 
 function git(cwd, args) {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   if (r.error) throw new SetupError(`git ${args[0]}: ${r.error.message}`);
   return r;
 }
@@ -35,6 +43,12 @@ function gitOut(cwd, args) {
   const r = git(cwd, args);
   if (r.status !== 0) throw new SetupError(`git ${args.join(' ')} failed: ${r.stderr.trim()}`);
   return r.stdout.trim();
+}
+
+function gitRaw(cwd, args) {
+  const r = git(cwd, args);
+  if (r.status !== 0) throw new SetupError(`git ${args.join(' ')} failed: ${r.stderr.trim()}`);
+  return r.stdout;
 }
 
 function real(path) {
@@ -135,7 +149,241 @@ function status(root) {
   return `hook: ${installed ? 'installed' : 'missing'}\npasses: ${readLedger(ledgerPath(root)).size}`;
 }
 
-const COMMANDS = { install, uninstall, status };
+/**
+ * First-parent base of the quiz range, or null when every unpushed commit has a pass.
+ * A commit counts as unpassed when it, or a side-branch commit it merged in, has an identity missing from `passed`.
+ */
+export function quizBase(cwd, tip, remote, passed) {
+  const firstParents = gitRaw(cwd, ['rev-list', '--first-parent', '--reverse', tip, '--not', `--remotes=${remote}`]).split('\n').filter(Boolean);
+  for (const sha of firstParents) {
+    const parent = git(cwd, ['rev-parse', '--verify', '-q', `${sha}^1`]);
+    const brought = parent.status === 0
+      ? gitRaw(cwd, ['rev-list', sha, '--not', `${sha}^1`, `--remotes=${remote}`])
+      : gitRaw(cwd, ['rev-list', sha, '--not', `--remotes=${remote}`]);
+    const unpassed = brought.split('\n').filter(Boolean).some((c) => {
+      const id = commitIdentity(cwd, c);
+      return id !== null && !passed.has(id);
+    });
+    if (!unpassed) continue;
+    return parent.status === 0 ? parent.stdout.trim() : gitRaw(cwd, ['hash-object', '-t', 'tree', '/dev/null']).trim();
+  }
+  return null;
+}
+
+function excludedFile(path) {
+  const parts = path.split('/');
+  const name = parts.at(-1);
+  return parts.slice(0, -1).some((dir) => SKIPPED_DIRS.has(dir))
+    || /\.(test|spec)\./.test(name)
+    || LOCKFILES.has(name)
+    || /\.(md|mdx|txt)$/i.test(name);
+}
+
+function excludedLine(code) {
+  const text = code.trim();
+  return !/[\p{L}\p{N}]/u.test(text)
+    || /^import(?=[\s{*'"])/.test(text)
+    || /^(\/\/|\/\*|\*\/|\*(\s|$)|#(\s|$)|<!--)/.test(text);
+}
+
+function addedLines(patch) {
+  let hunkText = null;
+  let line = 0;
+  const found = [];
+  for (const row of patch.split('\n')) {
+    const header = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(row);
+    if (header) {
+      hunkText = [row];
+      line = Number(header[1]);
+      continue;
+    }
+    if (hunkText === null || row === '' || row.startsWith('\\')) continue;
+    hunkText.push(row);
+    if (row.startsWith('+')) found.push({ line: line++, code: row.slice(1), hunkText });
+    else if (row.startsWith(' ')) line++;
+  }
+  return found;
+}
+
+/**
+ * Added lines of `git diff base tip` that a question may use. `hunk` numbers hunks across the whole diff;
+ * `hunkText` is the diff text of that hunk, for the grader packet.
+ */
+export function eligibleLines(cwd, base, tip) {
+  const diffArgs = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames'];
+  const stats = gitRaw(cwd, [...diffArgs, '--numstat', '-z', base, tip]).split('\0').filter(Boolean);
+  const lines = [];
+  const hunkIds = new Map();
+  for (const stat of stats) {
+    const [added, , ...rest] = stat.split('\t');
+    const file = rest.join('\t');
+    if (added === '-' || added === '0' || excludedFile(file)) continue;
+    const patch = gitRaw(cwd, [...diffArgs, base, tip, '--', `:(literal)${file}`]);
+    for (const { line, code, hunkText } of addedLines(patch)) {
+      if (excludedLine(code)) continue;
+      if (!hunkIds.has(hunkText)) hunkIds.set(hunkText, hunkIds.size + 1);
+      lines.push({ file, line, code, hunk: hunkIds.get(hunkText), hunkText: hunkText.join('\n') });
+    }
+  }
+  return lines;
+}
+
+/**
+ * Picks up to four lines: the priority lines first, then one random line per hunk, then any remaining line.
+ * A random pick is never within five lines of an already picked line in the same file.
+ */
+export function chooseLines(eligible, priority, rand) {
+  const picked = priority.slice(0, MAX_PRIORITY);
+  const key = (l) => `${l.file}:${l.line}`;
+  const taken = new Set(picked.map(key));
+  const apart = (l) => !taken.has(key(l)) && picked.every((p) => p.file !== l.file || Math.abs(p.line - l.line) >= MIN_LINE_GAP);
+  const take = (candidates) => {
+    const free = candidates.filter(apart);
+    if (free.length === 0) return false;
+    picked.push(free[rand(free.length)]);
+    return true;
+  };
+  const hunks = [...new Set(eligible.map((l) => l.hunk))];
+  for (let i = hunks.length - 1; i > 0; i--) {
+    const j = rand(i + 1);
+    [hunks[i], hunks[j]] = [hunks[j], hunks[i]];
+  }
+  const represented = new Set(picked.map((l) => l.hunk));
+  for (const hunk of hunks) {
+    if (picked.length >= MAX_LINE_QUESTIONS) break;
+    if (!represented.has(hunk)) take(eligible.filter((l) => l.hunk === hunk));
+  }
+  while (picked.length < MAX_LINE_QUESTIONS && take(eligible));
+  return picked;
+}
+
+/** Entries of the `not covered` and `proposed equivalents` lines of teeth-build result blocks, each with its block's base. */
+export function priorityEntries(planText) {
+  const entries = [];
+  let base = null;
+  for (const row of planText.split('\n')) {
+    const baseMatch = /^\s*-\s*base:\s*([0-9a-f]{4,40})\b/.exec(row);
+    if (baseMatch) {
+      base = baseMatch[1];
+      continue;
+    }
+    if (!base) continue;
+    const covered = /^\s*-\s*not covered:\s*(.+?):(\d+)(?:\s|$)/.exec(row);
+    if (covered) {
+      entries.push({ kind: 'not covered', file: covered[1], line: Number(covered[2]), base });
+      continue;
+    }
+    const equivalent = /^\s*-\s*proposed equivalents:\s*(.+?):(\d+)\s+(\S+)\s+→\s+(?:`([^`]*)`|(\S+))/.exec(row);
+    if (equivalent) {
+      entries.push({ kind: 'equivalent', file: equivalent[1], line: Number(equivalent[2]), base, mutator: equivalent[3], replacement: equivalent[4] ?? equivalent[5] });
+    }
+  }
+  return entries;
+}
+
+/** Values of the `assumptions:` and `decisions:` lines other than `none`. */
+export function assumptionLines(planText) {
+  const values = [];
+  for (const row of planText.split('\n')) {
+    const match = /^\s*-\s*(?:assumptions|decisions):\s*(.+?)\s*$/.exec(row);
+    if (match && match[1] !== 'none') values.push(match[1]);
+  }
+  return values;
+}
+
+function resolvePriority(cwd, tip, entries, eligible) {
+  const lines = [];
+  const skipped = [];
+  for (const entry of entries.slice(0, MAX_PRIORITY)) {
+    const found = lookupPriority(cwd, tip, entry, eligible);
+    if (found) lines.push({ ...found, kind: entry.kind, mutator: entry.mutator, replacement: entry.replacement });
+    else skipped.push(`skipped priority: ${entry.file}:${entry.line} moved or not found`);
+  }
+  return { lines, skipped };
+}
+
+function lookupPriority(cwd, tip, entry, eligible) {
+  try {
+    const taskCommit = gitRaw(cwd, ['rev-list', '--first-parent', '--reverse', `${entry.base}..${tip}`]).split('\n')[0];
+    if (!taskCommit) return null;
+    const text = gitRaw(cwd, ['show', `${taskCommit}:${entry.file}`]).split('\n')[entry.line - 1]?.trim();
+    if (!text) return null;
+    const matches = eligible.filter((l) => l.file === entry.file && l.code.trim() === text);
+    return matches.length === 1 ? matches[0] : null;
+  } catch (e) {
+    if (e instanceof SetupError) return null;
+    throw e;
+  }
+}
+
+function contextBlock(cwd, tip, file, line) {
+  const rows = gitRaw(cwd, ['show', `${tip}:${file}`]).split('\n');
+  const from = Math.max(1, line - CONTEXT_RADIUS);
+  const to = Math.min(rows.length, line + CONTEXT_RADIUS);
+  const width = String(to).length;
+  const out = [];
+  for (let n = from; n <= to; n++) out.push(`${n === line ? '>' : ' '} ${String(n).padStart(width)}  ${rows[n - 1]}`);
+  return out.join('\n');
+}
+
+function lineQuestion(cwd, tip, l) {
+  const code = l.code.trim();
+  const where = `\`${l.file}:${l.line}\``;
+  const text = l.kind === 'equivalent'
+    ? `${where} is \`${code}\`. Mutation testing (\`${l.mutator}\`) replaced part of it with \`${l.replacement}\` and no test failed. Can any caller see a difference? Explain why or why not.`
+    : `${where} is \`${code}\` (context shown below). What does this line do, and what breaks if it is removed or changed?`;
+  return { kind: l.kind === 'equivalent' ? 'equivalent' : 'line', file: l.file, line: l.line, text, context: contextBlock(cwd, tip, l.file, l.line), hunk: l.hunkText };
+}
+
+function assumptionQuestion(recorded) {
+  const text = recorded.length > 0
+    ? `The build recorded these assumptions and decisions: ${recorded.join('; ')}. Which one does this change depend on most, and what breaks if it is wrong?`
+    : 'What is the main assumption this change depends on that the code does not check, and what breaks if it is wrong?';
+  return { kind: 'assumption', text };
+}
+
+function defaultRemote(root) {
+  const upstream = git(root, ['rev-parse', '--abbrev-ref', '@{u}']);
+  return upstream.status === 0 && upstream.stdout.includes('/') ? upstream.stdout.trim().split('/')[0] : 'origin';
+}
+
+function writeAttempt(root, body) {
+  const id = `${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}-${randomBytes(4).toString('hex')}`;
+  const dir = join(gitCommonDir(root), 'quiz', 'attempts');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${id}.json`), JSON.stringify({ ...body, createdAt: new Date().toISOString() }, null, 2), { flag: 'wx' });
+  return id;
+}
+
+function readPlan(file) {
+  try {
+    return readFileSync(file, 'utf8');
+  } catch (e) {
+    throw new SetupError(`cannot read plan ${file}: ${e.message}`);
+  }
+}
+
+function pick(root, opts) {
+  const plan = opts.plan === undefined ? '' : readPlan(opts.plan);
+  const remote = opts.remote ?? defaultRemote(root);
+  const tip = gitOut(root, ['rev-parse', 'HEAD']);
+  const base = quizBase(root, tip, remote, readLedger(ledgerPath(root)));
+  if (base === null) return JSON.stringify({ status: 'nothing to quiz' });
+  const ids = unpushed(root, tip, remote).map((sha) => commitIdentity(root, sha)).filter((id) => id !== null);
+  const eligible = eligibleLines(root, base, tip);
+  if (eligible.length === 0) {
+    const attempt = writeAttempt(root, { tip, base, remote, ids, questions: [] });
+    return JSON.stringify({ status: 'no eligible lines', attempt });
+  }
+  const { lines: priority, skipped } = resolvePriority(root, tip, priorityEntries(plan), eligible);
+  const chosen = chooseLines(eligible, priority, (n) => randomInt(n));
+  const questions = [...chosen.map((l) => lineQuestion(root, tip, l)), assumptionQuestion(assumptionLines(plan))]
+    .map((q, i) => ({ n: i + 1, ...q }));
+  const attempt = writeAttempt(root, { tip, base, remote, ids, questions });
+  return JSON.stringify({ status: 'quiz', attempt, questions, skipped });
+}
+
+const COMMANDS = { install, uninstall, status, pick };
 
 function main(argv) {
   try {
