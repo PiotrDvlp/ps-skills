@@ -518,6 +518,18 @@ test('pick: a submodule pointer in the range is skipped and the normal file is q
   assert.deepEqual([...new Set(lineQuestions.map((q) => q.file))], ['feat.ts']);
 });
 
+test('pick: diff.suppressBlankEmpty does not shift line numbers after a blank context line', () => {
+  const { dir } = repoWithRemote();
+  commit(dir, 'f.ts', 'const a1 = 1;\n\nconst a3 = 3;\nconst a4 = 4;\n', 'pushed');
+  git(dir, 'push', '-q', 'origin', 'main');
+  git(dir, 'config', 'diff.suppressBlankEmpty', 'true');
+  commit(dir, 'f.ts', 'const a1 = 1;\n\nconst a3 = 3;\nconst NEW = 9;\nconst a4 = 4;\n', 'insert');
+  const out = pick(dir);
+  assert.equal(out.status, 'quiz');
+  const lineQuestions = out.questions.filter((q) => q.kind === 'line');
+  assert.deepEqual(lineQuestions.map((q) => [q.file, q.line]), [['f.ts', 4]]);
+});
+
 function lcg(seed) {
   let state = seed;
   return (n) => {

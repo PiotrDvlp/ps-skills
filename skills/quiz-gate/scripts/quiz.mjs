@@ -207,17 +207,19 @@ function addedLines(patch) {
   let hunkText = null;
   let line = 0;
   const found = [];
-  for (const row of patch.split('\n')) {
+  const rows = patch.split('\n');
+  if (rows[rows.length - 1] === '') rows.pop();
+  for (const row of rows) {
     const header = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(row);
     if (header) {
       hunkText = [row];
       line = Number(header[1]);
       continue;
     }
-    if (hunkText === null || row === '' || row.startsWith('\\')) continue;
+    if (hunkText === null || row.startsWith('\\')) continue;
     hunkText.push(row);
     if (row.startsWith('+')) found.push({ line: line++, code: row.slice(1), hunkText });
-    else if (row.startsWith(' ')) line++;
+    else if (row === '' || row.startsWith(' ')) line++;
   }
   return found;
 }
@@ -247,7 +249,7 @@ function blamedCommits(cwd, tip, file) {
  * With `ownCommits`, only lines whose blame at `tip` is one of those commits count, so lines merged in from the remote are skipped.
  */
 export function eligibleLines(cwd, base, tip, ownCommits) {
-  const diffArgs = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames'];
+  const diffArgs = ['-c', 'diff.suppressBlankEmpty=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames'];
   const stats = gitRaw(cwd, [...diffArgs, '--numstat', '-z', base, tip]).split('\0').filter(Boolean);
   const gitlinks = gitlinkPaths(cwd, diffArgs, base, tip);
   const lines = [];
