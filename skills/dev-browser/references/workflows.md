@@ -124,3 +124,39 @@ console.log(JSON.stringify(result, null, 2));
 - To audit one component, pass a selector such as `"#checkout"` instead of `document`.
 
 Verified 2026-10-09 on known-bad HTML: 6 planted violations reported, gradient-background contrast reported under `incomplete`.
+
+### Capturing GraphQL (or any fetch) responses
+
+Wrap `window.fetch` inside the page and read the buffer back with `page.evaluate`. Install the wrapper after the last full-page `goto`: a full navigation discards it.
+
+```javascript
+const page = await browser.getPage("main");
+await page.evaluate(() => {
+  window.__gql = [];
+  const orig = window.fetch;
+  window.fetch = async (input, init) => {
+    const res = await orig(input, init);
+    const url = typeof input === "string" ? input : input.url;
+    if (/graphql/.test(url)) {
+      const body = String((init && init.body) || "");
+      res.clone().text().then((t) => window.__gql.push({
+        ops: (body.match(/"operationName":"(\w+)"/g) || []).join(","),
+        status: res.status,
+        text: t.slice(0, 2000),
+      }));
+    }
+    return res;
+  };
+});
+await page.getByRole("button", { name: "Submit" }).click();
+await page.waitForTimeout(8000);
+console.log(JSON.stringify(await page.evaluate(() => window.__gql), null, 1));
+```
+
+- Do not use `page.route` for this here: on 2026-10-15 a regex and a glob route both captured 0 requests across a client-side navigation, and a route plus an in-page `fetch` hung the script until the 60 s timeout.
+- `page.on("response")` / `page.on("requestfinished")` handlers that read bodies logged nothing; `page.on("request")` sees URLs only.
+- Queries made during server-side rendering never reach the browser. Trigger them by client-side navigation (click an in-app link, not `goto`), or read the rendered page.
+- Log console errors (`page.on("console")`, type `error`) as well: an error the UI swallows, such as a mutation validation error, may appear only there.
+- Accept a cookie banner first: it intercepts clicks and the script times out on the next locator.
+
+Verified 2026-10-15 on a Nuxt 4 + Apollo shop: the wrapper captured a probe query, `CategoryByUrl` after a menu click, and a tracking mutation.
