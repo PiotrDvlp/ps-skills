@@ -40,12 +40,14 @@ export function readLedger(file) {
 export function commitIdentity(cwd, sha) {
   const parents = git(cwd, ['rev-list', '--parents', '-n', '1', sha]).trim().split(' ').length - 1;
   if (parents > 1) {
-    const diff = git(cwd, ['diff-tree', '--cc', '-p', '--no-commit-id', sha]);
+    const diff = git(cwd, ['diff-tree', '--cc', '-p', '--no-commit-id', '--no-color', '--no-ext-diff', sha]);
     return diff === '' ? null : `merge:${createHash('sha256').update(diff).digest('hex')}`;
   }
-  const patch = git(cwd, ['log', '-p', '-1', '--format=', sha]);
+  const patch = git(cwd, ['diff-tree', '-p', '--root', '--no-commit-id', '--no-color', '--no-ext-diff', sha]);
   if (patch === '') return null;
-  return git(cwd, ['patch-id', '--stable'], patch).split(/\s/)[0] || null;
+  const id = git(cwd, ['patch-id', '--stable'], patch).split(/\s/)[0];
+  if (!id) throw new Error(`git patch-id produced no id for ${sha}`);
+  return id;
 }
 
 export function unpushed(cwd, tip, remote, remoteSha) {

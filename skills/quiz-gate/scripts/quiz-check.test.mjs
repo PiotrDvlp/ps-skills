@@ -32,6 +32,26 @@ test('commitIdentity of a commit survives a cherry-pick onto another branch', ()
   assert.equal(commitIdentity(dir, picked), commitIdentity(dir, original));
 });
 
+test('colour config does not turn a commit into one without identity', () => {
+  const { dir } = repoWithRemote();
+  git(dir, 'checkout', '-q', '-b', 'f');
+  const sha = commit(dir, 'a.txt', 'one\ntwo\nthree\nfour\n', 'add four');
+  const plain = commitIdentity(dir, sha);
+  git(dir, 'config', 'color.ui', 'always');
+  git(dir, 'config', 'color.diff', 'always');
+  assert.equal(commitIdentity(dir, sha), plain);
+  assert.deepEqual(checkPush(dir, 'origin', `refs/heads/f ${sha} refs/heads/f ${ZEROS}\n`), [{ sha, ref: 'refs/heads/f' }]);
+});
+
+test('log.showRoot=false does not turn a root commit into one without identity', () => {
+  const { dir } = repoWithRemote();
+  const root = git(dir, 'rev-list', '--max-parents=0', 'HEAD');
+  const plain = commitIdentity(dir, root);
+  git(dir, 'config', 'log.showRoot', 'false');
+  assert.match(commitIdentity(dir, root), /^[0-9a-f]{40}$/);
+  assert.equal(commitIdentity(dir, root), plain);
+});
+
 test('commitIdentity of a clean merge is null', () => {
   const { dir } = repoWithRemote();
   git(dir, 'checkout', '-q', '-b', 'x');
