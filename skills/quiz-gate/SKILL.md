@@ -41,7 +41,7 @@ Build the packet in the shape of `fixtures/grade/right.md`:
 
 - `# Grader packet`
 - `Repo: <repo path>, tip <tip sha>`
-- with `--plan`: `## Plan task`, then the plan task text and its result-block lines, copied from the plan file
+- with `--plan`: `## Plan task`, then every result block in the plan, each under its task heading, plus the text of the tasks those blocks belong to, copied from the plan file (`pick` reads all of them)
 - per question: `## q<n> (<kind>) <file>:<line>` (an assumption question has no `file:line`), then `Question:` with the text, `Context:` with the context block, `Hunk:` with the hunk (an assumption question has neither), and `Answer:` with the user's answer verbatim
 
 Each context block, hunk and answer goes in its own fence (`text` for context and answer, `diff` for the hunk), and each fence is longer than the longest run of backticks inside it, at least three. A user's answer can contain ```.
@@ -70,5 +70,8 @@ This skill never pushes, and never suggests `git push --no-verify`; that bypass 
 
 - The gate is honour-based against the agent: `record` checks the attempt, the tip and the reply shape, but cannot prove a human typed the answers or a grader wrote the reply.
 - `git push --no-verify` bypasses the hook; it is the human's escape and agents never use it.
-- In a husky repo, each `npm install` removes the hook until the next quiz, and a worktree where the quiz never ran has no hook.
+- In a husky repo, each `npm install` removes the hook until the next quiz.
+- In a husky repo, a worktree where the quiz never ran has no hook.
+- A priority line whose text occurs twice in the file at the tip, or that a later task changed, is skipped, not asked.
 - The quiz samples: a pass on up to four lines and one assumption marks every commit in the range as passed, however large the range.
+- The grader is a judgment, measured on two fixture packets only.
