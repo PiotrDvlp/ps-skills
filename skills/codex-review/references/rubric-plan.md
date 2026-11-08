@@ -34,6 +34,7 @@ PASS | NEEDS-WORK | BLOCKER
 5. **Cross-file changes without ordering rationale.** If two files must change together and one can't merge without the other, the plan must say so.
 6. **Untestable acceptance criteria.** "Run the dev server and check it looks right" is not testable; "run `pnpm test --filter cart` and see 7 passing tests" is.
 7. **Hidden prerequisites.** Steps that assume an environment variable, package install, or schema migration not covered in the plan.
+8. **Lifecycle-changing steps.** Where the plan changes stateful behaviour, check that the affected states, transition guards, and invariants are explicit enough to implement. Verify that the steps define failure and recovery behaviour and executable tests for relevant retries, duplicate invocation, cancellation, or out-of-order completion. Cite the specific step and the missing observable assertion or reachable failure sequence. Do not require state-machine documentation for unrelated changes.
 
 ## Verdict scale
 

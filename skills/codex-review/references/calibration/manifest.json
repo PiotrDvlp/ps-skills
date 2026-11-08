@@ -45,6 +45,30 @@
       ]
     },
     {
+      "id": "stale-response",
+      "description": "search() dropped its request-generation guard — when an older query resolves after a newer one, its results overwrite the newer results, and the first completion clears loading while the newer request is still in flight",
+      "kind": "buggy",
+      "expected_verdict": "NEEDS-WORK",
+      "defects": [
+        { "keyword": "older", "note": "out-of-order completion: an older response overwrites the newer query's results" },
+        { "keyword": "loading", "note": "an earlier completion sets loading=false while a newer request is still pending" }
+      ]
+    },
+    {
+      "id": "clean-stale-guard",
+      "description": "the generation guard in search() is extracted into an isCurrent() closure — identical behaviour, guard kept on all three paths (clean twin of stale-response)",
+      "kind": "clean",
+      "expected_verdict": "PASS",
+      "defects": []
+    },
+    {
+      "id": "clean-unrelated-preexisting",
+      "description": "summarize() is refactored with identical output; the same file still holds the unguarded search() race from stale-response, which the patch does not touch and must not be reported",
+      "kind": "clean",
+      "expected_verdict": "PASS",
+      "defects": []
+    },
+    {
       "id": "clean-refactor",
       "description": "netPrice extracted taxAmount into a helper — arithmetic identical, no behavior change",
       "kind": "clean",
