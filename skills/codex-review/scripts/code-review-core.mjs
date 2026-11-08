@@ -14,7 +14,7 @@ import { join } from 'node:path';
 export const PROTOCOL_VERSION = 'codex-review-code/v1';
 export const MAX_ISSUES = 10;
 export const ALLOWED_MODELS = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6.1-terra', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'];
-export const DEFAULT_MODEL = 'gpt-5.6-sol';
+export const DEFAULT_MODEL = 'gpt-6.1-sol';
 export const SOFT_WARN_BYTES = 50 * 1024;
 export const HARD_REFUSE_BYTES = 500 * 1024;
 

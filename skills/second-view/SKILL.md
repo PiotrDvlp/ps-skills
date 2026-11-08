@@ -14,7 +14,7 @@ read-only and never writes files.
 - `/second-view` — build the brief from the current conversation
 - `/second-view <path-to-brief.md>` — use an existing two-part brief file
 - `--deep` — raise reasoning effort to `xhigh` on the resolved model
-- `--model <name>` — override the model. Default `gpt-5.6-sol`; `gpt-6-astra`
+- `--model <name>` — override the model. Default `gpt-6.1-sol`; `gpt-6-astra`
   for a hard, high-stakes design call when its extra cost is justified. Allowed
   list in references/invocation.md
 - `--save` — also write a note under the `Notes root:` directory from the user's

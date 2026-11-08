@@ -10,7 +10,7 @@ const FORBIDDEN = [
 ];
 
 export const ALLOWED_MODELS = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6.1-terra', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'];
-export const DEFAULT_MODEL = 'gpt-5.6-sol';
+export const DEFAULT_MODEL = 'gpt-6.1-sol';
 
 export function assertSafeArgs(extra = []) {
   // A STRING defeats every check below: `for (const a of 'x')` iterates

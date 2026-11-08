@@ -40,7 +40,7 @@ The runner:
 Success prints one JSON object on stdout:
 
 ```json
-{ "ok": true, "mode": "plan", "model": "gpt-5.6-sol", "reasoning_effort": "medium",
+{ "ok": true, "mode": "plan", "model": "gpt-6.1-sol", "reasoning_effort": "medium",
   "sandbox": "read-only", "repo_read": "ok", "duration_ms": 104000,
   "body": "## Verdict\n…" }
 ```

@@ -25,7 +25,7 @@ Treat the following as the canonical entry points:
 - `/codex-review duel <path-to-brief.md>` (blind two-track design generation)
 
 Common flags:
-- `--model <name>` — model override. Default `gpt-5.6-sol` for all modes, including `--deep` (`DEFAULT_MODEL` in `scripts/code-review-core.mjs`).
+- `--model <name>` — model override. Default `gpt-6.1-sol` for all modes, including `--deep` (`DEFAULT_MODEL` in `scripts/code-review-core.mjs`; switched from `gpt-5.6-sol` on 2026-11-08 after calibration scored both at TP 8, FP 0 over two runs).
   - Allowed: `gpt-6.1-sol` (latest workhorse), `gpt-6-astra` (frontier tier), `gpt-6-sol`, `gpt-6.1-terra`, `gpt-6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` (`ALLOWED_MODELS`, the same list as second-view's). Upgrade with `--model gpt-6-astra` for high-risk correctness or security work when its extra cost is justified. Cheaper tiers are for calibration experiments, not production review defaults. Measure a new tier with `calibration` before making it the default.
   - **`gpt-5.6-pro` is not usable here** — verified 2026-08-06, it returns HTTP 400 `invalid_request_error`: "The 'gpt-5.6-pro' model is not supported when using Codex with a ChatGPT account." Reject it with a one-line error instead of burning a run on it.
 - `--deep` — raises reasoning effort to `xhigh` on the already-resolved model. It never changes the selected model — use `--model gpt-6-astra --deep` for a high-risk review. Without `--deep`, the runners pin the effort: `high` in code mode, `medium` in design and plan modes; duel mode passes none (model default). Every runner passes `--ignore-user-config`, so `~/.codex/config.toml` sets neither the model nor the effort.

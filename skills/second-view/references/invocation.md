@@ -40,7 +40,7 @@ Success prints one JSON object on stdout: `ok`, `model`, `reasoning_effort` (`me
 
 ## Model resolution
 
-Default `gpt-5.6-sol` (`DEFAULT_MODEL` in `scripts/codex-args.mjs`, the same as codex-review's). `gpt-6-astra` is the top
+Default `gpt-6.1-sol` (`DEFAULT_MODEL` in `scripts/codex-args.mjs`, the same as codex-review's). `gpt-6-astra` is the top
 tier, an explicit opt-in for hard, high-stakes design calls, matching `codex-review`. `--deep`
 raises effort to `xhigh` on the ALREADY-RESOLVED model rather than switching models.
 
