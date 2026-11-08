@@ -24,7 +24,7 @@ title: "Second view — <topic>"
 source: second-view
 target: conversation | <path-to-brief.md>
 model: <model id used>
-reasoning_effort: xhigh | config-inherit
+reasoning_effort: medium | xhigh    # from the runner JSON; notes before 2026-11 recorded the inherited config value
 sandbox: read-only
 rubric: rubric-proposal.md
 date_added: YYYY-MM-DD

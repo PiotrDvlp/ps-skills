@@ -19,7 +19,7 @@
 //   run        materialize + review every fixture with the real Codex CLI, score it
 //   dry-run    materialize + prepare only — spawns NO Codex; for tests and preview
 //
-// Flags: --filter <id>  only one fixture | --model <m> (default gpt-5.6-sol)
+// Flags: --filter <id>  only one fixture | --model <m> (default DEFAULT_MODEL)
 //        --deep  xhigh effort | --threshold <recall>  exit 1 if recall < threshold
 //        --keep-artifacts  keep tmp fixture repos and bundles
 //
@@ -32,6 +32,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { argv as procArgv } from 'node:process';
+import { DEFAULT_MODEL } from './code-review-core.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RUNNER = join(HERE, 'run-code-review.mjs');
@@ -68,7 +69,7 @@ function spawnRunner(args) {
 }
 
 /** prepare + run one fixture through the real two-phase runner. Returns a score entry. */
-export function reviewFixture(fixture, { model = 'gpt-5.6-sol', deep = false, keep = false }) {
+export function reviewFixture(fixture, { model = DEFAULT_MODEL, deep = false, keep = false }) {
   const materialized = materializeFixture(join(CALIB_DIR, fixture.id));
   try {
     const prep = spawnRunner(['prepare', '--uncommitted', '--repo', materialized.dir]);
@@ -226,7 +227,7 @@ Usage:
   dry-run   materialize + prepare only — spawns NO Codex; verifies the corpus builds.
 
   --filter <id>       review one fixture only
-  --model <m>         default gpt-5.6-sol
+  --model <m>         default ${DEFAULT_MODEL}
   --deep              xhigh reasoning effort
   --threshold <r>     exit 1 when recall < r (e.g. 0.75)
   --keep-artifacts    keep throwaway fixture repos and bundles
@@ -253,7 +254,7 @@ if (isMain()) {
       return v;
     };
     const filter = value('filter');
-    const model = value('model') ?? 'gpt-5.6-sol';
+    const model = value('model') ?? DEFAULT_MODEL;
     const deep = rest.includes('--deep');
     const keep = rest.includes('--keep-artifacts');
     const rawThreshold = value('threshold');

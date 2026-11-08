@@ -33,8 +33,14 @@ test('deep raises reasoning effort on the resolved model without switching model
   assert.equal(argv[argv.indexOf('-m') + 1], 'gpt-5.6-sol');
 });
 
-test('omits the reasoning-effort flag when deep is not set', () => {
-  assert.ok(!buildCodexArgs(base).includes('-c'));
+test('pins medium when deep is not set', () => {
+  const argv = buildCodexArgs(base);
+  assert.equal(argv[argv.indexOf('-c') + 1], 'model_reasoning_effort="medium"');
+  assert.equal(argv.filter((a) => a === '-c').length, 1);
+});
+
+test('ignores the user config so its MCP servers and plugins do not reach Codex', () => {
+  assert.ok(buildCodexArgs(base).includes('--ignore-user-config'));
 });
 
 test('includes -C only when repoRoot is given', () => {
@@ -47,9 +53,11 @@ test('rejects gpt-5.6-pro, which 400s on a ChatGPT account', () => {
   assert.throws(() => buildCodexArgs({ ...base, model: 'gpt-5.6-pro' }), /gpt-5\.6-pro/);
 });
 
-test('accepts gpt-6-astra and rejects slugs outside the allowlist', () => {
+test('accepts gpt-6-astra and gpt-6.1-sol and rejects slugs outside the allowlist', () => {
   const argv = buildCodexArgs({ ...base, model: 'gpt-6-astra' });
   assert.equal(argv[argv.indexOf('-m') + 1], 'gpt-6-astra');
+  const sol = buildCodexArgs({ ...base, model: 'gpt-6.1-sol' });
+  assert.equal(sol[sol.indexOf('-m') + 1], 'gpt-6.1-sol');
   for (const bad of ['gpt-5.6-codex', 'gpt-5.5-codex', 'gpt-5.5', 'typo-model']) {
     assert.throws(() => buildCodexArgs({ ...base, model: bad }), /not allowed/);
   }

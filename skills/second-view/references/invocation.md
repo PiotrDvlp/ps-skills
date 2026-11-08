@@ -1,130 +1,70 @@
 # Invocation
 
-## Assembling the prompt
+## The runner
 
-The skill runs as a standalone `.mjs` script (Node v22.21.1, ESM, no
-`package.json`) that Claude writes to a temp file and executes with `node
-<script>` — it is not pasted into a REPL and its cwd is whatever the shell's
-cwd happened to be at invocation time, not the skill directory. An `import`
-specifier that is relative (e.g. `'../scripts/build-prompt.mjs'`) resolves
-against the *temp script's own location*, not against this skill's directory —
-so it breaks the moment the temp script lives anywhere other than one fixed,
-undocumented spot. `readFileSync` with a relative path is worse: it resolves
-against the process cwd, which is whatever directory the shell happened to be
-in, and is never the skill directory either. Use absolute paths for both,
-anchored on the skill's own directory (computed once via `os.homedir()`, never
-hand-typed per user):
+Every run goes through `scripts/run-second-view.mjs`. Never assemble the prompt or the
+`codex exec` argv yourself: `buildPrompt` is what strips the withheld half and `buildCodexArgs`
+is what pins `-s read-only`, and the runner is the only caller of both that is under test.
 
-```javascript
-import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+1. Write the approved two-part brief to a file under `$TMPDIR` (the user's `/second-view <path>`
+   form already has one). Never write the withheld half anywhere else.
+2. Run, with Bash `run_in_background: true` and `dangerouslyDisableSandbox: true`, then wait
+   for the completion notice:
 
-// Anchor: this skill's own directory. Stable regardless of where the temp
-// script is written or what the shell's cwd is when it runs.
-const SKILL_DIR = join(homedir(), '.claude', 'skills', 'second-view');
+   ```bash
+   node "${CLAUDE_SKILL_DIR}/scripts/run-second-view.mjs" --brief "<absolute brief path>" [--model <m>] [--deep] [--repo <repo-root>] [--keep-prompt <path>]
+   ```
 
-const { buildPrompt } = await import(join(SKILL_DIR, 'scripts', 'build-prompt.mjs'));
+   Pass every other flag from the user's `/second-view` line through unchanged: the runner
+   refuses a `--sandbox` or bypass flag (`assertSafeArgs`) and any unknown flag, both before it
+   spawns anything.
+3. Remove the brief file after the run unless the user asked to keep it.
 
-const prompt = buildPrompt({
-  rubric: readFileSync(join(SKILL_DIR, 'references', 'rubric-proposal.md'), 'utf8'),
-  brief:  readFileSync(briefPath, 'utf8'), // briefPath must itself be absolute
-});
-```
+Quote every path: a notes root such as `~/Notes/My Vault/...` contains a space.
 
-(A static `import` specifier must be a string literal, so it cannot be built
-from `SKILL_DIR` directly — hence the dynamic `await import(...)` above. If
-the temp script is always written inside `SKILL_DIR` itself, a static relative
-import is fine, but then say so explicitly at the point the temp file is
-created; do not leave it implicit.)
+The runner refuses to start inside a nested Seatbelt sandbox (`nested_sandbox`): Codex's
+`-s read-only` is itself a Seatbelt sandbox, Seatbelt cannot nest, and every Codex shell command
+would fail with `sandbox_apply: Operation not permitted`. Turning off the harness sandbox does not
+weaken Hard rule 1, because Codex still runs `-s read-only`.
 
-Quote every path that touches a shell command — the vault path
-(a notes root such as `~/Notes/My Vault/...`) contains a space, and an unquoted path
-silently splits into two arguments.
+What the runner sends: Codex `exec` with `-m <model> -s read-only --ignore-user-config
+--skip-git-repo-check -c model_reasoning_effort="medium|xhigh" [-C <repo>] -o <tmp> -`, with the
+prompt on stdin (never through argv: `ARG_MAX` and quoting). `--ignore-user-config` keeps the
+user's MCP servers and plugins away from Codex; `AGENTS.md` files still load.
 
-Write `prompt` to a temp file (see references/save-note.md and Failure
-handling below for temp-file lifecycle) and record where the temp files live
-(a fresh directory made with `mkdtemp`, cleaned up per the Failure-handling
-table) so the invocation script and the reader agree on the same location.
-Never assemble the prompt by hand — `buildPrompt` is what strips the withheld
-half and it is the only part of that path under test.
+## Result
 
-## Refusing unrecognized flags before building argv
-
-`assertSafeArgs` is a refusal gate on the user's `/second-view` invocation
-line, not an argv-assembly step. `buildCodexArgs` keeps its exact current
-signature (`model, outFile, repoRoot, deep`) — extras are NEVER appended to
-the Codex argv, per Hard rule 1. The guard exists only to refuse the
-invocation outright, before any prompt or argv gets built:
-
-1. Collect every flag on the `/second-view` invocation line that is not one of
-   the seven recognized flags (the two positional forms, `--deep`, `--model`,
-   `--save`, `--keep-prompt`, `--repo`) into an array `extra`.
-2. Call `assertSafeArgs(extra)` first, before building the prompt or the argv.
-   If it throws, print the message and stop.
-
-```javascript
-const { assertSafeArgs, assertCodexSandboxUsable, buildCodexArgs } = await import(join(SKILL_DIR, 'scripts', 'codex-args.mjs'));
-
-assertSafeArgs(extra);   // throws on any --sandbox override; extra is never used again
-assertCodexSandboxUsable();   // throws when run inside the harness sandbox
-const argv = buildCodexArgs({ model, outFile, repoRoot, deep });
-```
-
-Run the invocation script with Bash `dangerouslyDisableSandbox: true`. Codex's
-`-s read-only` is itself a Seatbelt sandbox, and Seatbelt cannot nest: inside
-the harness sandbox every Codex shell command fails with `sandbox_apply:
-Operation not permitted`, and the proposal comes back with no file reads
-behind it. `assertCodexSandboxUsable` catches this before any API call.
-Turning off the harness sandbox does not weaken Hard rule 1, because Codex
-still runs `-s read-only`.
-
-## Running
-
-The shape below is illustrative of what `buildCodexArgs` produces — it is NOT
-a command to copy-paste and run. Building the real argv means calling
-`buildCodexArgs` (above) and executing that array directly (e.g. via
-`node:child_process` `spawn`), never hand-typing a `codex exec ...` line. See
-the `SKILL.md` Gotcha: hand-writing this line is how `--model` or `--deep`
-edits silently lose the `gpt-5.6-pro` rejection, the single-`-s` guarantee, or
-correct `-c` placement.
-
-```bash
-# Illustrative only — the resulting argv shape, not an invocation to run.
-codex exec -m gpt-5.6-sol -s read-only --skip-git-repo-check [-C <repo-root>] \
-  -o <tmp-out> - < <tmp-prompt>
-```
-
-`< file` streams via stdin. Two forms to avoid: `"$(cat prompt)"` puts the whole
-artifact in argv and hits `ARG_MAX`; `<<<"$(cat prompt)"` feeds stdin but the
-shell still buffers the file in memory first and strips trailing newlines.
+Success prints one JSON object on stdout: `ok`, `model`, `reasoning_effort` (`medium` or
+`xhigh`), `sandbox`, `duration_ms`, `proposal`. Synthesize from `proposal`; record `model` and
+`reasoning_effort` from the JSON when saving a note.
 
 ## Model resolution
 
-Default `gpt-5.6-sol`. `gpt-6-astra` is the top tier, an explicit opt-in for
-hard, high-stakes design calls, matching `codex-review`.
-`--deep` appends `-c model_reasoning_effort="xhigh"` to the ALREADY-RESOLVED
-model rather than switching models — `--deep --model gpt-5.6-terra` runs Terra
-at xhigh.
+Default `gpt-6.1-sol` (`DEFAULT_MODEL` in `scripts/codex-args.mjs`, the same as codex-review's). `gpt-6-astra` is the top
+tier, an explicit opt-in for hard, high-stakes design calls, matching `codex-review`. `--deep`
+raises effort to `xhigh` on the ALREADY-RESOLVED model rather than switching models.
 
-`buildCodexArgs` accepts only `ALLOWED_MODELS` (`gpt-6-astra`, `gpt-5.6-sol`,
-`gpt-5.6-terra`, `gpt-5.6-luna`, the same list as `codex-review`'s
-`code-review-core.mjs`). `gpt-5.6-pro` gets its own error: it returns HTTP 400
-"not supported when using Codex with a ChatGPT account". `gpt-5.6-codex` and
-`gpt-5.5-codex` do not exist.
+`buildCodexArgs` accepts only `ALLOWED_MODELS`: `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-sol`,
+`gpt-6.1-terra`, `gpt-6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, the same list as
+`codex-review`'s `code-review-core.mjs` (a parity test holds them equal). `gpt-5.6-pro` gets its
+own error: it returns HTTP 400 "not supported when using Codex with a ChatGPT account".
 
 ## Failure handling
 
-Every failure stops the run and reports. Nothing is retried silently.
+Every failure exits nonzero, prints `[<code>] <message>` on stderr and nothing on stdout. Stop
+and report; nothing is retried silently. There is exactly one Codex call.
 
-| Condition | Detection | Behavior |
-|---|---|---|
-| `codex` not on PATH | `command -v codex` pre-flight | Abort; tell the user to install Codex CLI 0.130.0+ |
-| Nested sandbox | `assertCodexSandboxUsable` pre-flight | Abort; re-run with `dangerouslyDisableSandbox: true` |
-| Nonzero exit from `codex exec` | shell exit status | Surface stderr verbatim, abort |
-| Wall-clock overrun | 600 s timeout | Kill, report the timeout, abort |
-| Output file missing or empty | `test -s <tmp-out>` | Abort, surface the captured stdout log |
-| Missing any of the 5 headings | grep per heading | Surface raw output, abort — never synthesize from a malformed proposal |
-| Temp files | always | Remove on success and abort alike, unless `--keep-prompt` was passed |
+| code | Behavior |
+|---|---|
+| `usage` (exit 2) | Unknown flag, missing value, or a forbidden sandbox flag; nothing spawned |
+| `nested_sandbox` | Re-run with `dangerouslyDisableSandbox: true` |
+| `model_not_allowed` | Model outside `ALLOWED_MODELS`, `gpt-5.6-pro` included |
+| `no_brief`, `bad_brief` | Brief missing, or `buildPrompt` refused it (markers); nothing spawned |
+| `codex_spawn_failed` | `codex` not on PATH; tell the user to install Codex CLI 0.130.0+ |
+| `codex_failed` | Nonzero exit; surface the stderr tail |
+| `model_mismatch`, `model_fallback`, `model_unresolved` | Codex did not run the requested model; never synthesize or save provenance from that run |
+| `timeout` | No result within 900 s; report and stop |
+| `empty_output`, `missing_heading` | Surface the raw output; never synthesize from a malformed proposal |
 
-There is no partial-success path: there is exactly one Codex call.
+Temp files are removed on success and failure alike. `--keep-prompt <path>` copies the assembled
+prompt to that path first.

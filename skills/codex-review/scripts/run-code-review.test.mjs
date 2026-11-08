@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 import { makeRepo, write, commitAll, makeFakeCodex, goodResult } from './test-helpers.mjs';
 import { decideWrite } from './write-decision.mjs';
+import { DEFAULT_MODEL } from './code-review-core.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RUNNER = join(HERE, 'run-code-review.mjs');
@@ -225,7 +226,7 @@ printf '%s\\n' "$*" >> ${JSON.stringify(log)}
 OUT=""
 while [ $# -gt 0 ]; do case "$1" in -o) OUT="$2"; shift 2 ;; *) shift ;; esac; done
 cat > /dev/null
-printf 'model: gpt-5.6-sol\\n' >&2
+printf 'model: ${DEFAULT_MODEL}\\n' >&2
 [ -n "$OUT" ] && cat > "$OUT" <<'EOF'
 ${goodResult()}
 EOF
@@ -238,8 +239,9 @@ exit 0
   const calls = readFileSync(log, 'utf8').trim().split('\n');
   assert.equal(calls.length, 1, 'exactly one codex invocation per run');
   const argv = calls[0];
-  assert.match(argv, /-m gpt-5.6-sol/, 'the review default must use the Sol tier');
+  assert.ok(argv.includes(`-m ${DEFAULT_MODEL} `), 'the review must default to DEFAULT_MODEL');
   assert.match(argv, /-s read-only/);
+  assert.match(argv, /--ignore-user-config/, 'user MCP servers and plugins must not reach the reviewer');
   assert.match(argv, /-C /);
   assert.match(argv, /--output-schema /);
   assert.match(argv, /-c model_reasoning_effort="high"/);

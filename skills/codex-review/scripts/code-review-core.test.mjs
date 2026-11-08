@@ -524,6 +524,7 @@ test('prompt/ omitting context leaves the prompt exactly as it was', () => {
 
 test('provenance/ disallowed models are rejected', () => {
   assert.equal(validateModel('gpt-6-astra'), 'gpt-6-astra');
+  assert.equal(validateModel('gpt-6.1-sol'), 'gpt-6.1-sol');
   assert.equal(validateModel('gpt-5.6-sol'), 'gpt-5.6-sol');
   for (const bad of ['gpt-5.6-pro', 'gpt-5.6-codex', 'gpt-5.5-codex', 'typo-model']) {
     assert.throws(() => validateModel(bad), (e) => e.code === 'model_not_allowed');
@@ -535,6 +536,28 @@ test('provenance/ silent-fallback warning aborts', () => {
     () => resolveModelFromOutput('model: gpt-5.6-sol', 'Model metadata for typo not found. Defaulting to fallback metadata'),
     (e) => e.code === 'model_fallback',
   );
+});
+
+test('provenance/ the real 0.167 fallback warning line aborts', () => {
+  const stderr = [
+    'OpenAI Codex v0.167.0', '--------', 'model: gpt-typo-model', '--------', 'user', 'Reply with OK only.', '',
+    'warning: Model metadata for `gpt-typo-model` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.',
+  ].join('\n');
+  assert.throws(() => resolveModelFromOutput('', stderr), (e) => e.code === 'model_fallback');
+  assert.throws(
+    () => resolveModelFromOutput('', '2026-11-08T10:00:00.000Z WARN codex_core::models: Model metadata for x not found'),
+    (e) => e.code === 'model_fallback',
+  );
+});
+
+test('provenance/ fallback text echoed from the prompt or a file Codex read does not abort', () => {
+  const stderr = [
+    'OpenAI Codex v0.167.0', '--------', 'model: gpt-6.1-sol', '--------', 'user',
+    'Reply with OK only. Note: Model metadata for fake-echo not found.',
+    "  if (/Model metadata for .* not found/i.test(stderr || '')) {",
+    "    () => resolveModelFromOutput('model: gpt-5.6-sol', 'Model metadata for typo not found. Defaulting to fallback metadata'),",
+  ].join('\n');
+  assert.equal(resolveModelFromOutput('', stderr), 'gpt-6.1-sol');
 });
 
 test('provenance/ resolves the session header from STDERR', () => {
