@@ -25,10 +25,10 @@ Treat the following as the canonical entry points:
 - `/codex-review duel <path-to-brief.md>` (blind two-track design generation)
 
 Common flags:
-- `--model <name>` — model override. Default `gpt-5.6-sol` for all modes, including `--deep`.
-  - `gpt-5.6-sol` is the default for every review. Upgrade with `--model gpt-6-astra` for high-risk correctness or security work when its extra cost is justified. `gpt-5.6-terra` (cheaper) and `gpt-5.6-luna` remain available for calibration experiments, not production review defaults.
+- `--model <name>` — model override. Default `gpt-5.6-sol` for all modes, including `--deep` (`DEFAULT_MODEL` in `scripts/code-review-core.mjs`).
+  - Allowed: `gpt-6.1-sol` (latest workhorse), `gpt-6-astra` (frontier tier), `gpt-6-sol`, `gpt-6.1-terra`, `gpt-6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` (`ALLOWED_MODELS`, the same list as second-view's). Upgrade with `--model gpt-6-astra` for high-risk correctness or security work when its extra cost is justified. Cheaper tiers are for calibration experiments, not production review defaults. Measure a new tier with `calibration` before making it the default.
   - **`gpt-5.6-pro` is not usable here** — verified 2026-08-06, it returns HTTP 400 `invalid_request_error`: "The 'gpt-5.6-pro' model is not supported when using Codex with a ChatGPT account." Reject it with a one-line error instead of burning a run on it.
-- `--deep` — raises reasoning effort on the already-resolved model: append `-c model_reasoning_effort="xhigh"` to the Codex invocation. It never changes the selected model — use `--model gpt-6-astra --deep` for a high-risk review. Without `--deep`, Codex inherits `model_reasoning_effort` from `~/.codex/config.toml`.
+- `--deep` — raises reasoning effort to `xhigh` on the already-resolved model. It never changes the selected model — use `--model gpt-6-astra --deep` for a high-risk review. Without `--deep`, the runners pin the effort: `high` in code mode, `medium` in design and plan modes; duel mode passes none (model default). Every runner passes `--ignore-user-config`, so `~/.codex/config.toml` sets neither the model nor the effort.
   - Valid in `code`, `design`, and `plan` modes. **Reject `--deep` in `duel` mode** with a one-line error: it would raise effort on the Codex track only, and a stronger generator on one side is the exact asymmetry the blindness invariant forbids (see `references/invocation-duel.md`).
   - Every mode's spoke must actually apply the override when `--deep` is passed. If a spoke does not, do **not** record `reasoning_effort: xhigh` — the frontmatter would claim an effort the run never used.
 - `--claude-model <name>` — duel mode only: Claude-side subagent model, one of `sonnet | opus | haiku | fable`. Default: omit to inherit the session model.
@@ -65,11 +65,21 @@ Before invoking Codex, run these in order. Stop with a clear error message if an
 - **`-s read-only` is non-negotiable: without it the reviewer silently inherits `sandbox_mode` from `~/.codex/config.toml` (`workspace-write` today), with no error.** Why this matters: the flag is the only thing making the reviewer read-only; an omission yields a reviewer that can edit the very files it is judging — the boundary this skill is built on — and nothing in the output reveals it. Do not rely on the config default being the mild one. There is no read-scoping counterpart: the sandbox governs writes only, so `AGENTS.md` is the only lever on what Codex reads.
 - **Reject `--sandbox` overrides, `codex apply`, `codex exec workspace-write`, and any writing Codex subcommand under this skill; `codex exec` under `-s read-only` is the permitted invocation.** Why this matters: the read-only sandbox is what makes Codex a trustable independent reviewer in this skill's design. Any write capability collapses the boundary that justifies the skill's existence — at that point the user should run `codex apply` themselves. (From the `## Hard rules` section.)
 
+- **Never hand-write a `codex exec` line; call a runner.** Why this matters: design, plan and duel modes used to type the command by hand, with no model check, effort inherited from the user config, and a log grep for blind runs that matched its own prompt echo. `scripts/run-exec.mjs` builds the argv, checks the result and prints JSON; `scripts/run-code-review.mjs` does the same for code mode.
+- **`--ignore-user-config` is on every Codex call.** Why this matters: under `-s read-only` Codex still loads every MCP server and plugin from `~/.codex/config.toml`, so a reviewer could query Jira, Slack or drive computer use. The flag drops them; `AGENTS.md` files still load (probe 2026-11-08, codex-cli 0.167.0).
+
+## Running Codex
+
+Run every runner (`run-code-review.mjs run`, `run-exec.mjs`, `run-calibration.mjs run`) with Bash `run_in_background: true` and `dangerouslyDisableSandbox: true` (or a `sandbox.excludedCommands` entry for that command), then wait for the completion notice. Do not poll and do not run Codex in the foreground.
+
+- Why background: 338 `codex exec` runs, Oct–Nov 2026, took a median 90–135 s and up to 577 s for reviews, 170–210 s median for proposals. The foreground Bash default timeout is 120 s and its maximum is 600 s, below the runners' 900 s timeout. A background call has no such cap.
+- Why sandbox off: Codex's `-s read-only` is a Seatbelt sandbox, and Seatbelt cannot nest inside the Claude Code sandbox; the runners refuse such a run (`nested_sandbox`), and code mode would otherwise review blind. Codex's own `-s read-only` still binds.
+
 ## Resolution and invocation (spokes)
 
 Load references/repo-root.md for the `-C <repo-root>` resolution order used by design/plan modes.
 Load references/output-routing.md for the `--out` flag and the notes-root routing.
-Load references/invocation-design-plan.md for the prompt-file + tmp-output stdin protocol used by design/plan modes.
+Load references/invocation-design-plan.md for the `run-exec.mjs` runner used by design/plan modes (and the duel's Codex track).
 Load references/invocation-code.md for the two-phase `run-code-review.mjs` protocol used by code mode (prepare → size decision → run → write-note).
 Load references/rubric-duel.md for the shared proposal rubric given verbatim to both duel generators.
 Load references/invocation-duel.md for the duel parallel-blind execution protocol and synthesis structure.
@@ -88,14 +98,14 @@ source: codex-review                                                     # cross
 mode: design | plan | code | duel                                        # machine-produced (writer hardcodes it); no in-graph reader
 target: <path or git ref>                                                # human-audit
 model: <model id used>                                                   # human-audit
-reasoning_effort: xhigh | high | config-inherit             # code mode is always explicit (high, or xhigh with --deep); other modes inherit   # human-audit
+reasoning_effort: xhigh | high | medium | model-default    # from the runner result; code high|xhigh, design/plan medium|xhigh, duel model-default; older notes say config-inherit   # human-audit
 claude_model: <claude model id or "session-inherit">      # duel mode only   # human-audit
 shared_prompt_sha256: <sha256 of the shared prompt file>   # duel mode only — build-time input to verify-duel-symmetry.mjs (passed as --recorded-sha); the note copy is human-audit evidence
 shared_prompt_verified: true                               # duel mode only — set only after the verify script passed   # human-audit (synthesis self-check evidence)
 sandbox: read-only                                                       # machine-produced (runner emits it); no in-graph reader
 rubric: rubric-design.md | rubric-plan.md | rubric-code.md | rubric-duel.md   # human-audit
 repo_root_resolved: true | false                                        # human-audit
-repo_read: ok | failed                                     # design/plan modes; human-audit — failed = nested-Seatbelt blind run, see invocation-design-plan.md step 5
+repo_read: ok | failed                                     # design/plan modes, from the runner JSON; human-audit — run-exec.mjs refuses a nested-Seatbelt run, so new notes say ok; failed appears in older notes only
 date_added: YYYY-MM-DD                                                   # cross-graph (log.md entry, note listings)
 tags: [codex-review, <mode>]                                             # cross-graph (note discovery)
 ---

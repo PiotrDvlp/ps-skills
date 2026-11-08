@@ -19,16 +19,22 @@ Both generators receive the identical prompt — any per-side difference reintro
 
 ### Codex track (background)
 
-Reuse the design/plan stdin protocol. Codex stays read-only:
+Run `scripts/run-exec.mjs` in duel mode. It streams the shared prompt file to Codex unchanged, so
+`shared_prompt_sha256` covers this track, and Codex stays read-only:
 
 ```bash
-codex exec -m <model> -s read-only --skip-git-repo-check [-C <repo-root>] \
-  -o <tmp-codex-out> - < <shared-prompt-file>
+node "${CLAUDE_SKILL_DIR}/scripts/run-exec.mjs" --mode duel --prompt-file "<shared-prompt-file>" [--repo <repo-root>] [--model <m>]
 ```
 
-Run it with `run_in_background: true` so the Claude track runs concurrently. Default `<model>` is `gpt-5.6-sol` (or `--model` override).
+Run it with Bash `run_in_background: true` and `dangerouslyDisableSandbox: true`, so the Claude
+track runs concurrently. `--model` defaults to the skill default.
 
-**`--deep` is rejected in duel mode** — reject it with a one-line error rather than honoring it. The override would apply to this track only, and the Claude track has no equivalent knob (`--claude-model` selects a model, not an effort). Handing one generator `xhigh` while the other runs at session effort is the same asymmetry as a weaker model, just in the opposite direction. Never add `-c model_reasoning_effort` to this command.
+**`--deep` is rejected in duel mode**, by the runner (`deep_in_duel`) and by you before calling
+it. The override would apply to this track only, and the Claude track has no equivalent knob
+(`--claude-model` selects a model, not an effort). Handing one generator `xhigh` while the other
+runs at session effort is the same asymmetry as a weaker model, just in the opposite direction.
+For the same reason the runner passes no `-c model_reasoning_effort` in duel mode; record
+`reasoning_effort: model-default`.
 
 ### Claude track (subagent)
 
@@ -40,7 +46,7 @@ Dispatch ONE fresh subagent via the Agent tool, in the SAME message as launching
 
 ## Step 3: Wait for both, then verify and validate
 
-**Verify shared-prompt integrity before validating headings or synthesizing.** As soon as both tracks return, extract the trailing "sha256: <hash>" line from the returned Claude proposal — this is the only part of either proposal you read at this point; blindness binds the generators, not the synthesizer — then run the verify script before reading the Codex output file or either proposal in full. It re-hashes the shared prompt file and compares against both the build-time hash and the Claude track's reported hash:
+**Verify shared-prompt integrity before validating headings or synthesizing.** As soon as both tracks return, extract the trailing "sha256: <hash>" line from the returned Claude proposal — this is the only part of either proposal you read at this point; blindness binds the generators, not the synthesizer — then run the verify script before reading the Codex JSON or either proposal in full. It re-hashes the shared prompt file and compares against both the build-time hash and the Claude track's reported hash:
 
 ```bash
 node "${CLAUDE_SKILL_DIR}/scripts/verify-duel-symmetry.mjs" \
@@ -52,7 +58,7 @@ node "${CLAUDE_SKILL_DIR}/scripts/verify-duel-symmetry.mjs" \
 
 On success the script writes a verdict sidecar JSON (`ok`, the three hashes, `verified_at`) next to the shared prompt; on any failure it writes no sidecar. Copy the verdict from the sidecar file and record `shared_prompt_verified: true` in the note frontmatter **only when the sidecar exists with `ok: true`** — the sidecar is the artifact, not the session's memory. Any nonzero exit is a symmetry violation: surface the raw hashes from the script's JSON and STOP. Do not retry, do not synthesize from one proposal — a duel that fails its symmetry proof is not a duel. If the Claude proposal lacks the `sha256:` line entirely, treat it as a failed Claude track under this same STOP protocol (surface the raw proposal; do not invoke the verify script with an empty hash).
 
-Read the Codex output file and the subagent's returned proposal. Validate that EACH contains all five required headings: `## Approach`, `## Design`, `## Tradeoffs`, `## Risks`, `## Open questions`.
+Read the Codex proposal from the runner's JSON (`body`; the runner already refused a result without the five headings) and the subagent's returned proposal. Validate that the Claude proposal contains all five required headings: `## Approach`, `## Design`, `## Tradeoffs`, `## Risks`, `## Open questions`. A runner failure (nonzero exit, `[<code>]` on stderr, nothing on stdout) is a failed Codex track.
 
 **If either side fails validation or errors:** surface that side's raw output and STOP. Do not retry silently. Do not synthesize from one proposal — a one-sided duel is just a proposal with extra steps. Tell the user to re-invoke.
 

@@ -154,7 +154,7 @@ Exempt the runner once, in `~/.claude/settings.json`:
 
 ```
 /sandbox exclude "node <absolute path of this skill>/scripts/run-code-review.mjs *"
-/sandbox exclude "codex exec *"    # design, plan and duel modes invoke Codex directly
+/sandbox exclude "node <absolute path of this skill>/scripts/run-exec.mjs *"    # design, plan and duel modes
 ```
 
 The absolute path is the directory holding `SKILL.md`: Claude Code shows it as the

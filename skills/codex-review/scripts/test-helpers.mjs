@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DEFAULT_MODEL } from './code-review-core.mjs';
 
 export function makeRepo() {
   const dir = mkdtempSync(join(tmpdir(), 'cxr-test-'));
@@ -41,6 +42,7 @@ export function commitAll(g, msg = 'c') {
  * is a pipe, and an unstyled fake hid a second model_unresolved abort.
  *
  * `mutate` is a shell snippet run before exiting, used to simulate drift.
+ * `argvLog` and `stdinCopy` are file paths that receive the argv line and the prompt.
  */
 export function makeFakeCodex(behavior = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'cxr-fake-'));
@@ -50,11 +52,12 @@ export function makeFakeCodex(behavior = {}) {
     + '\x1b[2mcodex_models_manager::cache\x1b[0m\x1b[2m:\x1b[0m failed to load '
     + 'models cache: missing field `supports_reasoning_summaries` at line 87 column 5',
     'OpenAI Codex v0.144.5', '--------', `${b('workdir:')} /tmp/fake`,
-    `${b('model:')} ${behavior.model ?? 'gpt-5.6-sol'}`,
+    `${b('model:')} ${behavior.model ?? DEFAULT_MODEL}`,
     `${b('provider:')} openai`, `${b('approval:')} never`,
     `${b('sandbox:')} read-only`, '--------',
   ].join('\n');
   const script = `#!/bin/sh
+${behavior.argvLog ? `printf '%s\\n' "$*" >> ${JSON.stringify(behavior.argvLog)}` : ''}
 # parse -o <file>
 OUT=""
 while [ $# -gt 0 ]; do
@@ -63,7 +66,7 @@ while [ $# -gt 0 ]; do
     *) shift ;;
   esac
 done
-cat > /dev/null   # drain stdin (the prompt)
+cat > ${behavior.stdinCopy ? JSON.stringify(behavior.stdinCopy) : '/dev/null'}   # drain stdin (the prompt)
 ${behavior.mutate ?? ''}
 # Heredoc, not printf '%s': %s does not interpret \\n in its ARGUMENT, so the
 # multi-line header would collapse to one literal line and the ^model: anchor

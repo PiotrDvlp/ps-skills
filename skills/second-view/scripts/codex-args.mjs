@@ -9,7 +9,8 @@ const FORBIDDEN = [
   'workspace-write',
 ];
 
-export const ALLOWED_MODELS = ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'];
+export const ALLOWED_MODELS = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6.1-terra', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'];
+export const DEFAULT_MODEL = 'gpt-5.6-sol';
 
 export function assertSafeArgs(extra = []) {
   // A STRING defeats every check below: `for (const a of 'x')` iterates
@@ -69,8 +70,8 @@ export function buildCodexArgs({ model, outFile, repoRoot, deep = false }) {
     throw new Error(`model ${model} is not allowed; pick one of ${ALLOWED_MODELS.join(', ')}`);
   }
 
-  const argv = ['exec', '-m', model, '-s', 'read-only', '--skip-git-repo-check'];
-  if (deep) argv.push('-c', 'model_reasoning_effort="xhigh"');
+  const argv = ['exec', '-m', model, '-s', 'read-only', '--ignore-user-config', '--skip-git-repo-check'];
+  argv.push('-c', `model_reasoning_effort="${deep ? 'xhigh' : 'medium'}"`);
   if (repoRoot) argv.push('-C', repoRoot);
   argv.push('-o', outFile, '-');
   return argv;

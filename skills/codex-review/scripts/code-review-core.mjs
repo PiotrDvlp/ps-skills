@@ -13,7 +13,8 @@ import { join } from 'node:path';
 
 export const PROTOCOL_VERSION = 'codex-review-code/v1';
 export const MAX_ISSUES = 10;
-export const ALLOWED_MODELS = ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'];
+export const ALLOWED_MODELS = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6.1-terra', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'];
+export const DEFAULT_MODEL = 'gpt-5.6-sol';
 export const SOFT_WARN_BYTES = 50 * 1024;
 export const HARD_REFUSE_BYTES = 500 * 1024;
 
@@ -39,6 +40,31 @@ export function git(repoRoot, args, { encoding = 'utf8', env = {} } = {}) {
   } catch (err) {
     const stderr = err.stderr ? String(err.stderr).trim() : '';
     throw new ReviewError('git_failed', `git ${args.join(' ')} failed (status ${err.status}): ${stderr}`);
+  }
+}
+
+/**
+ * Refuse to run `codex exec` inside another Seatbelt sandbox.
+ *
+ * @remarks
+ * Seatbelt cannot nest: from inside the Claude Code Bash sandbox, `-s read-only`
+ * fails every Codex shell command with `sandbox_apply: Operation not permitted`
+ * and the review comes back blind. A no-op `sandbox-exec` makes the same syscall.
+ * Same check as `assertCodexSandboxUsable` in second-view's `codex-args.mjs`.
+ *
+ * @param probe - injectable runner; throws when a nested sandbox cannot be created.
+ */
+export function assertCodexSandboxUsable(probe = () => execFileSync(
+  'sandbox-exec', ['-p', '(version 1)(allow default)', '/usr/bin/true'], { stdio: 'ignore' },
+)) {
+  if (process.platform !== 'darwin') return;
+  try {
+    probe();
+  } catch {
+    throw new ReviewError('nested_sandbox',
+      'nested sandbox: `codex exec -s read-only` runs its own Seatbelt sandbox and Seatbelt cannot '
+      + 'nest, so Codex could read no files. Re-run with the harness sandbox off (Bash '
+      + '`dangerouslyDisableSandbox: true`) or from a shell outside the sandbox.');
   }
 }
 
@@ -79,11 +105,13 @@ export function validateModel(requested) {
 // CSI sequences (SGR colour/bold is the whole of what codex emits here).
 const ANSI_CSI = /\x1B\[[0-?]*[ -/]*[@-~]/g;
 const deStyle = (s) => (s || '').replace(ANSI_CSI, '');
+// Line-anchored: stderr also echoes the prompt and every file Codex reads, so an unanchored match fires on quoted text.
+const FALLBACK_LINE = /^(?:\d{4}-\d\d-\d\dT\S+\s+)?(?:(?:warning|WARN)\b:?\s+(?:[\w:]+:\s+)?)?Model metadata for \S+ not found/im;
 
 export function resolveModelFromOutput(rawStdout, rawStderr) {
   const stdout = deStyle(rawStdout);
   const stderr = deStyle(rawStderr);
-  if (/Model metadata for .* not found/i.test(stderr || '')) {
+  if (FALLBACK_LINE.test(stderr)) {
     throw new ReviewError(
       'model_fallback',
       'Codex reported an unknown-model fallback; the run would silently use a different model.',

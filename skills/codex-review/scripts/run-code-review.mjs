@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import {
   resolveTarget, buildPatch, countUntracked, stateDigest, parsePatch,
   validateAgainstSchema, validateSemantics, findUnanchoredIssues, deriveFinalVerdict,
-  assemblePrompt, renderBody, validateModel, resolveModelFromOutput,
+  assemblePrompt, renderBody, validateModel, resolveModelFromOutput, DEFAULT_MODEL,
   sha256, git, ReviewError, PROTOCOL_VERSION, SOFT_WARN_BYTES, HARD_REFUSE_BYTES,
 } from './code-review-core.mjs';
 
@@ -161,6 +161,7 @@ function buildCodexArgv({ model, deep, repoRoot, schemaPath, outFile }) {
   const argv = ['exec', '-m', model];
   argv.push('-c', `model_reasoning_effort="${deep ? 'xhigh' : 'high'}"`);
   argv.push('-s', 'read-only');            // hardcoded; there is no parameter to change it
+  argv.push('--ignore-user-config');
   argv.push('--skip-git-repo-check');
   // NO --json. Verified live on codex-cli 0.144.5: the JSONL stream carries only
   // thread.started / turn.started / item.completed / turn.completed and contains
@@ -198,7 +199,7 @@ async function cmdRun(args) {
         `patch.diff hash ${actual} != manifest ${manifest.diff_sha256}; the bundle changed between phases`);
     }
 
-    const model = validateModel(args.model ?? 'gpt-5.6-sol');
+    const model = validateModel(args.model ?? DEFAULT_MODEL);
 
     const digestBefore = stateDigest(repoRoot);
     if (digestBefore !== manifest.state_digest_prepare) {
