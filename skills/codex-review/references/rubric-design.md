@@ -34,6 +34,7 @@ PASS | NEEDS-WORK | BLOCKER
 5. **Ambiguous interfaces.** Verbs without subjects/objects. "The system handles X" — what does "handle" mean? "Validates Y" — against what? "Notifies Z" — who, how, on what trigger?
 6. **Contradictions.** Two sections that say incompatible things about the same component or behavior.
 7. **Hand-waved failure modes.** "We'll handle errors appropriately" or "we'll add validation" without specifying which errors or what validation.
+8. **Stateful interfaces.** Where the design introduces or changes a lifecycle, check that it defines the relevant states, events, guards, invariant ownership, and success and failure transitions. Where overlapping operations or retries are possible, check how stale completion, duplicate effects, and recovery are handled. Cite a specific section or quote and explain the concrete ambiguity or failure sequence. Do not prescribe a state-machine library or flag the absence of a transition table when equivalent behaviour is already specified.
 
 ## Verdict scale
 
