@@ -141,4 +141,37 @@ the coverage ledger, and the path of the run note for details.
 
 ## prepare-fix
 
-Filled in by the prepare-fix task of the build plan.
+Turns findings the owner selected into a fix packet and an implementation plan, then stops.
+
+1. The user names the findings. Selection allows preparation only; it does not approve a fix. A
+   finding whose invariant has the basis `investigator assumption` needs the owner to confirm or
+   rewrite the invariant first.
+2. Recheck the selected findings at `--rev` (default `HEAD`) as in `references/recheck.md`. Only
+   findings whose new observation is `present` go further. List an `absent` one as "nothing to fix
+   at REV" (the owner may close it) and an `unresolved` one with what could not be found (the owner
+   decides after looking).
+3. Group into issues only when one behaviour change and one regression strategy cover every
+   finding in the group. Findings that need an owner or backend answer first (for example whether
+   a mutation is idempotent) are listed with the question, not packed.
+4. Write one fix packet per issue to `<out>/fixes/I###.md`: states and invariants involved, the
+   current traces, evidence (`file:line` at the pinned revision, short excerpts), the proposed
+   change, regression scenarios (each with the event order a test must force), and open
+   assumptions. Measure it with `wc -c`. Above 40 KiB, replace the excerpts with `file:line`
+   references (a reviewer can read the repo itself) and measure again. Still above 40 KiB: the
+   issue is too large to review as one unit; stop and ask the owner to narrow the selection.
+5. If a `codex-review` skill is installed, offer `/codex-review design <packet>`. Without it, say
+   in the packet and in your report that it was not independently reviewed.
+6. Draft the implementation plan next to the packet (`<out>/fixes/I###-plan.md`). Every task that
+   fixes a finding starts with the regression test that must fail before the fix, named with the
+   finding ID. When the plan is meant for a `teeth-build` skill, give each such task the line
+   `**Route:** relay`, so a separate writer produces the red test before the implementer starts;
+   its `gate` route lets the implementer write tests and code together. Without `teeth-build`, the
+   plan is for the user's own workflow.
+7. Record the issue in the living note (`## Issues`), set the packed findings to `selected`, and
+   write the run as in "Writing a run".
+8. Stop. Report the packet and plan paths. The owner approves the plan and starts the build.
+
+After a build, `recheck F###` records the fix revision and the regression evidence
+(`verification: regression_test`). `resolved` needs both, on a revision contained in
+`target_branch`. "Fixed on a branch" and "verified on the target branch" are separate
+observations.

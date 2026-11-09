@@ -68,6 +68,16 @@ test('scan: budget, seams, ledger and inventory depth', () => {
   assertContains(textOf('references/investigator.md'), ['leads', 'coverage']);
 });
 
+test('prepare-fix: packet size, review, grouping and relay route', () => {
+  assertContains(read('SKILL.md'), [
+    '**Route:** relay',
+    '40 KiB',
+    'wc -c',
+    'not independently reviewed',
+    'one behaviour change and one regression strategy',
+  ]);
+});
+
 test('no personal path or vault name outside fixtures', () => {
   const files = filesUnder(SKILL_DIR).filter((f) => !relative(SKILL_DIR, f).startsWith('fixtures'));
   for (const file of files) {
