@@ -13,7 +13,7 @@ Below, `C` stands for `node ${CLAUDE_SKILL_DIR}/scripts/check-plan.mjs`.
 
 Start after a design is approved, or when the user asks for a plan. If there is no design and the work is not obvious, ask whether to design first.
 
-Where the plan goes: the path the user names. Otherwise, if the user's CLAUDE.md has a `Notes root: <dir>` line, `<dir>/<project>/plans/YYYY-MM-DD-<feature>.md`; else `docs/plans/YYYY-MM-DD-<feature>.md` in the repo. The gate writes `<plan>.receipt.json` next to the plan; inside the repo, commit both or neither.
+Where the plan goes: the path the user names. Otherwise, if the user's CLAUDE.md has a `Notes root: <dir>` line, `<dir>/<project>/plans/YYYY-MM-DD-<feature>.md`; else `docs/plans/YYYY-MM-DD-<feature>.md` in the repo. The gate writes `<plan>.receipt.json` next to the plan (`plan.md` gets `plan.receipt.json`); inside the repo, commit both or neither.
 
 To have brainstorming hand over to this skill, a user can add one line to their CLAUDE.md:
 
@@ -25,13 +25,13 @@ After a design is approved, write the implementation plan with the skeleton-plan
 
 - **Scope check.** If the design covers several independent subsystems, propose one plan per subsystem. Each plan must produce working, testable software on its own.
 - **File structure.** Before any block, decide which files are created, modified or deleted, and what each one is responsible for. One clear responsibility per file; files that change together live together; in an existing codebase, follow its patterns.
-- **Base.** Pick the commit the implementer will start from: `git rev-parse --short HEAD` on a clean tree. The gate ignores uncommitted changes.
+- **Base.** Pick the commit the implementer will start from: `git rev-parse --short HEAD` on a clean tree. It goes in the plan's YAML front matter as `base: <sha>`; the gate reads only that line and ignores uncommitted changes.
 
 ## 3. Write the plan
 
 Format: `references/format.md`. Above the marker line:
 
-1. Header: goal (one line), base commit, gate status, design link.
+1. Front matter with `base: <sha>`. Header: goal (one line), base commit, design link, and a `Gate:` line on its own (`Gate: pending` before the first run).
 2. `## 1. Files`: one row per file, including test files and docs the plan changes.
 3. `## 2. Interfaces`: one labelled block per splice operation. New exports are stubs with an explicit return type, a one-line JSDoc contract and a `return undefined as never` body. Then the "Signature unchanged, behaviour changed" list.
 4. `## 3. Test cases`: exact test titles, each with one `Given ...; then ...` line, grouped by test file; a final `**No dedicated cases:**` line.
@@ -59,12 +59,12 @@ C --plan <plan.md> --repo <repo root>
 Add `--cache-dir <dir>` when the default `~/.cache/skeleton-plan` is not writable. The status is the first output line and the exit code:
 
 - **0 `passed`:** go on.
-- **1 `format: ...` or `failed: ...`:** the plan is wrong. Fix it and rerun. A `caller broken` line names a file your signature change breaks: keep the signature compatible or add that file with a block.
+- **1 `format: ...` or `failed: ...`:** the plan is wrong. Fix it and rerun. A `caller broken` line names a file your signature change breaks: keep the signature compatible, or add the file with a block (`.ts`) or a files row (`.vue`).
 - **3 `blocked: ...`:** the gate cannot judge the plan. Stop and report the reason to the user. Never work around it (do not change `base:` to dodge a broken baseline, do not drop blocks). `typescript not found ... run: check-plan.mjs setup`: ask the user to approve `C setup` (an npm install with network access), run it, then rerun the gate.
-- **4 `passed with N ungated items`:** not a plain pass. Each `ungated:` line is a `.vue` block or a `.vue` caller that no typecheck saw. Name every item to the user. Add `.vue` callers to the files table.
-- **5 `not typechecked: no TypeScript`:** the base has no `tsconfig.json`. There is no receipt. The plan goes out with the header `Gate: not typechecked`.
+- **4 `passed with N ungated items`:** not a plain pass. Each `ungated:` line is a `.vue` block or a listed `.vue` caller that no typecheck saw. Name every item to the user.
+- **5 `not typechecked: no TypeScript`:** the base has no `tsconfig.json`. There is no receipt.
 
-The header's gate status is part of the approval hash. Write the status you expect before the run; when the run returns another one, correct the header and rerun.
+After every run, whatever the status (also 1 and 3), set the header's `Gate:` line to `Gate: ` followed by the first line the gate printed, for example `Gate: passed with 2 ungated items` or `Gate: blocked: baseline broken`. That one line is not part of the approval hash, so writing it does not need another run.
 
 ## 5. Second review
 
@@ -72,7 +72,7 @@ If the `codex-review` skill is available, run `codex-review plan <plan.md>` befo
 
 ## 6. Hand off
 
-Show the plan only when its receipt matches it (status 0 or 4): run the receipt check in `references/cli.md` and expect `receipt matches`. For status 5, there is no receipt; say so.
+Show the plan only when its receipt matches it (status 0 or 4): run `C verify --plan <plan.md>` and expect `receipt matches`. It also checks that the `Gate:` line is the one the gate printed. For status 5, there is no receipt; say so.
 
 Then give the user:
 
@@ -84,7 +84,8 @@ Wait for the user's approval before anyone builds.
 
 ## Gotchas
 
-- **The label is checked.** The bold line above each splice comment must contain the operation's verb and at least the last two path segments: ``**Replace in `cart/cart.ts` — `addItem`**`` passes for `src/cart/cart.ts`; ``**Replace in `cart.ts` — `addItem`**`` fails.
+- **The label is checked.** The bold line above each splice comment must contain the operation's verb, the path (or at least its last two segments) as one backticked token, and every selector name or inserted property in backticks: ``**Replace in `cart/cart.ts` — `addItem`**`` passes for `src/cart/cart.ts` with selector `function:addItem`; ``**Replace in `cart.ts` — `addItem`**`` and ``**Replace in `cart/cart.ts` — addItem**`` fail.
+- **The files row must fit the op.** `create` needs a `Create` row, `delete-file` a `Delete` row, every other op a `Modify` row.
 - **Produces signatures are matched word for word.** ``Produces `t1-greet`: `greet(name: string): string` `` fails when the block says `const greet = (name: string): string =>`. Copy the text from the block.
 - **A replace removes the JSDoc above the declaration.** Include the JSDoc in the block when the declaration should keep one.
 - **Stubs meet the repo's own compiler flags.** Under `noUnusedParameters` or `noUnusedLocals`, a stub that ignores its parameters, or an import only the future body will use, fails the typecheck. Reference the parameter (`void quantity;`) or leave the import to the task.

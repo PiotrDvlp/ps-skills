@@ -1,6 +1,6 @@
 # ps-skills
 
-Fourteen development skills and a principles reference for Claude Code and Codex, by Piotr Strzelecki.
+Sixteen development skills and a principles reference for Claude Code and Codex, by Piotr Strzelecki.
 
 ## Install
 
@@ -36,7 +36,7 @@ npx skills@latest add PiotrDvlp/ps-skills
 | `mr-watchman` | One read-only status pass over your open MRs: conflicts, then review threads, then CI; twins grouped. `--followup <iid> --out <file>` writes a local package of one MR's unresolved threads and failed jobs for a fix session | Node 22+, authenticated `glab` |
 | `test-teeth` | Sampled-mutation audit of a feature's vitest tests: which mutants each test case kills and whether zero-kill cases are removable | Node 22+, vitest 3 in the audited repo |
 | `teeth-build` | Builds an approved plan task by task: red-first tests from a separate writer, locked test files, scope and removed-test checks, and a Stryker gate on each task's changed lines, and a fresh reviewer per task whose blocking finding stops the commit | Node 22+, vitest 3; Stryker 10 installed outside the repo by `setup` |
-| skeleton-plan | Implementation plans as files, interfaces and test cases; the code is spliced into a scratch copy of the repo and typechecked before you see it | Node 22+; TypeScript from the repo or setup |
+| `skeleton-plan` | Implementation plans as files, interfaces and test cases; the code is spliced into a scratch copy of the repo and typechecked before you see it | Node 22+, `git`, macOS/Linux; TypeScript from the repo or `setup` |
 
 ## Principles
 

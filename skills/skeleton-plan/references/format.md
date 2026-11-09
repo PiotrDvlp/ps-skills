@@ -15,7 +15,8 @@ base: 1a2b3c4
 # Cart quantity limit
 
 Goal: a cart line never holds more than 20 of one product.
-Base `1a2b3c4`. Gate: passed. Design: `docs/designs/2026-11-01-cart-limit.md`.
+Base `1a2b3c4`. Design: `docs/designs/2026-11-01-cart-limit.md`.
+Gate: passed
 
 ## 1. Files
 
@@ -108,15 +109,22 @@ YAML front matter with a `base:` line. The value is any commit the repo's git ca
 
 ### Header
 
-One goal line, the base commit, the gate status, and a link to the design document if one exists. The header is part of the approval hash: edit it after a gate run and the receipt no longer matches, so you rerun the gate. Write the status you expect (`Gate: passed`) before the run; if the run returns another status, correct the line and rerun.
+One goal line, the base commit, a link to the design document if one exists, and the gate status on its own line:
+
+```text
+Gate: <the first line the gate printed>
+```
+
+The line starts with exactly `Gate: ` and sits above `## 1. Files`. The first such line is left out of the approval hash, so writing it after a run keeps the receipt valid. Everything else in the header is part of the hash: edit it after a gate run and the receipt no longer matches, so you rerun the gate. After every run, write the line the gate printed, also for a failure or a block (`Gate: blocked: baseline broken`). `check-plan.mjs verify` compares this line with the receipt (see `cli.md`).
 
 ### 1. Files
 
 The heading must start with `## 1. Files`. One table row per file: action (`Create`, `Modify`, `Delete`), path in backticks, change in a few words. The table ends at the next `## ` heading.
 
 - Every block's path must have a row; otherwise `format: not in files table <path> in <id> (line N)`.
+- The row's action must fit the block's op: `create` needs `Create`, `delete-file` needs `Delete`, `replace`, `insert` and `delete-declaration` need `Modify`. Otherwise `format: row <Action> for <path> does not fit op <op> in <id>`.
 - Name deleted declarations in their row.
-- List files the plan changes with no block (test files, docs, `.vue` callers the gate reported). A `.ts` file with a type error that has no row fails the gate as `caller broken`; see "Status 1" in `cli.md`.
+- List files the plan changes with no block (test files, docs, `.vue` callers the gate reported). A `.ts` or `.vue` file with a type error that has no row fails the gate as `caller broken`; see "Status 1" in `cli.md`.
 
 ### 2. Interfaces
 
@@ -130,8 +138,14 @@ One block per splice operation, in this shape and with nothing between the three
 ```
 ```
 
-- **Label:** a bold line directly above the splice comment. It must contain the verb for the operation and at least the last two segments of the path (for `src/cart/cart.ts`: `cart/cart.ts`; for a top-level file: the file name). Verbs: `create` is `Create`, `insert` is `Insert into`, `replace` is `Replace in`, `delete-declaration` and `delete-file` are `Delete in`. A mismatch is `format: label "<label>" does not match <verb> <path> in <id> (line N)`. After the path, name the declarations and say if the block adds imports.
-- **Splice comment:** one line, exactly `<!-- skeleton {JSON} -->`. Any HTML comment whose text starts with `skeleton` is read as a splice comment; do not write other `<!-- skeleton... -->` comments in a plan. Bad JSON is `format: bad splice comment at line N`.
+- **Label:** a bold line directly above the splice comment. It must name everything the block touches:
+  - the verb for the operation: `create` is `Create`, `insert` is `Insert into`, `replace` is `Replace in`, `delete-declaration` and `delete-file` are `Delete in`;
+  - the path as one backticked token that is the whole path or its last two or more segments (for `src/cart/cart.ts`: `` `src/cart/cart.ts` `` or `` `cart/cart.ts` ``; for a top-level file: the file name). `` `cart.ts` `` alone, `` `src/cart/cart.tsx` `` or an unquoted path does not count;
+  - for `replace` and `delete-declaration`, every selector's name in backticks (`function:addItem` needs `` `addItem` ``);
+  - for `insert` into `export-default`, the property name in backticks.
+
+  Each missing item is `format: label "<label>" does not name <what> in <id> (line N)`, where `<what>` is `verb "<verb>"`, ``path `<tail>` ``, ``selector `<name>` `` or ``property `<name>` ``. Say after the names if the block adds imports.
+- **Splice comment:** one line, exactly `<!-- skeleton {JSON} -->`. Any HTML comment whose text starts with `skeleton` is read as a splice comment; do not write other `<!-- skeleton... -->` comments in a plan. Bad JSON, a missing or non-string `id`, `path` or `op`, or a field below with the wrong type is `format: bad splice comment at line N`.
 - **Code block:** the fence must be on the next line. Its language tag does not matter. A `delete-declaration` or `delete-file` block is an empty fence.
 
 Contracts are one-line JSDoc on exported symbols. Every stubbed export has an explicit return type, and its body is `return undefined as never;` (or `=> undefined as never`). Keep framework wrappers such as a store factory: replace the whole declaration, not its inner functions.
@@ -143,7 +157,7 @@ After the blocks, a bold line `**Signature unchanged, behaviour changed**` follo
 | Field | Values |
 |---|---|
 | `id` | Your name for the block, for example `t1-limits`. Tasks refer to it. |
-| `path` | Repo-relative, `/` separators, normalised: no leading `/`, no `./`, no `..`, no trailing `/`. |
+| `path` | Repo-relative, `/` separators, normalised: no leading `/`, no `./`, no `..`, no trailing `/`. Ends in `.ts`, `.tsx`, `.mts`, `.cts` or `.vue` (any case). |
 | `op` | `create`, `insert`, `replace`, `delete-declaration`, `delete-file` |
 | `selector` or `selectors` | One string, or an array of strings. Never both: `format: selector and selectors both set`. |
 | `after` | `"imports"` (with `insert`) |
@@ -156,7 +170,7 @@ After the blocks, a bold line `**Signature unchanged, behaviour changed**` follo
 - `insert` with `"into":"export-default","property":"<name>"`: adds one property to the default export. The export must be an object literal or a call whose first argument is one (`export default defineConfig({ ... })`); otherwise `failed: no export-default object`. A property that already exists is `failed: property <name> exists`. Write the property as `name: value`; a trailing comma is removed.
 - `replace`: the code takes the place of the selected declarations. With several selectors, the code goes where the earliest selected declaration was and the others are removed. Declarations between them stay.
 - `delete-declaration`: removes each selected declaration.
-- `delete-file`: removes the file. Fails with `failed: missing <path>` when it does not exist.
+- `delete-file`: removes the file. Fails with `failed: missing <path>` when it does not exist, and blocks with `blocked: uncovered: <path>` when the base commit's `tsconfig.json` does not include it (the typecheck could not see what the deletion breaks).
 
 `create` and `delete-file` must be the only block for their path: `format: <op> must be the only block for <path>`. `replace`, `insert` and `delete-declaration` need the file to exist: `failed: missing <path>`.
 
@@ -180,7 +194,7 @@ Leading `import` lines of a `replace` or `insert` block move to the file's impor
 
 #### `.vue` files
 
-A block whose path ends in `.vue` (any case) is not spliced or typechecked. It still needs its files row and label. The gate lists it as ungated, so the best result is status 4. A plan whose blocks are all `.vue` is `blocked: no gated block`.
+A block whose path ends in `.vue` (any case) is not spliced or typechecked. It still needs its files row and label. The gate lists it as ungated, so the best result is status 4. A plan whose blocks are all `.vue` is `blocked: no gated block`. A `.vue` file with a type error after the splice must have a files row: with the row it is ungated (status 4), without it the gate fails with `caller broken`.
 
 ### 3. Test cases
 
@@ -195,6 +209,32 @@ The approval part ends at a line that is exactly:
 ```
 
 Without it the gate exits 1 with `format: no approval marker`. Text below the marker does not count toward the approval hash, so you can edit tasks without rerunning the gate, as long as the `**Interfaces:**` lines still pass the format check.
+
+### Every format message
+
+The format check runs on the plan alone, before the gate exports any commit, so these exit 1 with nothing built. The splice repeats the selector, path, op and insert checks with the same messages.
+
+| Message | Cause |
+|---|---|
+| `format: no approval marker` | No marker line. |
+| `format: bad splice comment at line N` | A `<!-- skeleton` comment that is not exactly `<!-- skeleton {JSON} -->`, has bad JSON, or a missing or wrongly typed field. |
+| `format: no code block after line N` | The line after a splice comment is not a fence. |
+| `format: unclosed code block at line N` | The block's fence never closes. |
+| `format: label "<label>" does not name <what> in <id> (line N)` | The label misses the verb, the path, a selector name or the property. |
+| `format: not in files table <path> in <id> (line N)` | The block's path has no row. |
+| `format: row <Action> for <path> does not fit op <op> in <id>` | The row's action does not fit the op. |
+| `format: path <path> leaves the repo in <id> (line N)` | An absolute path or one with `..`. |
+| `format: path <path> is not normalised` | Empty, `./`, `//`, a trailing `/`, or another form `posix.normalize` changes. |
+| `format: path <path> is not a TypeScript or Vue file in <id>` | Not `.ts`, `.tsx`, `.mts`, `.cts` or `.vue`. |
+| `format: unsupported op <op> in block <id>` | An op outside the five. |
+| `format: <op> must be the only block for <path>` | `create` or `delete-file` shares its path with another block. |
+| `format: insert needs after or into in block <id>` | `insert` with neither `"after":"imports"` nor `"into":"export-default"`. |
+| `format: insert into export-default needs property in block <id>` | No `property`. |
+| `format: bad selector <s>` | Not `kind:name`. |
+| `format: unknown selector kind <kind>` | A kind outside the six. |
+| `format: selector and selectors both set in <id> (line N)` | Both fields in one comment. |
+| `format: overlapping <selector> in <path>: <id> and <id>` | Two blocks select the same declaration. The splice reports other overlapping edits as `format: overlapping <selector> (block <id>) and <selector> (block <id>) in <path>`. |
+| ``format: signature `<s>` in Task N not found in <id>`` | A `Produces` value below the line that no block contains. |
 
 ## Below the line
 
