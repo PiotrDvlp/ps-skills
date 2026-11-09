@@ -101,16 +101,16 @@ test('C6 unresolved without reason', () => {
 });
 
 test('C7 quoting: an unbraced revision before a path', () => {
-  const p = oneProblem(edit(VALID, 'REV=refactor/untangle_product\n', 'REV=refactor/untangle_product\ngit show $REV:src/a.js\n'), 'quoting');
+  const p = oneProblem(edit(VALID, 'REV=feature/item_refactor\n', 'REV=feature/item_refactor\ngit show $REV:src/a.js\n'), 'quoting');
   assert.equal(p.id, 'F001');
 });
 
 test('C7 quoting: a braced revision outside double quotes', () => {
-  oneProblem(edit(VALID, 'REV=refactor/untangle_product\n', 'REV=refactor/untangle_product\ngit show ${REV}:src/a.js\n'), 'quoting');
+  oneProblem(edit(VALID, 'REV=feature/item_refactor\n', 'REV=feature/item_refactor\ngit show ${REV}:src/a.js\n'), 'quoting');
 });
 
 test('C7 quoting: PATH extension is not flagged', () => {
-  const text = edit(VALID, 'REV=refactor/untangle_product\n', 'REV=refactor/untangle_product\nexport PATH="$PATH:/usr/bin"\n');
+  const text = edit(VALID, 'REV=feature/item_refactor\n', 'REV=feature/item_refactor\nexport PATH="$PATH:/usr/bin"\n');
   assert.deepEqual(problemsOf(text), []);
 });
 
@@ -122,9 +122,24 @@ test('C9 resolved needs a passing regression test on target', () => {
   oneProblem(edit(VALID, '| absent | confirmed | regression_test | yes |', '| absent | confirmed | code_trace | yes |'), 'resolved');
 });
 
-test('C10 closed finding whose latest observation is present', () => {
-  let text = edit(VALID, '- lifecycle: open\n- disposition: deferred', '- lifecycle: closed\n- disposition: rejected');
-  oneProblem(text, 'closed');
+test('C1 frontmatter that is opened but never closed', () => {
+  oneProblem(edit(VALID, '---\n\n# State audit', '\n# State audit'), 'frontmatter');
+});
+
+test('records under an unknown ## section are reported, not skipped', () => {
+  const problems = problemsOf(edit(VALID, '## Findings\n', '## Open findings\n'));
+  assert.ok(problems.some((p) => /outside a known section/.test(p.message)), JSON.stringify(problems));
+});
+
+test('an owner-rejected finding whose latest observation is present is valid', () => {
+  const text = edit(VALID, '- lifecycle: open\n- disposition: deferred', '- lifecycle: closed\n- disposition: rejected');
+  assert.deepEqual(problemsOf(text), []);
+});
+
+test('a resolved finding rechecked later as absent stays valid', () => {
+  const row = '| R002 | bbbb222 | absent | confirmed | regression_test | yes | blocker: the write queue keeps the last intent |';
+  const text = edit(VALID, row, `${row}\n| R003 | cccc333 | absent | confirmed | code_trace | yes | blocker: the write queue keeps the last intent |`);
+  assert.deepEqual(problemsOf(text), []);
 });
 
 test('C11 selected finding on an investigator assumption', () => {

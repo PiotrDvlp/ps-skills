@@ -78,6 +78,22 @@ test('prepare-fix: packet size, review, grouping and relay route', () => {
   ]);
 });
 
+test('writing a run: validate before the run is marked complete, quote paths, create the folder first', () => {
+  const skill = read('SKILL.md');
+  const section = skill.slice(skill.indexOf('## Writing a run'), skill.indexOf('**Existing lock.**'));
+  assert.ok(section.indexOf('check-records.mjs') > -1 && section.indexOf('check-records.mjs') < section.indexOf('status: complete'), 'validation must come before status: complete');
+  assertContains(section, ['mkdir -p "<out>"', 'mkdir "<out>/.lock"', 'check-records.mjs" "<out>/<repo-name>.md"']);
+  assertContains(skill, ['field changes']);
+});
+
+test('fixtures and tests use neutral identifiers', () => {
+  const banned = ['untan' + 'gle_product', 'pdp' + 'Store', 'createApollo' + 'Client', 'isItemData' + 'Loading'];
+  for (const file of filesUnder(SKILL_DIR)) {
+    const text = readFileSync(file, 'utf8');
+    for (const word of banned) assert.ok(!text.includes(word), `${relative(SKILL_DIR, file)} contains ${word}`);
+  }
+});
+
 test('no personal path or vault name outside fixtures', () => {
   const files = filesUnder(SKILL_DIR).filter((f) => !relative(SKILL_DIR, f).startsWith('fixtures'));
   for (const file of files) {

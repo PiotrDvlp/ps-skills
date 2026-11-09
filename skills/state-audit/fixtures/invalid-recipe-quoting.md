@@ -17,7 +17,7 @@ target_branch: main
 Invariants:
 - M001-I1 [code contract]: the loading flag is false once the request has settled
 
-State: `pdpStore.isItemDataLoading` (authoritative), `itemData` (derived).
+State: `itemStore.isLoading` (authoritative), `itemData` (derived).
 
 ### M002: Cart line writes
 - coverage: full
@@ -51,10 +51,10 @@ Client defaults set no `watchQuery` error policy; unchanged since the previous o
 
 #### Recipe
 ```bash
-REV=refactor/untangle_product
+REV=feature/item_refactor
 git show $REV:src/a.js
-git grep -n "isItemDataLoading" "${REV}" -- src
-git show "${REV}:src/modules/apollo/runtime/utils/createApolloClient.ts"
+git grep -n "isItemLoading" "${REV}" -- src
+git show "${REV}:src/api/client.ts"
 git diff --name-only 6f2e7cb2 "${REV}" -- package.json
 ```
 

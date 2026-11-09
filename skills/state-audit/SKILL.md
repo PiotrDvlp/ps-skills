@@ -73,15 +73,21 @@ With an `Activity log: FILE` line in `CLAUDE.md`, a completed run prepends
 
 Every mode that writes follows these steps:
 
-1. `mkdir <out>/.lock`. It fails when the directory exists; that is the point (atomic).
-2. Write `<out>/.lock/owner.txt` with the start time and the path of this run's note.
+Quote every path: a notes root may contain spaces.
+
+1. `mkdir -p "<out>"` (the folder may not exist on a first run), then `mkdir "<out>/.lock"`. The
+   second command fails when the lock exists; that is the point (atomic). A failure of the first
+   command is a path problem, not a lock: report it.
+2. Write `"<out>/.lock/owner.txt"` with the start time and the path of this run's note.
 3. Write the run note with `status: incomplete`, its run ID (`R` plus the next free number across
-   `runs/`), mode, target revision, scope, budget, and every record the run produced.
-4. Update the living note: new records under their IDs, new observation rows appended.
-5. Set the run note's status to `status: complete`.
-6. Remove `<out>/.lock`.
-7. Run `node ${CLAUDE_SKILL_DIR}/scripts/check-records.mjs <out>/<repo-name>.md` and report its
-   last line. Anything other than `0 problems`: fix the living note before you report the run done.
+   `runs/`), mode, target revision, scope, budget, every record the run produced, and the field
+   changes it makes to existing records (for example `F003 disposition: proposed -> selected`).
+4. Update the living note: new records under their IDs, new observation rows appended, the field
+   changes applied.
+5. Run `node "${CLAUDE_SKILL_DIR}/scripts/check-records.mjs" "<out>/<repo-name>.md"`. Anything other
+   than `0 problems`: fix the living note now, while the lock is held, and run it again.
+6. Set the run note's status to `status: complete`.
+7. Remove `"<out>/.lock"`. Report the validator's last line with the run.
 
 **Existing lock.** Refuse and print `owner.txt`. If the run note it names is still
 `status: incomplete`, call it an abandoned run, and tell the user how to tell it from an active
@@ -91,7 +97,16 @@ take a new lock, re-apply the abandoned run, then finish from step 5 for that ru
 **Re-apply rule.** An observation's identity is its finding ID plus its run ID. Re-applying a run
 adds only rows whose run ID is not yet in that finding's table, so replaying the same run twice
 adds nothing, while a new run at the same revision still adds its row. Records missing from the
-living note are added under their IDs from the run note; existing records are not rewritten.
+living note are added under their IDs from the run note. The run note's field changes are applied
+again; a field that already holds the new value stays as it is. Nothing else in an existing record
+is rewritten.
+
+## Owner decisions
+
+When the owner selects, defers or rejects findings ("defer F002", "reject F005"), record it as a
+small run (mode `decision`): set `disposition`, and for a rejection also `lifecycle: closed`, list
+the field changes in the run note, and write it as above. A rejection keeps the finding's
+observations; a later recheck that finds it `present` again reopens it.
 
 At the start of every invocation, list run notes still `status: incomplete` first.
 

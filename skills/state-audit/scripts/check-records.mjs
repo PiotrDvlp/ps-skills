@@ -43,14 +43,15 @@ function splitRow(line) {
 
 export function parseLivingNote(text) {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
-  const note = { frontmatter: null, machines: [], findings: [], issues: [], headings: [] };
+  const note = { frontmatter: null, frontmatterUnclosed: false, machines: [], findings: [], issues: [], headings: [], orphans: [] };
   let i = 0;
-  if (lines[0] === '---') {
+  if (lines[0].trim() === '---') {
     note.frontmatter = {};
-    for (i = 1; i < lines.length && lines[i] !== '---'; i++) {
+    for (i = 1; i < lines.length && lines[i].trim() !== '---'; i++) {
       const m = lines[i].match(/^([A-Za-z_]+):\s*(.*)$/);
       if (m) note.frontmatter[m[1]] = m[2].trim();
     }
+    if (i >= lines.length) note.frontmatterUnclosed = true;
     i++;
   }
   let kind = null;
@@ -78,6 +79,8 @@ export function parseLivingNote(text) {
         section = null;
         if (!kind) {
           record = null;
+          const orphan = h3[1].match(/^([MFI]\d+)\s*:/);
+          if (orphan) note.orphans.push({ id: orphan[1], line: lineNo });
           continue;
         }
         const idMatch = h3[1].match(/^([A-Za-z0-9-]+)\s*:/);
@@ -149,6 +152,8 @@ export function checkRecords(note) {
   const fm = note.frontmatter;
   if (!fm) {
     out.push({ line: 1, id: '-', message: 'frontmatter missing' });
+  } else if (note.frontmatterUnclosed) {
+    out.push({ line: 1, id: '-', message: "frontmatter opened but never closed with '---'; nothing after it was read" });
   } else {
     const missing = [];
     if (fm.schema !== '1') missing.push('schema: 1');
@@ -156,6 +161,10 @@ export function checkRecords(note) {
     if (!/^[0-9a-f]{40}$/.test(fm.repo_root_commit ?? '')) missing.push('repo_root_commit (40 hex)');
     if (!fm.target_branch) missing.push('target_branch');
     if (missing.length) out.push({ line: 1, id: '-', message: `frontmatter needs ${missing.join(', ')}` });
+  }
+
+  for (const orphan of note.orphans) {
+    out.push({ line: orphan.line, id: orphan.id, message: 'record is outside a known section (## Machines, ## Findings, ## Issues) and was not checked' });
   }
 
   const seen = new Set();
@@ -217,13 +226,15 @@ export function checkRecords(note) {
     if (ALLOWED_PAIRS[lifecycle] && ENUMS.disposition.includes(disposition) && !ALLOWED_PAIRS[lifecycle].includes(disposition)) {
       out.push({ line: fl.disposition ?? f.line, id: f.id, message: `lifecycle/disposition pair '${lifecycle}/${disposition}' is not allowed` });
     }
-    const latest = f.observations.at(-1);
     if (disposition === 'resolved') {
-      if (!latest || latest.verification !== 'regression_test' || latest.assessment !== 'absent' || latest.on_target !== 'yes') {
-        out.push({ line: latest?.line ?? f.line, id: f.id, message: 'resolved needs a latest observation regression_test / absent / on_target yes' });
+      const rows = f.observations;
+      const pass = rows.findLastIndex((r) => r.verification === 'regression_test' && r.assessment === 'absent' && r.on_target === 'yes');
+      const laterPresent = pass >= 0 && rows.slice(pass + 1).find((r) => r.assessment === 'present');
+      if (pass < 0) {
+        out.push({ line: rows.at(-1)?.line ?? f.line, id: f.id, message: 'resolved needs a passing regression test row (regression_test / absent / on_target yes)' });
+      } else if (laterPresent) {
+        out.push({ line: laterPresent.line, id: f.id, message: 'resolved finding has a present row after its regression test; mark it reopened' });
       }
-    } else if (lifecycle === 'closed' && latest?.assessment === 'present') {
-      out.push({ line: latest.line, id: f.id, message: 'closed finding whose latest observation is present; mark it reopened' });
     }
     if (disposition === 'selected' && invariant?.basis === 'investigator assumption') {
       out.push({ line: fl.disposition ?? f.line, id: f.id, message: 'selected finding rests on an investigator assumption; the owner must confirm the invariant first' });

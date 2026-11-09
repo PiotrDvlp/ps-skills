@@ -119,17 +119,20 @@ contained in `target_branch` (`git merge-base --is-ancestor <rev> <target_branch
 Allowed pairs: `open` with `proposed`, `selected`, `deferred` or `reopened`; `closed` with
 `rejected` or `resolved`.
 
-The latest observation decides. `resolved` is valid only while the latest observation is the
-passing regression test (`regression_test`, `absent`, `on_target` `yes`). A later `present` makes
-the record invalid until it is `reopened`.
+`resolved` is valid while the finding has a passing regression test row (`regression_test`,
+`absent`, `on_target` `yes`) and no `present` row after it; a later `absent` from a plain recheck
+keeps it valid. A `present` row after the regression test makes the record invalid until it is
+`reopened`. A `rejected` finding may keep `present` as its latest row: the owner decided not to fix
+it. If a recheck adds a new `present` row after the rejection, set the finding to `reopened`.
 
 A finding whose invariant has the basis `investigator assumption` cannot be `selected` until the
 owner confirms or rewrites the invariant.
 
 ## Checks run by `check-records.mjs`
 
-C1 frontmatter; C2 unique, well-formed IDs; C3 machine and invariant exist; C4 required sections,
+C1 frontmatter present and closed; C2 unique, well-formed IDs, and no record heading outside
+`## Machines`, `## Findings` or `## Issues`; C3 machine and invariant exist; C4 required sections,
 at least one observation, every row has a revision; C5 enum values; C6 `blocker:` and `reason:`
-notes; C7 recipe quoting; C8 lifecycle and disposition pair; C9 `resolved` evidence; C10 a closed
-finding whose latest row is `present`; C11 `selected` on an investigator assumption; C12 issue
-references.
+notes; C7 recipe quoting; C8 lifecycle and disposition pair; C9 `resolved` evidence and no `present`
+row after it; C11 `selected` on an investigator assumption; C12 issue references. (C10 was dropped:
+whether a `present` row came before or after a rejection is a recheck rule, not a static check.)
