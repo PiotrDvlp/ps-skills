@@ -9,9 +9,9 @@ import { fileURLToPath } from 'node:url';
 export const PINNED_TYPESCRIPT = '5.9.3';
 
 const COMPLETE = '.complete';
-const fail = (message, code = 3) => Object.assign(new Error(message), { code });
+export const fail =(message, code = 3) => Object.assign(new Error(message), { code });
 
-function assertSafeDir(path, label) {
+export function assertSafeDir(path, label) {
   const unsafe = (reason) => fail(`unsafe ${label} ${path}: ${reason}`);
   const st = lstatSync(path);
   if (st.isSymbolicLink()) throw unsafe('is a symlink');
@@ -21,7 +21,7 @@ function assertSafeDir(path, label) {
   if ((st.mode & 0o077) !== 0) throw unsafe(`permissions are ${(st.mode & 0o777).toString(8).padStart(3, '0')}, not owner-only`);
 }
 
-function ensureSafeDir(path, label) {
+export function ensureSafeDir(path, label) {
   mkdirSync(path, { recursive: true, mode: 0o700 });
   assertSafeDir(path, label);
 }
