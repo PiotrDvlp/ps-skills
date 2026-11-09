@@ -1,5 +1,5 @@
-import { lstatSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, sep } from 'node:path';
+import { lstatSync, mkdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, posix, sep } from 'node:path';
 import { fail } from './tools.mjs';
 
 const KINDS = {
@@ -99,11 +99,24 @@ const propertyEdit = (ts, file, source, block, code) => {
   return { start: last.end, text: `,\n${indent(property, source.slice(lineStart).match(/^[ \t]*/)[0])}` };
 };
 
+const headerEnd = (ts, file, source) => {
+  let end = ts.getShebang(source)?.length ?? 0;
+  for (const comment of ts.getLeadingCommentRanges(source, end) ?? []) {
+    if (!/^(\/\/\/|\/\/\s*@ts-)/.test(source.slice(comment.pos, comment.end))) break;
+    end = comment.end;
+  }
+  for (const statement of file.statements) {
+    if (!ts.isExpressionStatement(statement) || !ts.isStringLiteral(statement.expression)) break;
+    end = statement.end;
+  }
+  return end;
+};
+
 /** One file's blocks applied to its base source; selectors resolve against `source`; overlap, missing or ambiguous selectors throw. */
 export function spliceFile(ts, path, source, blocks) {
   const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
   const baseImports = file.statements.filter((s) => ts.isImportDeclaration(s));
-  const anchor = baseImports.at(-1)?.end ?? 0;
+  const anchor = baseImports.at(-1)?.end ?? headerEnd(ts, file, source);
   const seen = new Set(baseImports.map((s) => normaliseImport(s.getText())));
   const added = [];
   const edits = [];
@@ -176,6 +189,7 @@ const makeParents = (root, path) => {
     if (!lstatSync(current, { throwIfNoEntry: false })) mkdirSync(current);
     const real = realOrNull(current);
     if (real === null || !inside(root, real)) throw leaves(path);
+    if (!statSync(real).isDirectory()) throw fail(`failed: not a directory ${path}`, 1);
     current = real;
   }
 };
@@ -197,9 +211,11 @@ export function spliceSnapshot(ts, dir, blocks) {
   const groups = new Map();
   const ungated = new Set();
   for (const block of blocks) {
-    if (isAbsolute(block.path) || block.path.split(/[\\/]/).includes('..')) throw leaves(block.path);
-    if (block.path.endsWith('.vue')) ungated.add(block.path);
-    else groups.set(block.path, [...(groups.get(block.path) ?? []), block]);
+    const p = block.path;
+    if (isAbsolute(p) || p.split(/[\\/]/).includes('..')) throw leaves(p);
+    if (p === '' || p.endsWith('/') || posix.normalize(p) !== p) throw fail(`format: path ${p} is not normalised`, 1);
+    if (p.toLowerCase().endsWith('.vue')) ungated.add(p);
+    else groups.set(p, [...(groups.get(p) ?? []), block]);
   }
   const writes = [];
   let gated = 0;

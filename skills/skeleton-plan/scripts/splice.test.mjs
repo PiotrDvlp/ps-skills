@@ -131,6 +131,23 @@ test('leading imports move to the import section and merge duplicates', () => {
   assert.ok(out.startsWith("import { x } from './x';\nimport { y } from './y';\n\nexport const a = x + y;\n\n/** Second. */\n"));
 });
 
+test('leading imports go below a header pragma', () => {
+  const moved = block('replace', ['const:a'], "import { x } from './x';\nconst a = x;");
+  const header = '// @ts-nocheck\n/// <reference types="node" />\n';
+  assert.equal(
+    spliceFile(ts, 'src/a.ts', `${header}\nconst a = 1;\n`, [moved]),
+    `${header}import { x } from './x';\n\nconst a = x;\n`,
+  );
+  assert.equal(
+    spliceFile(ts, 'src/a.ts', "#!/usr/bin/env node\n'use client';\nconst a = 1;\n", [moved]),
+    "#!/usr/bin/env node\n'use client';\nimport { x } from './x';\nconst a = x;\n",
+  );
+  assert.equal(
+    spliceFile(ts, 'src/a.ts', '/** Doc. */\nconst b = 1;\n', [{ ...block('insert', [], 'const z = 3;'), after: 'imports' }]),
+    'const z = 3;\n\n/** Doc. */\nconst b = 1;\n',
+  );
+});
+
 test('insert into export-default adds the property', () => {
   const source = 'export default defineConfig({ a: 1 });\n';
   const insert = { ...block('insert', [], 'b: 2'), into: 'export-default', property: 'b' };
@@ -177,6 +194,23 @@ test('create writes a new file and delete-file removes one', () => {
     () => spliceSnapshot(ts, dir, [{ ...block('delete-file', []), path: 'src/a.ts' }]),
     (e) => e.code === 1 && e.message === 'failed: missing src/a.ts',
   );
+  assert.throws(
+    () => spliceSnapshot(ts, dir, [{ ...block('create', [], 'x'), path: 'src/new/n.ts/x.ts' }]),
+    (e) => e.code === 1 && e.message === 'failed: not a directory src/new/n.ts/x.ts',
+  );
+});
+
+test('an aliased or trailing-slash path fails as not normalised', () => {
+  const dir = snapshot();
+  writeFileSync(join(dir, 'src/C.vue'), '<template />\n');
+  for (const path of ['./src/a.ts', 'src/./a.ts', 'src/.', 'src/C.vue/', '']) {
+    assert.throws(
+      () => spliceSnapshot(ts, dir, [{ ...block('delete-file', []), path }]),
+      (e) => e.code === 1 && e.message === `format: path ${path} is not normalised`,
+    );
+  }
+  assert.deepEqual(spliceSnapshot(ts, dir, [{ ...block('delete-file', []), path: 'src/C.VUE' }]), { gated: 0, ungated: ['src/C.VUE'] });
+  assert.ok(existsSync(join(dir, 'src/C.vue')) && existsSync(join(dir, 'src/a.ts')));
 });
 
 test('.vue blocks are skipped and reported ungated', () => {
