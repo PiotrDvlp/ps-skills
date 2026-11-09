@@ -88,7 +88,7 @@ prove-ui projects: /absolute/path/to/a-directory
 
 `prove-ui projects:` holds one folder per repo, named after the repo's main checkout directory, with that project's `adapter.md`, `features/` and `checks/`; every worktree of the repo resolves the same folder. Without it, `prove-ui` reads `.claude/prove-ui/` in the main checkout.
 
-Without `Notes root:`, `task-auditor` answers in chat, `codex-review` writes to `$TMPDIR/codex-reviews/`, `state-audit` writes to `~/.state-audit/<repo-name>/`, and `second-view --save` is refused. With `Activity log:`, skills that save a note prepend `## [date] <op> | <title> → [[slug]]` after a `<!-- log:entries -->` line in that file. The extension files are plain Markdown instructions the skill follows after its own work is done.
+Without `Notes root:`, `task-auditor` answers in chat, `codex-review` writes to `$TMPDIR/codex-reviews/`, `state-audit` writes to `~/.state-audit/<repo-name>/`, and `second-view --save` is refused. With `Activity log:`, skills that save a note prepend `## [date] <op> | <title> → [[slug]]` after a `<!-- log:entries -->` line in that file. The extension files are plain Markdown instructions. `task-auditor` follows its extension after the audit note is written; `codex-review` and `state-audit` read theirs before writing, because the extension decides where the note goes.
 
 ## Paths
 

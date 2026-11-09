@@ -1,6 +1,7 @@
 # Records
 
-The living note is one Markdown file per audited repo. `scripts/check-records.mjs` parses exactly
+The living note is one Markdown file per audited repo. The status list is what a bare
+`/state-audit` prints from it (see `SKILL.md`). `scripts/check-records.mjs` parses exactly
 the syntax below and nothing else; run it after every write.
 
 ## What counts as a state machine
@@ -27,7 +28,7 @@ target_branch: main
 ### M001: Item loading
 - old_id: UI-M9
 - coverage: partial
-- evidence_revision: f3c24361
+- evidence_revision: f3c243611a2b3c4d5e6f708192a3b4c5d6e7f809
 
 Invariants:
 - M001-I1 [code contract]: the loading flag is false once the request has settled
@@ -52,7 +53,7 @@ Invariants:
 
 | run | revision | assessment | confidence | verification | on_target | note |
 | --- | --- | --- | --- | --- | --- | --- |
-| R001 | f3c24361 | present | confirmed | code_trace | no | anchors moved |
+| R001 | f3c243611a2b3c4d5e6f708192a3b4c5d6e7f809 | present | confirmed | code_trace | no | anchors moved |
 
 ## Issues
 
@@ -69,6 +70,9 @@ Rules:
 - `old_id`, `severity` and the `Dependencies` section are optional. A machine built for an imported
   finding, or by an inventory scan, may be partial: ID, title, `coverage`, `evidence_revision` and
   the invariants its findings cite.
+- An observation's `revision` is the full commit (`git rev-parse`), never a tag or branch name,
+  which can move later. A row imported from an older report may keep the short commit that report
+  gave; the validator accepts 7 to 40 hex characters.
 - Observation rows are appended, never edited. The last row is the latest. A row's identity is its
   finding ID plus its run ID.
 - `absent` needs a note starting `blocker:` that names what stops the old trace (a guard, a writer,
@@ -96,7 +100,7 @@ Rules:
 - `severity`: `P1`, `P2`, `P3`
 
 `confirmed` means traced in code, never "reproduced". `on_target` is `yes` when the revision is
-contained in `target_branch` (`git merge-base --is-ancestor <rev> <target_branch>`).
+contained in `target_branch` (`git merge-base --is-ancestor`; `recheck.md` says which ref to use).
 
 ## Severity
 
@@ -110,10 +114,10 @@ contained in `target_branch` (`git merge-base --is-ancestor <rev> <target_branch
 | --- | --- |
 | New finding | `open`, `proposed` |
 | Owner selects / defers / rejects | `selected` / `deferred` / `rejected`; `rejected` closes it |
-| Observation `absent` | stays `open`; the index shows "absent at REV, not confirmed" |
-| Observation `unresolved` after `absent` | stays `open`; the latest observation decides what the index shows |
+| Observation `absent` | stays `open`; the status list shows "absent at REV, not confirmed" |
+| Observation `unresolved` after `absent` | stays `open`; the latest observation decides what the status list shows |
 | Observation `regression_test` that passes after a fix, on a revision contained in `target_branch` (`git merge-base --is-ancestor`) | `resolved`, `closed` |
-| The same, on a revision not yet in `target_branch` | stays `open`; the index shows "fixed on branch X, not on target" |
+| The same, on a revision not yet in `target_branch` | stays `open`; the status list shows "fixed on branch X, not on target" |
 | Observation `present` on a `closed` finding | `reopened`, `open` |
 
 Allowed pairs: `open` with `proposed`, `selected`, `deferred` or `reopened`; `closed` with
@@ -132,7 +136,7 @@ owner confirms or rewrites the invariant.
 
 C1 frontmatter present and closed; C2 unique, well-formed IDs, and no record heading outside
 `## Machines`, `## Findings` or `## Issues`; C3 machine and invariant exist; C4 required sections,
-at least one observation, every row has a revision; C5 enum values; C6 `blocker:` and `reason:`
+at least one observation, every row has a commit hash as revision, one row per run in a finding; C5 enum values; C6 `blocker:` and `reason:`
 notes; C7 recipe quoting; C8 lifecycle and disposition pair; C9 `resolved` evidence and no `present`
 row after it; C11 `selected` on an investigator assumption; C12 issue references. (C10 was dropped:
 whether a `present` row came before or after a rejection is a recheck rule, not a static check.)

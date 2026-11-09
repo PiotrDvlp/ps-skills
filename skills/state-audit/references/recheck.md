@@ -39,8 +39,8 @@ invalid state is still reachable. It never widens into a scan.
 7. At the end, print one summary line per rechecked finding, `<ID> <assessment> <rev as given>`
    (for example `F001 present v2-moved`), so a caller or a gate can read the result without
    parsing the note.
-8. Findings outside the recheck scope get no new observation; the index shows their last revision
-   as "not rechecked since".
+8. Findings outside the recheck scope get no new observation; the status list shows their latest
+   revision, which reads as "not rechecked since".
 9. New defects met during a recheck are recorded as `proposed` candidates in the run note and
    listed there. They enter the living note only when the main session promotes them with every
    required field. The recheck does not widen into a scan.
@@ -50,12 +50,18 @@ invalid state is still reachable. It never widens into a scan.
 | Column | Value |
 | --- | --- |
 | run | this run's ID |
-| revision | the full commit the tag or branch resolved to (`git rev-parse "${REV}"`) |
+| revision | the full commit the tag or branch resolved to (`git rev-parse "${REV}"`), never the tag or branch name; only a row imported from an older report may keep the short commit that report gave |
 | assessment | from rule 5 |
 | confidence | `confirmed` when every step was traced; `plausible` when a step depends on unchecked runtime or backend behaviour |
-| verification | `code_trace`, unless an executed reproduction or a regression test result is recorded |
-| on_target | `yes` when `git merge-base --is-ancestor "${REV}" <target_branch>` exits 0, `no` when it exits 1, `unknown` otherwise |
+| verification | `code_trace`, unless an executed reproduction or a regression test result is recorded. The skill never runs tests or the build: `regression_test` needs a passing result the owner or a CI run produced, and the note names the test and where its output is (a CI job link or a log path) |
+| on_target | `yes` when `git merge-base --is-ancestor "${REV}" "${TARGET}"` exits 0, `no` when it exits 1, `unknown` otherwise (see below) |
 | note | `blocker:` or `reason:` where rule 5 requires it; otherwise what changed |
+
+`TARGET` is the upstream of the target branch, `<target_branch>@{upstream}`, when
+`git rev-parse --verify -q "<target_branch>@{upstream}"` resolves; otherwise the local
+`<target_branch>`. A local branch is often behind its remote. The skill never fetches: write the ref
+used and its commit in the run note, so a stale answer can be seen. The user fetches first when
+they want a fresh one.
 
 Refresh the recipe when anchors moved. Write a revision before a path as `"${REV}:path"`; in zsh,
 `$REV:src/...` is read as the history modifier `:s` and breaks.

@@ -29,8 +29,9 @@ writing any record.
 /state-audit prepare-fix F### [F### ...] [--rev REV] [--out DIR]
 ```
 
-A bare `/state-audit` reads the living note for this repo. If one exists, print the open findings
-and the last run revision and propose `recheck --changed`. If none exists, propose a scoped `scan`
+A bare `/state-audit` reads the living note for this repo. If one exists, print the status list:
+one line per open finding with its ID, title, disposition and latest observation (assessment and
+revision), then the last run revision, and propose `recheck --changed`. If none exists, propose a scoped `scan`
 and show its scope and budget. Either way, wait for the user before dispatching anything.
 
 ## Output location
@@ -57,7 +58,7 @@ Folder layout:
 
 ```text
 <repo-name>.md                  living note (format: references/records.md)
-runs/YYYY-MM-DD-<mode>-<n>.md   one note per run, never edited after it is complete
+runs/YYYY-MM-DD-<repo-name>-<mode>-<n>.md   one note per run, never edited after it is complete
 .lock/                          present only while a run is writing
 ```
 
@@ -198,6 +199,7 @@ Turns findings the owner selected into a fix packet and an implementation plan, 
 8. Stop. Report the packet and plan paths. The owner approves the plan and starts the build.
 
 After a build, `recheck F###` records the fix revision and the regression evidence
-(`verification: regression_test`). `resolved` needs both, on a revision contained in
+(`verification: regression_test`). The skill never runs the test: the evidence is a result the
+owner or a CI run produced, and the row's note says where it is (see `references/recheck.md`). `resolved` needs both, on a revision contained in
 `target_branch`. "Fixed on a branch" and "verified on the target branch" are separate
 observations.

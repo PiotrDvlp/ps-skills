@@ -99,6 +99,23 @@ test('activity log is written only for runs saved under the notes root or by the
   assertContains(rule, ['`--out`', 'never logs']);
 });
 
+test('the status list is defined and no undefined "index" is used', () => {
+  assertContains(read('SKILL.md'), ['status list:']);
+  const text = textOf('SKILL.md', 'references/records.md', 'references/recheck.md');
+  assert.ok(!/\bthe index\b/.test(text), 'uses "the index"');
+  assertContains(textOf('references/records.md', 'references/recheck.md'), ['status list']);
+});
+
+test('recheck: revision format, regression evidence source and target ref', () => {
+  const recheck = read('references/recheck.md');
+  assertContains(recheck, ['full commit', 'never runs tests', '@{upstream}', 'never fetches']);
+  assertContains(read('references/records.md'), ['full commit']);
+});
+
+test('run note names carry the repo name, so log links do not collide across repos', () => {
+  assertContains(read('SKILL.md'), ['runs/YYYY-MM-DD-<repo-name>-<mode>-<n>.md']);
+});
+
 test('fixtures and tests use neutral identifiers', () => {
   const banned = ['untan' + 'gle_product', 'pdp' + 'Store', 'createApollo' + 'Client', 'isItemData' + 'Loading'];
   for (const file of filesUnder(SKILL_DIR)) {
