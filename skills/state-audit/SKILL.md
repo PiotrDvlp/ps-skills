@@ -103,7 +103,41 @@ one observation per finding. It prints one summary line per rechecked finding:
 
 ## scan
 
-Filled in by the scan task of the build plan.
+A scan finds machines and the invalid states the code can reach, with evidence.
+
+1. **Scope and budget.** Show the areas (workflow areas such as auth and session, cart, checkout,
+   account, global UI; or the ones the user named), the target revision, the investigator count
+   and the output limits. Wait for the user.
+2. **Ownership map (main session).** Search for state holders and their writers: stores,
+   composables or modules with module-level state, cookies, shared request state, global flags,
+   retry and error middleware. Use `references/cues.md`. When `package.json` lists `vue` or
+   `nuxt`, also use `references/cues-vue-nuxt.md`.
+3. **Investigators.** Dispatch one packet per workflow area, at most 4, plus one cross-area packet
+   for the seams between areas (for example login and cart merge, cart swap during order submit,
+   route change and overlay cleanup). Each packet follows `references/investigator.md`: entry
+   points, the shared code it may read, its exclusions, the required scenarios, and an output limit
+   of 8 detailed candidates plus a list of leads. Each machine gets one reporting owner. No nested
+   delegation. Investigators run on the session model, never a cheaper tier: their output is
+   judgment, and no gate checks it.
+4. **Consolidate (main session).** Deduplicate by invariant and trace. Re-read the code for every
+   finding offered as actionable before it gets `confirmed`; the rest stay `plausible` and say what
+   was not checked. Group into issues only when one behaviour change and one regression strategy
+   cover every finding in the group; a shared cause label is not enough.
+5. **Ledger.** In the run note, mark each area and each required scenario `traced`, `partial`,
+   `not_started` or `blocked`, with a reason. Counts describe the work done, never the whole app.
+6. **Write** the run as in "Writing a run". Only consolidated machines and findings go into the
+   living note; leads and unverified candidates stay in the run note.
+
+These budgets are starting values from two manual runs, not measured optima.
+
+`--depth inventory` (a short list of machines only) tells investigators to report machines, not
+defects. Steps 4-6 still run: machines are consolidated, the ledger records what was inventoried,
+and the run is saved. Inventory machines use the partial shape (ID, title, `coverage: inventory`,
+`evidence_revision`, key files and a one-line description in the body). A later full scan of the
+same area fills in the rest under the same IDs.
+
+Report the scan as: one line per machine and finding (ID, title, most important files),
+the coverage ledger, and the path of the run note for details.
 
 ## prepare-fix
 

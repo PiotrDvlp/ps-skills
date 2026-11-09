@@ -61,6 +61,13 @@ test('core: routing, identity, lock, recovery and recheck output', () => {
   ]);
 });
 
+test('scan: budget, seams, ledger and inventory depth', () => {
+  assertContains(read('SKILL.md'), ['--depth inventory', 'at most 4', 'cross-area', 'not_started']);
+  assertContains(textOf('references/cues.md'), ['untangle-codebase']);
+  assertContains(textOf('references/cues-vue-nuxt.md'), ['errorPolicy', 'hydration']);
+  assertContains(textOf('references/investigator.md'), ['leads', 'coverage']);
+});
+
 test('no personal path or vault name outside fixtures', () => {
   const files = filesUnder(SKILL_DIR).filter((f) => !relative(SKILL_DIR, f).startsWith('fixtures'));
   for (const file of files) {
