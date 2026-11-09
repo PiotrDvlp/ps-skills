@@ -124,7 +124,7 @@ The heading must start with `## 1. Files`. One table row per file: action (`Crea
 - Every block's path must have a row; otherwise `format: not in files table <path> in <id> (line N)`.
 - The row's action must fit the block's op: `create` needs `Create`, `delete-file` needs `Delete`, `replace`, `insert` and `delete-declaration` need `Modify`. Otherwise `format: row <Action> for <path> does not fit op <op> in <id>`.
 - Name deleted declarations in their row.
-- List files the plan changes with no block (test files, docs, `.vue` callers the gate reported). A `.ts` or `.vue` file with a type error that has no row fails the gate as `caller broken`; see "Status 1" in `cli.md`.
+- List files the plan changes with no block (test files, docs, `.vue` callers the gate reported). A `.ts`, `.tsx`, `.mts`, `.cts` or `.vue` file with a type error that has no row fails the gate as `caller broken`; see "Status 1" in `cli.md`.
 
 ### 2. Interfaces
 
@@ -170,6 +170,8 @@ After the blocks, a bold line `**Signature unchanged, behaviour changed**` follo
 - `insert` with `"into":"export-default","property":"<name>"`: adds one property to the default export. The export must be an object literal or a call whose first argument is one (`export default defineConfig({ ... })`); otherwise `failed: no export-default object`. A property that already exists is `failed: property <name> exists`. Write the property as `name: value`; a trailing comma is removed.
 - `replace`: the code takes the place of the selected declarations. With several selectors, the code goes where the earliest selected declaration was and the others are removed. Declarations between them stay.
 - `delete-declaration`: removes each selected declaration.
+
+`replace` and `delete-declaration` need at least one selector: `format: <op> needs a selector in <id> (line N)`.
 - `delete-file`: removes the file. Fails with `failed: missing <path>` when it does not exist, and blocks with `blocked: uncovered: <path>` when the base commit's `tsconfig.json` does not include it (the typecheck could not see what the deletion breaks).
 
 `create` and `delete-file` must be the only block for their path: `format: <op> must be the only block for <path>`. `replace`, `insert` and `delete-declaration` need the file to exist: `failed: missing <path>`.
@@ -230,6 +232,7 @@ The format check runs on the plan alone, before the gate exports any commit, so 
 | `format: <op> must be the only block for <path>` | `create` or `delete-file` shares its path with another block. |
 | `format: insert needs after or into in block <id>` | `insert` with neither `"after":"imports"` nor `"into":"export-default"`. |
 | `format: insert into export-default needs property in block <id>` | No `property`. |
+| `format: <op> needs a selector in <id> (line N)` | A `replace` or `delete-declaration` block with no `selector` or an empty `selectors`. |
 | `format: bad selector <s>` | Not `kind:name`. |
 | `format: unknown selector kind <kind>` | A kind outside the six. |
 | `format: selector and selectors both set in <id> (line N)` | Both fields in one comment. |

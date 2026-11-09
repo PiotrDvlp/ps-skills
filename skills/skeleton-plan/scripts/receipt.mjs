@@ -13,7 +13,7 @@ const ungatedLine = (count) => `passed with ${count} ungated items`;
 export const receiptPath = (planPath) => `${planPath.endsWith('.md') ? planPath.slice(0, -3) : planPath}.receipt.json`;
 
 /**
- * Pass needs exit 0 and no diagnostics; status 4 needs only `.vue` diagnostics in listed files and at least one gated block; a diagnostic in an unlisted `.ts` or `.vue` file is a broken caller; anything else fails or blocks.
+ * Pass needs exit 0 and no diagnostics; status 4 needs only `.vue` diagnostics in listed files and at least one gated block; a diagnostic in an unlisted `.ts`, `.tsx`, `.mts`, `.cts` or `.vue` file is a broken caller; anything else fails or blocks.
  * @param {import('./snapshot.mjs').TypecheckResult} result
  * @param {import('./plan-format.mjs').ParsedPlan} plan
  * @param {Set<string>} covered repo-relative paths the snapshot's tsconfig includes after the splice
@@ -40,7 +40,7 @@ export function classify(result, plan, covered, splice, baseCovered) {
     return splice.ungated.length > 0 ? ungatedStatus([]) : { status: 'passed', code: 0, ungated: [] };
   }
   const listed = new Set(plan.files.map((f) => f.path));
-  const caller = diagnostics.find((d) => (d.file.endsWith('.ts') || isVue(d.file)) && !listed.has(d.file));
+  const caller = diagnostics.find((d) => (/\.[mc]?tsx?$/.test(d.file) || isVue(d.file)) && !listed.has(d.file));
   if (caller) return failed(`caller broken: ${caller.file}`);
   if (diagnostics.length > 0 && diagnostics.every((d) => isVue(d.file))) {
     return ungatedStatus(diagnostics.map((d) => d.file));

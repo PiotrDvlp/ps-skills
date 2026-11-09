@@ -179,6 +179,7 @@ const blockErrors = (b, sharing) => {
   }
   const names = [];
   if (b.op === 'replace' || b.op === 'delete-declaration') {
+    if (b.selectors.length === 0) out.push(`format: ${b.op} needs a selector in ${at}`);
     for (const selector of b.selectors) {
       const parsed = parseSelector(selector);
       if (parsed.error) out.push(parsed.error);

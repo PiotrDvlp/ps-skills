@@ -70,6 +70,14 @@ test('a diagnostic in an unlisted .vue file is a broken caller', () => {
   assert.equal(r.reason, 'caller broken: src/v.vue');
 });
 
+test('a diagnostic in an unlisted .tsx, .mts or .cts file is a broken caller', () => {
+  for (const file of ['src/c.tsx', 'src/c.mts', 'src/c.cts']) {
+    const r = classify(run({ exitCode: 1, diagnostics: [diag(file)] }), plan(), covered, spliced);
+    assert.equal(r.code, 1, file);
+    assert.equal(r.reason, `caller broken: ${file}`);
+  }
+});
+
 test('.vue is matched in any letter case', () => {
   const files = [row('src/a.ts'), row('src/V.VUE')];
   const r = classify(run({ exitCode: 1, diagnostics: [diag('src/V.VUE')] }), plan([block('src/a.ts')], files), covered, spliced);

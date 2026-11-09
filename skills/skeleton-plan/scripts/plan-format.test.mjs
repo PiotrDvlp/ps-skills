@@ -215,6 +215,16 @@ test('checkFormat finds selector, path, op and insert errors before any snapshot
   assert.deepEqual(violations(second('Insert into `src/b.ts`', { ...insert, op: 'rename' })), ['format: unsupported op rename in block t3-b']);
 });
 
+test('checkFormat wants a selector on replace and delete-declaration', () => {
+  assert.deepEqual(violations(plan().replace('"selectors":["function:run","const:stop"]', '"selectors":[]')), [
+    'format: replace needs a selector in t2-b (line 24)',
+  ]);
+  const del = plan()
+    .replace('**Replace in `src/b.ts` — `run`, `stop`**', '**Delete in `src/b.ts`**')
+    .replace('"op":"replace","selectors":["function:run","const:stop"]', '"op":"delete-declaration"');
+  assert.ok(violations(del).includes('format: delete-declaration needs a selector in t2-b (line 24)'));
+});
+
 test('checkFormat flags a path that leaves the repo', () => {
   const md = plan()
     .replace('"id":"t1-a","path":"src/a.ts"', '"id":"t1-a","path":"../x.ts"')

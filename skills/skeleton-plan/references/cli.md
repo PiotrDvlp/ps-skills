@@ -51,7 +51,7 @@ The first line is the status. Errors and ungated items follow, one per line, as 
 Format errors are listed in `format.md`. Errors after the splice:
 
 - `failed: selector <s>`, `failed: ambiguous <s>`, `failed: exists <path>`, `failed: missing <path>`, `failed: not a directory <path>`, `failed: no export-default object`, `failed: property <name> exists`: a block does not fit the base source.
-- `failed: caller broken: <path>`: a `.ts` or `.vue` file with no row in the files table has a type error. A changed signature broke a caller. Keep the signature compatible, or add the caller to the files table with a block that fixes it.
+- `failed: caller broken: <path>`: a `.ts`, `.tsx`, `.mts`, `.cts` or `.vue` file with no row in the files table has a type error. A changed signature broke a caller. Keep the signature compatible, or add the caller to the files table with a block that fixes it.
 - `failed: typecheck reported N diagnostics`: errors in files the table lists. Fix the blocks.
 - `failed: typecheck exited N without diagnostics`: the typecheck failed but printed no error line the gate can read. There is no receipt on a failure; run the adapter's typecheck command (see "What a run does", step 7) by hand on a branch with the blocks applied to see what it prints.
 - `failed: plan changed during the run`: the plan's approval part changed while the gate ran. Rerun.

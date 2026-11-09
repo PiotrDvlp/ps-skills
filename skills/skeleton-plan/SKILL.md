@@ -59,7 +59,7 @@ C --plan <plan.md> --repo <repo root>
 Add `--cache-dir <dir>` when the default `~/.cache/skeleton-plan` is not writable. The status is the first output line and the exit code:
 
 - **0 `passed`:** go on.
-- **1 `format: ...` or `failed: ...`:** the plan is wrong. Fix it and rerun. A `caller broken` line names a file your signature change breaks: keep the signature compatible, or add the file with a block (`.ts`) or a files row (`.vue`).
+- **1 `format: ...` or `failed: ...`:** the plan is wrong. Fix it and rerun. A `caller broken` line names a file your signature change breaks: keep the signature compatible, or add the file with a block (TypeScript) or a files row (`.vue`).
 - **3 `blocked: ...`:** the gate cannot judge the plan. Stop and report the reason to the user. Never work around it (do not change `base:` to dodge a broken baseline, do not drop blocks). `typescript not found ... run: check-plan.mjs setup`: ask the user to approve `C setup` (an npm install with network access), run it, then rerun the gate.
 - **4 `passed with N ungated items`:** not a plain pass. Each `ungated:` line is a `.vue` block or a listed `.vue` caller that no typecheck saw. Name every item to the user.
 - **5 `not typechecked: no TypeScript`:** the base has no `tsconfig.json`. There is no receipt.
