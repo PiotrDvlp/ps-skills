@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { homedir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadTypescript } from './tools.mjs';
-import { spliceFile } from './splice.mjs';
+import { spliceFile, spliceSnapshot } from './splice.mjs';
 
 const root = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const { ts } = loadTypescript(root, join(homedir(), '.cache/skeleton-plan'));
@@ -120,4 +121,93 @@ test('delete-declaration removes only that declaration', () => {
     '}',
     '',
   ].join('\n'));
+});
+
+test('leading imports move to the import section and merge duplicates', () => {
+  const out = spliceFile(ts, 'src/a.ts', THREE, [
+    block('replace', ['const:a'], "import {  x  } from './x'\nimport { y } from './y';\n\nexport const a = x + y;"),
+  ]);
+  assert.equal(out.split('\n').filter((l) => l.startsWith('import')).length, 2);
+  assert.ok(out.startsWith("import { x } from './x';\nimport { y } from './y';\n\nexport const a = x + y;\n\n/** Second. */\n"));
+});
+
+test('insert into export-default adds the property', () => {
+  const source = 'export default defineConfig({ a: 1 });\n';
+  const insert = { ...block('insert', [], 'b: 2'), into: 'export-default', property: 'b' };
+  const out = spliceFile(ts, 'src/a.ts', source, [insert]);
+  const call = ts.createSourceFile('a.ts', out, ts.ScriptTarget.Latest, true).statements[0].expression;
+  assert.deepEqual(call.arguments[0].properties.map((p) => p.name.text), ['a', 'b']);
+  assert.throws(
+    () => spliceFile(ts, 'src/a.ts', source, [{ ...insert, property: 'a' }]),
+    (e) => e.code === 1 && e.message === 'failed: property a exists',
+  );
+  assert.throws(
+    () => spliceFile(ts, 'src/a.ts', 'export default 1;\n', [insert]),
+    (e) => e.code === 1 && e.message === 'failed: no export-default object',
+  );
+});
+
+test('insert after imports places code below the last import', () => {
+  const source = "import { x } from './x';\nimport { y } from './y';\n\nexport const a = x + y;\n";
+  const out = spliceFile(ts, 'src/a.ts', source, [{ ...block('insert', [], 'const z = 3;'), after: 'imports' }]);
+  assert.equal(out, "import { x } from './x';\nimport { y } from './y';\n\nconst z = 3;\n\nexport const a = x + y;\n");
+});
+
+const snapshot = () => {
+  const dir = mkdtempSync(join(tmpdir(), 'splice-'));
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(join(dir, 'src/a.ts'), THREE);
+  return dir;
+};
+
+test('create writes a new file and delete-file removes one', () => {
+  const dir = snapshot();
+  const result = spliceSnapshot(ts, dir, [
+    { ...block('create', [], 'export const n = 1;', 'b1'), path: 'src/new/n.ts' },
+    { ...block('delete-file', [], '', 'b2'), path: 'src/a.ts' },
+  ]);
+  assert.deepEqual(result, { gated: 2, ungated: [] });
+  assert.equal(readFileSync(join(dir, 'src/new/n.ts'), 'utf8'), 'export const n = 1;\n');
+  assert.equal(existsSync(join(dir, 'src/a.ts')), false);
+  assert.throws(
+    () => spliceSnapshot(ts, dir, [{ ...block('create', [], 'x'), path: 'src/new/n.ts' }]),
+    (e) => e.code === 1 && e.message === 'failed: exists src/new/n.ts',
+  );
+  assert.throws(
+    () => spliceSnapshot(ts, dir, [{ ...block('delete-file', []), path: 'src/a.ts' }]),
+    (e) => e.code === 1 && e.message === 'failed: missing src/a.ts',
+  );
+});
+
+test('.vue blocks are skipped and reported ungated', () => {
+  const dir = snapshot();
+  writeFileSync(join(dir, 'src/C.vue'), '<template />\n');
+  const result = spliceSnapshot(ts, dir, [
+    { ...block('replace', ['const:c'], 'const c = 2;', 'b1'), path: 'src/C.vue' },
+    { ...block('delete-declaration', ['const:c'], '', 'b2'), path: 'src/C.vue' },
+    block('delete-declaration', ['interface:C'], '', 'b3'),
+  ]);
+  assert.deepEqual(result, { gated: 1, ungated: ['src/C.vue'] });
+  assert.equal(readFileSync(join(dir, 'src/C.vue'), 'utf8'), '<template />\n');
+  assert.ok(!readFileSync(join(dir, 'src/a.ts'), 'utf8').includes('interface C'));
+});
+
+test('a target behind a symlink that leaves the snapshot fails', () => {
+  const outside = mkdtempSync(join(tmpdir(), 'outside-'));
+  writeFileSync(join(outside, 'a.ts'), THREE);
+  const dir = mkdtempSync(join(tmpdir(), 'splice-'));
+  symlinkSync(outside, join(dir, 'src'));
+  symlinkSync(join(outside, 'a.ts'), join(dir, 'link.ts'));
+  mkdirSync(`${dir}-evil`);
+  symlinkSync(`${dir}-evil`, join(dir, 'sibling'));
+  const blocked = (e) => e.code === 3 && e.message.startsWith('blocked: target leaves snapshot');
+  assert.throws(() => spliceSnapshot(ts, dir, [block('delete-declaration', ['function:b'])]), blocked);
+  assert.throws(() => spliceSnapshot(ts, dir, [{ ...block('delete-declaration', ['function:b']), path: 'link.ts' }]), blocked);
+  assert.throws(() => spliceSnapshot(ts, dir, [{ ...block('create', [], 'x'), path: 'src/sub/new.ts' }]), blocked);
+  assert.throws(() => spliceSnapshot(ts, dir, [{ ...block('create', [], 'x'), path: 'sibling/new.ts' }]), blocked);
+  assert.throws(() => spliceSnapshot(ts, dir, [{ ...block('create', [], 'x'), path: '../evil.ts' }]), blocked);
+  assert.throws(() => spliceSnapshot(ts, dir, [{ ...block('create', [], 'x'), path: '/etc/x.ts' }]), blocked);
+  assert.equal(readFileSync(join(outside, 'a.ts'), 'utf8'), THREE);
+  assert.equal(existsSync(join(outside, 'sub')), false);
+  assert.equal(existsSync(`${dir}-evil/new.ts`), false);
 });
