@@ -79,6 +79,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     console.log(r.installed ? `installed typescript@${PINNED_TYPESCRIPT} in ${r.toolDir}` : `already complete: ${r.toolDir}`);
   } catch (e) {
     console.error(e.message);
-    process.exit(e.code ?? 1);
+    process.exit(Number.isInteger(e.code) ? e.code : 3);
   }
 }

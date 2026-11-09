@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync, existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { tmp } from './test-tmp.mjs';
 import { loadTypescript, setupTypescript } from './tools.mjs';
 
@@ -63,6 +64,15 @@ test('setup keeps a complete install', async () => {
   let calls = 0;
   await setupTypescript(cache, async () => { calls++; });
   assert.equal(calls, 0);
+});
+
+test('CLI setup reports fs errors with exit 3 and no TypeError', () => {
+  const file = join(tmp('sk-tools-'), 'not-a-dir');
+  writeFileSync(file, 'x');
+  const r = spawnSync(process.execPath, [join(import.meta.dirname, 'tools.mjs'), 'setup', '--cache-dir', file], { encoding: 'utf8' });
+  assert.equal(r.status, 3);
+  assert.match(r.stderr, /EEXIST|ENOTDIR/);
+  assert.doesNotMatch(r.stderr, /TypeError/);
 });
 
 test('setup replaces a partial install', async () => {
