@@ -6,7 +6,7 @@ const SPLICE_START = /^<!--\s*skeleton/;
 const UNCHANGED_LABEL = '**Signature unchanged, behaviour changed**';
 
 /** @typedef {'create'|'insert'|'replace'|'delete-declaration'|'delete-file'} Op */
-/** @typedef {{ id: string, path: string, op: Op, selectors: string[], after?: 'imports', into?: 'export-default', property?: string, label: string, code: string, line: number }} Block */
+/** @typedef {{ id: string, path: string, op: Op, selectors: string[], after?: 'imports', into?: 'export-default', property?: string, label: string, code: string, line: number, selectorConflict?: true }} Block */
 /** @typedef {{ action: 'create'|'modify'|'delete', path: string, change: string }} FileRow */
 /** @typedef {{ base: string, approval: string, files: FileRow[], blocks: Block[], unchanged: string[], taskSignatures: Map<string, string[]> }} ParsedPlan */
 
@@ -57,6 +57,7 @@ const readBlocks = (lines) => {
     blocks.push({
       ...rest,
       selectors: selectors ?? (selector === undefined ? [] : [selector]),
+      ...(selector !== undefined && selectors !== undefined && { selectorConflict: true }),
       label: /^\*\*.+\*\*$/.test(prev.trim()) ? prev.trim().slice(2, -2) : '',
       code: lines.slice(i + 2, end).join('\n'),
       line: i + 1,
@@ -112,6 +113,39 @@ export function parsePlan(markdown) {
     unchanged: readUnchanged(above),
     taskSignatures: readTaskSignatures(lines.slice(cut + 1)),
   };
+}
+
+const VERBS = { create: 'Create', insert: 'Insert into', replace: 'Replace in', 'delete-declaration': 'Delete in', 'delete-file': 'Delete in' };
+const tail = (path) => path.split('/').slice(-2).join('/');
+const leavesRepo = (path) => path.startsWith('/') || path.split(/[\\/]/).includes('..');
+
+/** Every format violation as `format: <reason>`, including block paths that are absolute or contain `..`; empty means clean. */
+export function checkFormat(plan) {
+  const out = [];
+  const known = new Set(plan.files.map((f) => f.path));
+  const ids = new Set(plan.blocks.map((b) => b.id));
+  const claimed = new Map();
+  for (const b of plan.blocks) {
+    const at = `${b.id} (line ${b.line})`;
+    if (leavesRepo(b.path)) out.push(`format: path ${b.path} leaves the repo in ${at}`);
+    if (!b.label.includes(tail(b.path)) || !b.label.includes(VERBS[b.op] ?? '')) {
+      out.push(`format: label "${b.label}" does not match ${VERBS[b.op]} ${b.path} in ${at}`);
+    }
+    if (!known.has(b.path)) out.push(`format: not in files table ${b.path} in ${at}`);
+    if (b.selectorConflict) out.push(`format: selector and selectors both set in ${at}`);
+    for (const sel of b.selectors) {
+      const key = `${b.path}\0${sel}`;
+      if (claimed.has(key)) out.push(`format: overlapping ${sel} in ${b.path}: ${claimed.get(key)} and ${b.id}`);
+      else claimed.set(key, b.id);
+    }
+  }
+  for (const [task, values] of plan.taskSignatures) {
+    for (const sig of values) {
+      if (ids.has(sig)) continue;
+      if (!plan.blocks.some((b) => b.code.includes(sig))) out.push(`format: signature \`${sig}\` in ${task} matches no block`);
+    }
+  }
+  return out;
 }
 
 /** sha256 over the approval part and each block's metadata and code; text below the line does not count. */

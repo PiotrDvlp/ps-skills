@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePlan, planHash } from './plan-format.mjs';
+import { parsePlan, planHash, checkFormat } from './plan-format.mjs';
 
 const MARKER = '*Below this line: for the implementer, the gates and the reviewer.*';
 
@@ -97,4 +97,39 @@ test("planHash changes when a block's code changes", () => {
   const b = planHash(parsePlan(plan({ code: 'export const a = 2' })));
   assert.match(a, /^[0-9a-f]{64}$/);
   assert.notEqual(a, b);
+});
+
+const violations = (md) => checkFormat(parsePlan(md));
+const kinds = (md) => violations(md).map((v) => v.match(/^format: (?:not in files table|\w+)/)[0]);
+
+test('checkFormat flags a label that names another path', () => {
+  const md = plan().replace('**Create `src/a.ts`**', '**Create `a.ts`**');
+  assert.deepEqual(kinds(md), ['format: label']);
+  assert.deepEqual(kinds(plan().replace('**Create `src/a.ts`**', '**Replace in `src/a.ts`**')), ['format: label']);
+});
+
+test('checkFormat flags a splice path missing from the files table', () => {
+  const md = plan().replace('| Modify | `src/b.ts` | use the helper |\n', '');
+  assert.deepEqual(kinds(md), ['format: not in files table']);
+});
+
+test('checkFormat flags two blocks with the same selector', () => {
+  const second = '**Replace in `src/b.ts` — `stop`**\n<!-- skeleton {"id":"t3-b","path":"src/b.ts","op":"replace","selector":"const:stop"} -->\n```ts\nexport const stop = (): void => undefined\n```\n\n';
+  const md = plan().replace('**Signature unchanged', `${second}**Signature unchanged`);
+  assert.deepEqual(kinds(md), ['format: overlapping']);
+  const both = plan().replace('"selectors":["function:run","const:stop"]', '"selector":"function:run","selectors":["const:stop"]');
+  assert.deepEqual(kinds(both), ['format: selector']);
+});
+
+test('checkFormat flags a task signature that differs from its block', () => {
+  const md = plan().replace('Consumes `run(x: number): number`', 'Consumes `run(y: number): number`');
+  assert.deepEqual(kinds(md), ['format: signature']);
+  assert.deepEqual(violations(plan().replace('Produces `t1-a`', 'Produces `t1-a`, `t2-b`')), []);
+});
+
+test('checkFormat flags a path that leaves the repo', () => {
+  const md = plan()
+    .replace('"id":"t1-a","path":"src/a.ts"', '"id":"t1-a","path":"../x.ts"')
+    .replace('"id":"t2-b","path":"src/b.ts"', '"id":"t2-b","path":"/tmp/x.ts"');
+  assert.equal(violations(md).filter((v) => v.startsWith('format: path')).length, 2);
 });
