@@ -94,6 +94,19 @@ test('run dirs older than 24 hours are deleted', () => {
   assert.equal(existsSync(recent), true);
 });
 
+test('pruning deletes only old run dirs, never other entries in the runs directory', () => {
+  const { repo, runRoot, base } = fixtureRepo();
+  mkdirSync(runRoot, { mode: 0o700 });
+  const t = new Date(Date.now() - 25 * 3600 * 1000);
+  const others = ['locks', 'notes', '1-x', 'x-1', '1-1-1'].map((name) => join(runRoot, name));
+  for (const p of others) {
+    mkdirSync(p);
+    utimesSync(p, t, t);
+  }
+  makeSnapshot(repo, base, [], runRoot);
+  for (const p of others) assert.equal(existsSync(p), true, p);
+});
+
 test('a link that stays inside the snapshot is allowed', () => {
   const { repo, runRoot } = fixtureRepo();
   symlinkSync('a.ts', join(repo, 'alias.ts'));

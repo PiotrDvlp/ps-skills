@@ -9,8 +9,10 @@ const MAX_ARCHIVE = 1024 * 1024 * 1024;
 const RUN_TIMEOUT_MS = 600 * 1000;
 const MAX_OUTPUT = 64 * 1024 * 1024;
 
+const RUN_DIR = /^\d+-\d+$/;
+
 function pruneOldRuns(runRoot) {
-  for (const name of readdirSync(runRoot)) {
+  for (const name of readdirSync(runRoot).filter((n) => RUN_DIR.test(n))) {
     const p = join(runRoot, name);
     if (Date.now() - lstatSync(p).mtimeMs > DAY_MS) rmSync(p, { recursive: true, force: true });
   }
