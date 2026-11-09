@@ -4,13 +4,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkFormat, parsePlan, planHash } from './plan-format.mjs';
-import { classify, startRun, writeReceipt } from './receipt.mjs';
+import { classify, receiptPath, startRun, verifyReceipt, writeReceipt } from './receipt.mjs';
 import { coveredFiles, detectAdapter, makeSnapshot, runPrepare, runTypecheck } from './snapshot.mjs';
 import { spliceSnapshot } from './splice.mjs';
 import { defaultCacheDir, fail, loadTypescript, setupCli } from './tools.mjs';
 
 const STATUS_PREFIX = /^(format|failed|blocked|not typechecked):/;
-const USAGE = 'usage: check-plan.mjs --plan P --repo R [--cache-dir D] | check-plan.mjs setup [--cache-dir D]';
+const USAGE = 'usage: check-plan.mjs --plan P --repo R [--cache-dir D] | check-plan.mjs setup [--cache-dir D] | check-plan.mjs verify --plan P';
 
 const underTest = () => Boolean(process.env.NODE_TEST_CONTEXT);
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
@@ -66,7 +66,7 @@ function gate({ planPath, repoRoot, cacheDir, adapterOverride, plan, expected, r
   if (verdict.code !== 0 && verdict.code !== 4) return { code: verdict.code, lines: [`${verdict.status}: ${verdict.reason}`, ...details] };
 
   const receipt = {
-    blockHashes: plan.blocks.map(({ code, ...meta }) => ({ id: meta.id, path: meta.path, hash: sha256(`${JSON.stringify(meta)}\0${code}`) })),
+    blockHashes: plan.blocks.map(({ code, line, ...meta }) =>({ id: meta.id, path: meta.path, hash: sha256(`${JSON.stringify(meta)}\0${code}`) })),
     baseCommit,
     generatedInputs: Object.fromEntries(inputs.filter((i) => fingerprints[i]).map((i) => [i, fingerprints[i]])),
     lockfileHash: fingerprints.lockfileHash ?? null,
@@ -78,7 +78,7 @@ function gate({ planPath, repoRoot, cacheDir, adapterOverride, plan, expected, r
     ungated: verdict.ungated,
   };
   if (!writeReceipt(planPath, expected, receipt)) return { code: 1, lines: ['failed: plan changed during the run'] };
-  return { code: verdict.code, lines: [verdict.code === 0 ? 'passed' : verdict.reason, ...details, `receipt: ${planPath}.receipt.json`] };
+  return { code: verdict.code, lines: [verdict.code === 0 ? 'passed' : verdict.reason, ...details, `receipt: ${receiptPath(planPath)}`] };
 }
 
 /**
@@ -109,6 +109,14 @@ export async function runGate({ planPath, repoRoot, cacheDir = defaultCacheDir()
   }
 }
 
+function verifyPlan(planPath) {
+  try {
+    return verifyReceipt(resolve(planPath));
+  } catch (e) {
+    return e.code === undefined && /^format:/.test(e.message) ? { code: 1, lines: [e.message] } : fromError(e);
+  }
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   if (args[0] === 'setup') {
@@ -119,10 +127,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       return i >= 0 ? args[i + 1] : undefined;
     };
     const [planPath, repoRoot, cacheDir] = [option('--plan'), option('--repo'), option('--cache-dir')];
-    const { code, lines } = planPath && repoRoot
-      ? await runGate({ planPath, repoRoot, cacheDir: cacheDir ? resolve(cacheDir) : undefined })
-      : { code: 3, lines: [`blocked: ${USAGE}`] };
-    console.log(lines.join('\n'));
-    process.exitCode = code;
+    const usage = { code: 3, lines: [`blocked: ${USAGE}`] };
+    let result;
+    if (args[0] === 'verify') result = planPath ? verifyPlan(planPath) : usage;
+    else if (planPath && repoRoot) result = await runGate({ planPath, repoRoot, cacheDir: cacheDir ? resolve(cacheDir) : undefined });
+    else result = usage;
+    console.log(result.lines.join('\n'));
+    process.exitCode = result.code;
   }
 }

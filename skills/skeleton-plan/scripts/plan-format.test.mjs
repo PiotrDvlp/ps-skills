@@ -92,6 +92,24 @@ test('planHash ignores text below the line', () => {
   assert.equal(planHash(parsePlan(plan({ below: extra }))), planHash(parsePlan(plan())));
 });
 
+test('the Gate line above the files table is left out of the approval hash', () => {
+  const withGate = (line) => plan().replace('# Example plan\n', `# Example plan\n${line}\n`);
+  const passed = parsePlan(withGate('Gate: passed'));
+  assert.equal(passed.gateLine, 'Gate: passed');
+  assert.equal(parsePlan(plan()).gateLine, null);
+  assert.ok(!passed.approval.includes('Gate: passed'));
+  assert.equal(passed.blocks[0].line, 19);
+  const hash = planHash(passed);
+  assert.equal(planHash(parsePlan(withGate('Gate: blocked: baseline broken'))), hash);
+  assert.equal(planHash(parsePlan(plan())), hash);
+  assert.notEqual(planHash(parsePlan(withGate('Gate: passed').replace('# Example plan', '# Example plan, edited'))), hash);
+  assert.notEqual(planHash(parsePlan(withGate('Gate: passed\nGate: other'))), planHash(parsePlan(withGate('Gate: passed\nGate: else'))));
+  assert.notEqual(planHash(parsePlan(withGate('Gate:passed'))), hash);
+  const inFiles = (line) => plan().replace('| Modify | `src/b.ts` | use the helper |\n', `| Modify | \`src/b.ts\` | use the helper |\n\n${line}\n`);
+  assert.equal(parsePlan(inFiles('Gate: passed')).gateLine, null);
+  assert.notEqual(planHash(parsePlan(inFiles('Gate: passed'))), planHash(parsePlan(inFiles('Gate: failed'))));
+});
+
 test("planHash changes when a block's code changes", () => {
   const a = planHash(parsePlan(plan()));
   const b = planHash(parsePlan(plan({ code: 'export const a = 2' })));

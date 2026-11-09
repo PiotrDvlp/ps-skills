@@ -7,6 +7,10 @@ import { ensureSafeDir, fail } from './tools.mjs';
 /** @typedef {{ status: 'passed'|'failed'|'blocked'|'passed-ungated'|'not-typechecked', code: 0|1|3|4|5, reason?: string, ungated: string[] }} GateResult */
 
 const isVue = (path) => path.endsWith('.vue');
+const ungatedLine = (count) => `passed with ${count} ungated items`;
+
+/** `plan.md` -> `plan.receipt.json`; a path without a trailing `.md` gets `.receipt.json` appended. */
+export const receiptPath = (planPath) => `${planPath.endsWith('.md') ? planPath.slice(0, -3) : planPath}.receipt.json`;
 
 /**
  * Pass needs exit 0 and no diagnostics; status 4 needs only `.vue` diagnostics and at least one gated block; anything else fails or blocks.
@@ -28,7 +32,7 @@ export function classify(result, plan, covered, splice) {
   const diagnostics = result.diagnostics;
   const ungatedStatus = (extra) => {
     const ungated = [...new Set([...splice.ungated, ...extra])];
-    return { status: 'passed-ungated', code: 4, reason: `passed with ${ungated.length} ungated items`, ungated };
+    return { status: 'passed-ungated', code: 4, reason: ungatedLine(ungated.length), ungated };
   };
 
   if (result.exitCode === 0 && diagnostics.length === 0) {
@@ -85,7 +89,7 @@ export function startRun(planPath, runRoot) {
     }
   }
 
-  rmSync(`${planPath}.receipt.json`, { force: true });
+  rmSync(receiptPath(planPath), { force: true });
   return {
     release() {
       try {
@@ -95,16 +99,39 @@ export function startRun(planPath, runRoot) {
   };
 }
 
-/** Writes `<plan>.receipt.json` via temp file and rename, only if the plan still hashes to `expected`; returns false otherwise. */
+/** Writes `receiptPath(plan)` via temp file and rename, only if the plan still hashes to `expected`; returns false otherwise. */
 export function writeReceipt(planPath, expected, receipt) {
   try {
     if (planHash(parsePlan(readFileSync(planPath, 'utf8'))) !== expected) return false;
   } catch {
     return false;
   }
-  const target = `${planPath}.receipt.json`;
+  const target = receiptPath(planPath);
   const temp = `${target}.tmp-${process.pid}`;
   writeFileSync(temp, `${JSON.stringify({ approvalHash: expected, ...receipt }, null, 2)}\n`);
   renameSync(temp, target);
   return true;
+}
+
+/**
+ * The receipt check: `receipt matches` (code 0) only when the plan still hashes to the receipt's `approvalHash` and its Gate line is the line the gate printed for the receipt's status; otherwise `receipt stale: ...` or `receipt missing: <path>` (code 1).
+ * @returns {{ code: 0|1, lines: string[] }}
+ */
+export function verifyReceipt(planPath) {
+  const plan = parsePlan(readFileSync(planPath, 'utf8'));
+  const path = receiptPath(planPath);
+  let receipt;
+  try {
+    receipt = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (e) {
+    if (e.code === 'ENOENT') return { code: 1, lines: [`receipt missing: ${path}`] };
+    throw e;
+  }
+  const stale = (why) => ({ code: 1, lines: [`receipt stale: ${why}`] });
+  if (planHash(plan) !== receipt.approvalHash) return stale('the approval part changed');
+  const expected = `Gate: ${receipt.status === 'passed-ungated' ? ungatedLine(receipt.ungated?.length ?? 0) : receipt.status}`;
+  if (plan.gateLine?.trimEnd() !== expected) {
+    return stale(`${plan.gateLine === null ? 'the plan has no Gate line' : `the plan says "${plan.gateLine}"`}, the receipt says "${expected}"`);
+  }
+  return { code: 0, lines: ['receipt matches'] };
 }

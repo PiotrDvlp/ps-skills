@@ -37,7 +37,7 @@ function fixture(name) {
   writeFileSync(plan, readFileSync(join(FIXTURES, name, 'plan.md'), 'utf8').replace(/^base:.*$/m, `base: ${base}`));
   const cache = tmp('sk-e2e-cache-');
   symlinkSync(GATE_TOOL, join(cache, 'tool'));
-  return { root, repo, plan, base, cache, receipt: `${plan}.receipt.json` };
+  return { root, repo, plan, base, cache, receipt: join(root, 'plan.receipt.json') };
 }
 
 function gate(f, env = {}) {
@@ -53,6 +53,7 @@ test('good: exit 0, passed, receipt has every listed field', () => {
   const r = gate(f);
   assert.equal(r.code, 0, r.out);
   assert.equal(r.first, 'passed');
+  assert.match(r.out, new RegExp(`^receipt: ${f.receipt.replaceAll('.', '\\.')}$`, 'm'));
   const receipt = receiptOf(f);
   for (const field of RECEIPT_FIELDS) assert.ok(Object.hasOwn(receipt, field), `missing ${field}`);
   assert.equal(receipt.baseCommit, f.base);
@@ -211,6 +212,37 @@ test('prepare-order with a failing prepare: exit 3, blocked: prepare failed', as
   assert.equal(r.code, 3, r.lines.join('\n'));
   assert.match(r.lines[0], /^blocked: prepare failed/);
   assert.equal(existsSync(f.receipt), false);
+});
+
+const verify = (f) => {
+  const r = spawnSync(process.execPath, [CLI, 'verify', '--plan', f.plan], { encoding: 'utf8' });
+  return { code: r.status, out: `${r.stdout}${r.stderr}`.trim() };
+};
+const setGate = (f, line) => writeFileSync(f.plan, readFileSync(f.plan, 'utf8').replace(/^(# .*\n)(Gate: .*\n)?/m, `$1${line}\n`));
+
+test('verify: the Gate line the gate printed matches; a stale hash or another Gate line does not', () => {
+  const f = fixture('good');
+  setGate(f, 'Gate: pending');
+  const r = gate(f);
+  assert.equal(r.code, 0, r.out);
+  setGate(f, `Gate: ${r.first}`);
+  assert.deepEqual(verify(f), { code: 0, out: 'receipt matches' });
+  setGate(f, 'Gate: passed with 1 ungated items');
+  assert.equal(verify(f).code, 1);
+  assert.match(verify(f).out, /^receipt stale: the plan says "Gate: passed with 1 ungated items", the receipt says "Gate: passed"$/);
+  setGate(f, 'Gate: passed');
+  writeFileSync(f.plan, readFileSync(f.plan, 'utf8').replace('# Greeting', '# Greeting, edited'));
+  assert.deepEqual(verify(f), { code: 1, out: 'receipt stale: the approval part changed' });
+});
+
+test('verify: status 4 needs the ungated count in the Gate line', () => {
+  const f = fixture('vue-caller');
+  const r = gate(f);
+  assert.equal(r.code, 4, r.out);
+  setGate(f, `Gate: ${r.first}`);
+  assert.deepEqual(verify(f), { code: 0, out: 'receipt matches' });
+  setGate(f, 'Gate: passed');
+  assert.equal(verify(f).code, 1);
 });
 
 test('the checkout is unchanged after a run', () => {

@@ -5,11 +5,13 @@ const MARKER = '*Below this line: for the implementer, the gates and the reviewe
 const SPLICE = /^<!-- skeleton (\{.*\}) -->$/;
 const SPLICE_START = /^<!--\s*skeleton/;
 const UNCHANGED_LABEL = '**Signature unchanged, behaviour changed**';
+const FILES_HEADING = /^## 1\. Files\b/;
+const GATE_LINE = /^Gate: /;
 
 /** @typedef {'create'|'insert'|'replace'|'delete-declaration'|'delete-file'} Op */
 /** @typedef {{ id: string, path: string, op: Op, selectors: string[], after?: 'imports', into?: 'export-default', property?: string, label: string, code: string, line: number, selectorConflict?: true }} Block */
 /** @typedef {{ action: 'create'|'modify'|'delete', path: string, change: string }} FileRow */
-/** @typedef {{ base: string, approval: string, files: FileRow[], blocks: Block[], unchanged: string[], taskSignatures: Map<string, string[]> }} ParsedPlan */
+/** @typedef {{ base: string, gateLine: string|null, approval: string, files: FileRow[], blocks: Block[], unchanged: string[], taskSignatures: Map<string, string[]> }} ParsedPlan */
 
 const fail = (reason) => new Error(`format: ${reason}`);
 const backticked = (text) => [...text.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
@@ -21,7 +23,7 @@ const readBase = (markdown) => {
 };
 
 const readFiles = (lines) => {
-  const start = lines.findIndex((l) => /^## 1\. Files\b/.test(l));
+  const start = lines.findIndex((l) => FILES_HEADING.test(l));
   if (start < 0) return [];
   const rows = [];
   for (const line of lines.slice(start + 1)) {
@@ -118,15 +120,22 @@ const readTaskSignatures = (lines) => {
   return map;
 };
 
-/** Splits at the "Below this line" marker; reads files table, labelled blocks, unchanged lines, task signatures. Throws `format: <reason>`. */
+const findGateLine = (above) => {
+  const files = above.findIndex((l) => FILES_HEADING.test(l));
+  return files < 0 ? -1 : above.slice(0, files).findIndex((l) => GATE_LINE.test(l));
+};
+
+/** Splits at the "Below this line" marker; reads files table, labelled blocks, unchanged lines, task signatures. The first `Gate: ` line above `## 1. Files` is `gateLine` and is left out of `approval`. Throws `format: <reason>`. */
 export function parsePlan(markdown) {
   const lines = markdown.split(/\r?\n/);
   const cut = lines.findIndex((l) => l.trim() === MARKER);
   if (cut < 0) throw fail('no approval marker');
   const above = lines.slice(0, cut);
+  const gate = findGateLine(above);
   return {
     base: readBase(markdown),
-    approval: above.join('\n'),
+    gateLine: gate < 0 ? null : above[gate],
+    approval: above.filter((_, i) => i !== gate).join('\n'),
     files: readFiles(above),
     blocks: readBlocks(above),
     unchanged: readUnchanged(above),
@@ -221,10 +230,10 @@ export function checkFormat(plan) {
   return [...new Set(out)];
 }
 
-/** sha256 over the approval part and each block's metadata and code; text below the line does not count. */
+/** sha256 over the approval part and each block's metadata (not its line number) and code; text below the line and the Gate line do not count. */
 export function planHash(plan) {
   const hash = createHash('sha256');
   hash.update(plan.approval);
-  for (const { code, ...meta } of plan.blocks) hash.update(`\0${JSON.stringify(meta)}\0${code}`);
+  for (const { code, line, ...meta } of plan.blocks) hash.update(`\0${JSON.stringify(meta)}\0${code}`);
   return hash.digest('hex');
 }

@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { classify, startRun, writeReceipt } from './receipt.mjs';
+import { classify, receiptPath, startRun, verifyReceipt, writeReceipt } from './receipt.mjs';
 import { parsePlan, planHash } from './plan-format.mjs';
 import { tmp } from './test-tmp.mjs';
 
@@ -105,28 +105,59 @@ const setup = () => {
 const lockPath = (runRoot, planPath) =>
   join(runRoot, 'locks', `${createHash('sha256').update(realpathSync(planPath)).digest('hex')}.lock`);
 
+test('receiptPath replaces a trailing .md, else appends', () => {
+  assert.equal(receiptPath('/p/plan.md'), '/p/plan.receipt.json');
+  assert.equal(receiptPath('/p/plan.md.txt'), '/p/plan.md.txt.receipt.json');
+  assert.equal(receiptPath('/p/plan'), '/p/plan.receipt.json');
+});
+
+test('writeReceipt writes plan.receipt.json next to plan.md', () => {
+  const { dir, planPath, hash } = setup();
+  assert.equal(writeReceipt(planPath, hash, { status: 'passed' }), true);
+  assert.deepEqual(readdirSync(dir).sort(), ['plan.md', 'plan.receipt.json']);
+});
+
+test('verifyReceipt matches only when the hash and the Gate line agree with the receipt', () => {
+  const { planPath } = setup();
+  const write = (gate, header = '# Plan') => writeFileSync(planPath, `${header}\n\n${gate ? `${gate}\n` : ''}\n## 1. Files\n\n${MARK}\n`);
+  write('Gate: passed');
+  const hash = planHash(parsePlan(readFileSync(planPath, 'utf8')));
+  assert.deepEqual(verifyReceipt(planPath), { code: 1, lines: [`receipt missing: ${receiptPath(planPath)}`] });
+  writeReceipt(planPath, hash, { status: 'passed', ungated: [] });
+  assert.deepEqual(verifyReceipt(planPath), { code: 0, lines: ['receipt matches'] });
+  write('Gate: passed with 1 ungated items');
+  assert.deepEqual(verifyReceipt(planPath), { code: 1, lines: ['receipt stale: the plan says "Gate: passed with 1 ungated items", the receipt says "Gate: passed"'] });
+  write('');
+  assert.deepEqual(verifyReceipt(planPath), { code: 1, lines: ['receipt stale: the plan has no Gate line, the receipt says "Gate: passed"'] });
+  write('Gate: passed', '# Plan, edited');
+  assert.deepEqual(verifyReceipt(planPath), { code: 1, lines: ['receipt stale: the approval part changed'] });
+  write('Gate: passed with 2 ungated items');
+  writeReceipt(planPath, hash, { status: 'passed-ungated', ungated: ['a.vue', 'b.vue'] });
+  assert.deepEqual(verifyReceipt(planPath), { code: 0, lines: ['receipt matches'] });
+});
+
 test('writeReceipt renames only when the hash still matches', () => {
   const { planPath, hash } = setup();
   assert.equal(writeReceipt(planPath, hash, { status: 'passed' }), true);
-  const written = JSON.parse(readFileSync(`${planPath}.receipt.json`, 'utf8'));
+  const written = JSON.parse(readFileSync(receiptPath(planPath), 'utf8'));
   assert.equal(written.status, 'passed');
   assert.equal(written.approvalHash, hash);
-  rmSync(`${planPath}.receipt.json`);
+  rmSync(receiptPath(planPath));
   writeFileSync(planPath, `# Plan edited\n\n${MARK}\n`);
   assert.equal(writeReceipt(planPath, hash, { status: 'passed' }), false);
-  assert.equal(existsSync(`${planPath}.receipt.json`), false);
+  assert.equal(existsSync(receiptPath(planPath)), false);
   assert.deepEqual(readdirSync(dirname(planPath)).filter((n) => n.includes('tmp-')), []);
   writeFileSync(planPath, 'no marker here');
   assert.equal(writeReceipt(planPath, hash, {}), false);
-  assert.equal(existsSync(`${planPath}.receipt.json`), false);
+  assert.equal(existsSync(receiptPath(planPath)), false);
 });
 
 test('startRun deletes an earlier receipt', () => {
   const { planPath, runRoot, hash } = setup();
   writeReceipt(planPath, hash, { status: 'passed' });
-  assert.equal(existsSync(`${planPath}.receipt.json`), true);
+  assert.equal(existsSync(receiptPath(planPath)), true);
   const run = startRun(planPath, runRoot);
-  assert.equal(existsSync(`${planPath}.receipt.json`), false);
+  assert.equal(existsSync(receiptPath(planPath)), false);
   run.release();
 });
 
