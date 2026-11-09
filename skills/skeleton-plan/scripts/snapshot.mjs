@@ -33,7 +33,7 @@ function files(root, dir = root) {
   });
 }
 
-function assertNoEscapingLinks(dir) {
+function assertNoEscapingLinks(dir, scan = dir, label = 'link') {
   const real = realpathSync.native(dir);
   const walk = (d) => {
     for (const e of readdirSync(d, { withFileTypes: true })) {
@@ -43,11 +43,32 @@ function assertNoEscapingLinks(dir) {
         try {
           target = realpathSync.native(p);
         } catch {}
-        if (target !== real && !(target ?? '').startsWith(real + sep)) throw fail(`blocked: link leaves snapshot: ${p}`, 3);
+        if (target !== real && !(target ?? '').startsWith(real + sep)) throw fail(`blocked: ${label} leaves snapshot: ${p}`, 3);
       } else if (e.isDirectory()) walk(p);
     }
   };
-  walk(dir);
+  walk(scan);
+}
+
+const LOCKFILES = ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock'];
+
+function cloneDependencies(repoRoot, dir, fingerprints) {
+  const lockName = LOCKFILES.find((n) => existsSync(join(dir, n)));
+  if (!lockName) return;
+  const baseLock = readFileSync(join(dir, lockName));
+  const checkoutLock = join(repoRoot, lockName);
+  if (!existsSync(checkoutLock) || !baseLock.equals(readFileSync(checkoutLock))) throw fail('blocked: dependencies differ from base', 3);
+  fingerprints.lockfileHash = createHash('sha256').update(baseLock).digest('hex');
+  fingerprints.nodeVersion = process.version;
+  const from = join(repoRoot, 'node_modules');
+  if (!existsSync(from)) return;
+  const to = join(dir, 'node_modules');
+  if (spawnSync('cp', ['-cR', from, to]).status !== 0) {
+    rmSync(to, { recursive: true, force: true });
+    const copy = spawnSync('cp', ['-R', from, to]);
+    if (copy.status !== 0) throw fail(`blocked: dependency clone failed: ${String(copy.stderr).trim()}`, 3);
+  }
+  assertNoEscapingLinks(dir, to, 'dependency link');
 }
 
 function fingerprint(path) {
@@ -92,6 +113,7 @@ export function makeSnapshot(repoRoot, base, generatedInputs, runRoot) {
     fingerprints[input] = fingerprint(to);
   }
   assertNoEscapingLinks(dir);
+  cloneDependencies(repoRoot, dir, fingerprints);
   return { dir, fingerprints };
 }
 

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, utimesSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, utimesSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tmp } from './test-tmp.mjs';
@@ -109,4 +109,37 @@ test('a base that is not a commit is rejected and cannot inject git options', ()
   assert.throws(() => makeSnapshot(repo, `--output=${out}`, [], runRoot), (e) => e.code === 3 && /^blocked: base .* is not a commit$/.test(e.message));
   assert.equal(existsSync(out), false);
   assert.equal(makeSnapshot(repo, base, [], runRoot).dir.length > 0, true);
+});
+
+function depsRepo(lock) {
+  const { repo, runRoot } = fixtureRepo();
+  writeFileSync(join(repo, '.gitignore'), 'generated/\nnode_modules/\n');
+  writeFileSync(join(repo, 'package-lock.json'), lock);
+  git(repo, 'add', '.');
+  git(repo, 'commit', '-q', '-m', 'lock');
+  mkdirSync(join(repo, 'node_modules', 'pkg-a'), { recursive: true });
+  writeFileSync(join(repo, 'node_modules', 'pkg-a', 'index.js'), 'module.exports = 1;\n');
+  return { repo, runRoot, base: git(repo, 'rev-parse', 'HEAD').trim() };
+}
+
+test('node_modules is cloned when the lockfile matches base', () => {
+  const { repo, runRoot, base } = depsRepo('{"v":1}\n');
+  const { dir, fingerprints } = makeSnapshot(repo, base, [], runRoot);
+  assert.equal(readFileSync(join(dir, 'node_modules', 'pkg-a', 'index.js'), 'utf8'), 'module.exports = 1;\n');
+  assert.match(fingerprints.lockfileHash, /^[0-9a-f]{64}$/);
+  assert.equal(fingerprints.nodeVersion, process.version);
+});
+
+test('a lockfile change blocks the snapshot', () => {
+  const { repo, runRoot, base } = depsRepo('{"v":1}\n');
+  writeFileSync(join(repo, 'package-lock.json'), '{"v":2}\n');
+  assert.throws(() => makeSnapshot(repo, base, [], runRoot), (e) => e.code === 3 && e.message === 'blocked: dependencies differ from base');
+});
+
+test('a dependency link leaving the run dir blocks the snapshot', () => {
+  const { repo, runRoot, base } = depsRepo('{"v":1}\n');
+  const original = join(repo, 'node_modules', 'pkg-a', 'index.js');
+  symlinkSync(realpathSync(join(repo, 'node_modules', 'pkg-a')), join(repo, 'node_modules', 'linked'));
+  assert.throws(() => makeSnapshot(repo, base, [], runRoot), (e) => e.code === 3 && /^blocked: dependency link leaves snapshot: .*linked$/.test(e.message));
+  assert.equal(readFileSync(original, 'utf8'), 'module.exports = 1;\n');
 });
