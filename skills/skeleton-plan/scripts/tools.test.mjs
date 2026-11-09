@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync, existsSync, realpathSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tmp } from './test-tmp.mjs';
@@ -73,6 +73,21 @@ test('CLI setup reports fs errors with exit 3 and no TypeError', () => {
   assert.equal(r.status, 3);
   assert.match(r.stderr, /EEXIST|ENOTDIR/);
   assert.doesNotMatch(r.stderr, /TypeError/);
+});
+
+test('CLI setup runs npm install without lifecycle scripts, audit or fund', () => {
+  const root = tmp('sk-tools-');
+  const bin = join(root, 'bin');
+  mkdirSync(bin);
+  const log = join(root, 'npm-args.txt');
+  writeFileSync(join(bin, 'npm'), `#!/bin/sh\nprintf '%s\\n' "$@" > '${log}'\n`, { mode: 0o755 });
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+  const r = spawnSync(process.execPath, [join(import.meta.dirname, 'tools.mjs'), 'setup', '--cache-dir', join(root, 'cache')], { encoding: 'utf8', env });
+  assert.equal(r.status, 0, r.stderr);
+  const args = readFileSync(log, 'utf8').trim().split('\n');
+  for (const expected of ['install', '--ignore-scripts', '--no-audit', '--no-fund', 'typescript@5.9.3']) {
+    assert.ok(args.includes(expected), `${expected} missing from npm ${args.join(' ')}`);
+  }
 });
 
 test('setup replaces a partial install', async () => {

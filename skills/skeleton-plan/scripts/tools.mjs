@@ -52,7 +52,7 @@ export function loadTypescript(repoRoot, cacheDir) {
 
 async function npmInstall(toolDir) {
   writeFileSync(join(toolDir, 'package.json'), JSON.stringify({ name: 'skeleton-plan-tool', private: true }));
-  await promisify(execFile)('npm', ['install', '--prefix', toolDir, '--save-exact', `typescript@${PINNED_TYPESCRIPT}`]);
+  await promisify(execFile)('npm', ['install', '--prefix', toolDir, '--save-exact', '--ignore-scripts', '--no-audit', '--no-fund', `typescript@${PINNED_TYPESCRIPT}`]);
 }
 
 /** Installs `typescript@PINNED_TYPESCRIPT` into `<cacheDir>/tool`; keeps a complete install, replaces a partial one. */
