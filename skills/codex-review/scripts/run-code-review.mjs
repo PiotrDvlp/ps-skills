@@ -15,13 +15,13 @@ import {
   mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync,
   readdirSync, lstatSync, openSync, closeSync, chmodSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
   resolveTarget, buildPatch, countUntracked, stateDigest, parsePatch,
-  validateAgainstSchema, validateSemantics, findUnanchoredIssues, deriveFinalVerdict,
+  validateAgainstSchema, validateSemantics, findUnanchoredIssues, findUncheckedPaths, findForeignChecked, deriveFinalVerdict, readRunDepth,
   assemblePrompt, renderBody, validateModel, resolveModelFromOutput, DEFAULT_MODEL,
   sha256, git, ReviewError, PROTOCOL_VERSION, SOFT_WARN_BYTES, HARD_REFUSE_BYTES,
 } from './code-review-core.mjs';
@@ -262,7 +262,10 @@ async function cmdRun(args) {
     // schema, so without this the schema contract would be untested.
     validateAgainstSchema(parsed, JSON.parse(readFileSync(SCHEMA_PATH, 'utf8')));
     validateSemantics(parsed);
-    const unanchored = findUnanchoredIssues(parsed, parsePatch(patch).citations);
+    const { citations, renames } = parsePatch(patch);
+    const unanchored = findUnanchoredIssues(parsed, citations);
+    const unchecked = findUncheckedPaths(parsed, citations, renames);
+    const foreignChecked = findForeignChecked(parsed, citations, renames);
 
     const digestAfter = stateDigest(repoRoot);
     if (digestAfter !== digestBefore) {
@@ -270,10 +273,14 @@ async function cmdRun(args) {
         `repository changed while Codex was reviewing (${digestBefore} -> ${digestAfter})`);
     }
 
-    const finalVerdict = deriveFinalVerdict(parsed.verdict, manifest.unreviewable_paths);
+    const finalVerdict = deriveFinalVerdict(parsed.verdict, manifest.unreviewable_paths, unchecked);
+    const depth = readRunDepth(stdout, stderr,
+      join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'sessions'));
     const body = renderBody(parsed, {
       finalVerdict,
       unreviewable: manifest.unreviewable_paths,
+      unchecked,
+      foreignChecked,
       untrackedIncluded: manifest.untracked_included,
       unanchored,
     });
@@ -301,6 +308,8 @@ async function cmdRun(args) {
         untracked_included: manifest.untracked_included,
         unreviewable_paths: manifest.unreviewable_paths,
         unanchored_issues: unanchored.map((n) => n + 1),
+        unchecked_paths: unchecked,
+        review_depth: depth,
         state_digest: digestAfter,
         reviewer_verdict: parsed.verdict,
         final_verdict: finalVerdict,

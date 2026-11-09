@@ -3,7 +3,7 @@
   "title": "codex-review code mode output",
   "type": "object",
   "additionalProperties": false,
-  "required": ["protocol_version", "verdict", "issues", "unresolved_assumptions"],
+  "required": ["protocol_version", "verdict", "issues", "checked", "unresolved_assumptions"],
   "properties": {
     "protocol_version": {
       "type": "string",
@@ -32,6 +32,18 @@
           },
           "line": { "type": "integer" },
           "body": { "type": "string" }
+        }
+      }
+    },
+    "checked": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "verified"],
+        "properties": {
+          "path": { "type": "string" },
+          "verified": { "type": "string" }
         }
       }
     },

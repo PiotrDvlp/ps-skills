@@ -94,6 +94,7 @@ export function goodResult(overrides = {}) {
     protocol_version: 'codex-review-code/v1',
     verdict: 'PASS',
     issues: [],
+    checked: [{ path: 'a.txt', verified: 'read the file and its only caller' }],
     unresolved_assumptions: [],
     ...overrides,
   }, null, 2);

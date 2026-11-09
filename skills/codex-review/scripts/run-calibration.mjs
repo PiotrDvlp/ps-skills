@@ -91,6 +91,7 @@ export function reviewFixture(fixture, { model = DEFAULT_MODEL, deep = false, ke
       final_verdict: out.final_verdict,
       reviewer_verdict: out.reviewer_verdict,
       issue_count: out.issue_count,
+      review_depth: out.frontmatter?.review_depth ?? null,
       issues: parseIssues(out.body),
       body: out.body,
     };
@@ -139,7 +140,10 @@ export function scoreCalibration(entries) {
     const should = e.expected_verdict !== 'PASS';
     const cell = should ? (flagged ? 'tp' : 'fn') : (flagged ? 'fp' : 'tn');
     matrix[cell]++;
-    byId[e.id] = { final_verdict: e.final_verdict, expected_verdict: e.expected_verdict, cell };
+    byId[e.id] = {
+      final_verdict: e.final_verdict, expected_verdict: e.expected_verdict, cell,
+      review_depth: e.review_depth ?? null,
+    };
   }
   const { tp, fn, fp, tn } = matrix;
   return {
@@ -199,7 +203,10 @@ function renderReport(score, defects) {
     const defectNote = d && d.total > 0
       ? ` | defects ${d.found.length}/${d.total} found${d.missing.length ? ` (missing: ${d.missing.join(', ')})` : ''}`
       : '';
-    lines.push(`  ${id}: expected ${cell.expected_verdict}, got ${cell.final_verdict} [${mark}]${defectNote}`);
+    const depth = cell.review_depth
+      ? ` | depth ${cell.review_depth.tool_calls} calls, ${cell.review_depth.reasoning_output_tokens} reasoning tokens`
+      : ' | depth n/a';
+    lines.push(`  ${id}: expected ${cell.expected_verdict}, got ${cell.final_verdict} [${mark}]${defectNote}${depth}`);
   }
   const { tp, fn, fp, tn } = score.matrix;
   return [

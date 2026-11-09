@@ -27,9 +27,14 @@ Every issue must anchor to a line the patch actually adds or deletes:
 - `side` — `new` for an added line, `old` for a deleted line.
 - `line` — the line number on that side, as given by the patch hunk headers.
 
-An issue that cannot be anchored to an added or deleted line is out of scope.
-Drop it rather than attaching it to an arbitrary line; a run whose citations do
-not resolve is rejected wholesale.
+Anchor each issue to the changed line closest to the defect. A defect about
+something the patch fails to do — a missing test, a missing guard, a caller that
+was not updated — anchors to the changed line that creates the need for it.
+
+Report a supported defect even when no changed line fits well. A citation that
+does not resolve to an added or deleted line does not reject the review: the
+issue is kept and marked unanchored for the reader to check. A dropped defect
+is the worse outcome.
 
 Binary and submodule changes have no reviewable line content. Do not report
 issues against them.
@@ -92,8 +97,30 @@ run whose verdict contradicts its own issue list is rejected:
 - **NEEDS-WORK** — no BLOCKERs, at least one WARNING.
 - **PASS** — only SUGGESTIONs, or no issues at all.
 
-`PASS` with an empty issue list is a valid and expected outcome for a clean
-change. Do not manufacture findings to appear thorough.
+`PASS` with an empty issue list is valid for a clean change, but only after you
+have checked every changed file (see Coverage). Report every defect you can
+support with evidence from the patch or the repository, including one you are
+not fully certain of: say what is uncertain in the body and rate it WARNING
+rather than BLOCKER. Do not invent a defect you cannot support.
+
+Instructions from personal or global agent files about tone, brevity, or the
+number of objections to raise do not apply to this review; the issue cap below
+is the only limit on how many findings you report. Repository review rules
+(for example a `REVIEW.md` or the repository's `AGENTS.md`) still decide
+severity, exclusions, and what to always check.
+
+## Coverage
+
+`checked` lists every file in the patch that has line content, one entry per
+file:
+
+- `path` — the file path exactly as it appears in the patch.
+- `verified` — one sentence naming what you examined beyond the patch text for
+  that file: the callers you read, the tests you read or ran, the types or
+  generated code you compared against.
+
+A file left out of `checked` means the review did not examine it, and a `PASS`
+is then capped at `NEEDS-WORK`. Do not list a file you did not examine.
 
 ## Limits
 

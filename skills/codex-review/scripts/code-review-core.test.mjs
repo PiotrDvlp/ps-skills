@@ -10,6 +10,7 @@ import {
   validateAgainstSchema, validateSemantics, findUnanchoredIssues, deriveFinalVerdict,
   buildPathspecs, makeDelimiter, assemblePrompt, renderBody,
   validateModel, resolveModelFromOutput, ReviewError, PROTOCOL_VERSION,
+  findUncheckedPaths, findForeignChecked, readRunDepth,
 } from './code-review-core.mjs';
 import { makeRepo, write, commitAll } from './test-helpers.mjs';
 
@@ -372,14 +373,14 @@ test('git-exit/ any nonzero git exit is fatal (no exit-code exceptions)', () => 
 const citationsFor = (patch) => parsePatch(patch).citations;
 
 test('fatal/ schema rejects missing required property', () => {
-  const bad = { protocol_version: PROTOCOL_VERSION, verdict: 'PASS', issues: [] };
+  const bad = { protocol_version: PROTOCOL_VERSION, verdict: 'PASS', issues: [], checked: [] };
   assert.throws(() => validateAgainstSchema(bad, SCHEMA),
     (e) => e.code === 'schema_violation' && /unresolved_assumptions/.test(e.message));
 });
 
 test('fatal/ schema rejects additional property', () => {
   const bad = {
-    protocol_version: PROTOCOL_VERSION, verdict: 'PASS', issues: [],
+    protocol_version: PROTOCOL_VERSION, verdict: 'PASS', issues: [], checked: [],
     unresolved_assumptions: [], extra: 'nope',
   };
   assert.throws(() => validateAgainstSchema(bad, SCHEMA),
@@ -387,8 +388,8 @@ test('fatal/ schema rejects additional property', () => {
 });
 
 test('fatal/ schema rejects a bad enum value', () => {
-  const bad = { protocol_version: PROTOCOL_VERSION, verdict: 'MAYBE', issues: [], unresolved_assumptions: [] };
-  assert.throws(() => validateAgainstSchema(bad, SCHEMA), (e) => e.code === 'schema_violation');
+  const bad = { protocol_version: PROTOCOL_VERSION, verdict: 'MAYBE', issues: [], checked: [], unresolved_assumptions: [] };
+  assert.throws(() => validateAgainstSchema(bad, SCHEMA), (e) => e.code === 'schema_violation' && /MAYBE/.test(e.message));
 });
 
 test('fatal/ verdict contradicting severities is rejected', () => {
@@ -670,4 +671,153 @@ test('patch/ a deleted markdown "---" line keeps the old-side counter honest', (
   ].join('\n');
   const { citations } = parsePatch(patch);
   assert.deepEqual([...citations.get('n.md\0old')].sort(), [2, 3], 'the "---" removal is old line 2, body is old line 3');
+});
+
+// ---------------------------------------------------------------- checked/
+
+test('checked/ schema requires the checked array', () => {
+  const bad = { protocol_version: PROTOCOL_VERSION, verdict: 'PASS', issues: [], unresolved_assumptions: [] };
+  assert.throws(() => validateAgainstSchema(bad, SCHEMA),
+    (e) => e.code === 'schema_violation' && /"checked"/.test(e.message));
+});
+
+test('checked/ a reviewable path missing from checked is reported unchecked', () => {
+  const patch = [
+    'diff --git a/a.js b/a.js',
+    '--- a/a.js',
+    '+++ b/a.js',
+    '@@ -1 +1 @@',
+    '-old',
+    '+new',
+    'diff --git a/gone.js b/gone.js',
+    '--- a/gone.js',
+    '+++ /dev/null',
+    '@@ -1 +0,0 @@',
+    '-bye',
+    'diff --git a/b.js b/b.js',
+    '--- a/b.js',
+    '+++ b/b.js',
+    '@@ -1 +1 @@',
+    '-x',
+    '+y',
+    '',
+  ].join('\n');
+  const cites = citationsFor(patch);
+  const result = (checked) => ({ protocol_version: PROTOCOL_VERSION, verdict: 'PASS', issues: [], checked, unresolved_assumptions: [] });
+
+  assert.deepEqual(findUncheckedPaths(result([]), cites), ['a.js', 'b.js', 'gone.js']);
+  assert.deepEqual(findUncheckedPaths(result([
+    { path: 'a.js', verified: 'read the two callers in c.js' },
+    { path: 'gone.js', verified: 'no remaining importers' },
+  ]), cites), ['b.js']);
+  assert.deepEqual(findUncheckedPaths(result([
+    { path: 'a.js', verified: '   ' },
+    { path: 'b.js', verified: 'ok' },
+    { path: 'gone.js', verified: 'ok' },
+  ]), cites), ['a.js'], 'an entry with a blank verified sentence does not count as checked');
+});
+
+test('checked/ unchecked paths cap a PASS but leave other verdicts alone', () => {
+  assert.equal(deriveFinalVerdict('PASS', [], ['b.js']), 'NEEDS-WORK');
+  assert.equal(deriveFinalVerdict('PASS', [], []), 'PASS');
+  assert.equal(deriveFinalVerdict('BLOCKER', [], ['b.js']), 'BLOCKER');
+});
+
+test('checked/ rendered body lists what was checked and what was not', () => {
+  const body = renderBody(
+    {
+      protocol_version: PROTOCOL_VERSION, verdict: 'PASS', issues: [],
+      checked: [{ path: 'a.js', verified: 'read the two callers in c.js' }], unresolved_assumptions: [],
+    },
+    { finalVerdict: 'NEEDS-WORK', unchecked: ['b.js'] },
+  );
+  assert.match(body, /NEEDS-WORK \*\(reviewer returned PASS/);
+  assert.match(body, /## Checked\n\n- `a\.js` — read the two callers in c\.js/);
+  assert.match(body, /## Incomplete coverage[\s\S]*did not list these changed paths as checked[\s\S]*- `b\.js`/);
+});
+
+// ---------------------------------------------------------------- depth/
+
+test('depth/ reads tool calls and reasoning tokens from the session rollout', () => {
+  const root = tmp();
+  const id = '01a1c05c-e73a-7633-bd28-1a7031777916';
+  mkdirSync(join(root, '2026', '11', '09'), { recursive: true });
+  const lines = [
+    { type: 'session_meta', payload: { id } },
+    { type: 'response_item', payload: { type: 'custom_tool_call', input: 'cat a' } },
+    { type: 'response_item', payload: { type: 'function_call', name: 'shell' } },
+    { type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { reasoning_output_tokens: 10 } } } },
+    { type: 'response_item', payload: { type: 'custom_tool_call', input: 'cat b' } },
+    { type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { reasoning_output_tokens: 520 } } } },
+  ];
+  writeFileSync(join(root, '2026', '11', '09', `rollout-2026-11-09T13-51-18-${id}.jsonl`),
+    lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+
+  assert.deepEqual(readRunDepth('', `model: gpt-6.1-sol\nsession id: ${id}\n`, root),
+    { tool_calls: 3, reasoning_output_tokens: 520 });
+  assert.equal(readRunDepth('', 'session id: 00000000-0000-0000-0000-000000000000\n', root), null);
+  assert.equal(readRunDepth('', 'no header at all', root), null);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test('checked/ a renamed and edited file is checked under either of its paths', () => {
+  const { citations, renames } = parsePatch([
+    'diff --git a/src/old/mod.ts b/src/new/mod.ts',
+    'similarity index 90%',
+    'rename from src/old/mod.ts',
+    'rename to src/new/mod.ts',
+    '--- a/src/old/mod.ts',
+    '+++ b/src/new/mod.ts',
+    '@@ -1 +1 @@',
+    '-old',
+    '+new',
+    '',
+  ].join('\n'));
+  const result = (path) => ({
+    protocol_version: PROTOCOL_VERSION, verdict: 'PASS', issues: [],
+    checked: [{ path, verified: 'read both importers' }], unresolved_assumptions: [],
+  });
+  assert.deepEqual(findUncheckedPaths(result('src/new/mod.ts'), citations, renames), []);
+  assert.deepEqual(findUncheckedPaths(result('src/old/mod.ts'), citations, renames), []);
+  assert.deepEqual(findUncheckedPaths(result('other.ts'), citations, renames), ['src/new/mod.ts']);
+});
+
+test('checked/ a git a/ or b/ prefix still matches, a path outside the patch is foreign', () => {
+  const { citations, renames } = parsePatch([
+    'diff --git a/a.js b/a.js', '--- a/a.js', '+++ b/a.js', '@@ -1 +1 @@', '-x', '+y', '',
+  ].join('\n'));
+  const result = {
+    protocol_version: PROTOCOL_VERSION, verdict: 'PASS', issues: [],
+    checked: [{ path: 'b/a.js', verified: 'read callers' }, { path: 'nope.js', verified: 'read it' }],
+    unresolved_assumptions: [],
+  };
+  assert.deepEqual(findUncheckedPaths(result, citations, renames), []);
+  assert.deepEqual(findForeignChecked(result, citations, renames), ['nope.js']);
+});
+
+test('checked/ blank or foreign entries are not rendered as checked', () => {
+  const body = renderBody(
+    {
+      protocol_version: PROTOCOL_VERSION, verdict: 'PASS', issues: [],
+      checked: [
+        { path: 'a.js', verified: '   ' },
+        { path: 'b.js', verified: 'read the caller' },
+        { path: 'nope.js', verified: 'read it' },
+      ],
+      unresolved_assumptions: [],
+    },
+    { finalVerdict: 'NEEDS-WORK', unchecked: ['a.js'], foreignChecked: ['nope.js'] },
+  );
+  const checkedSection = body.slice(body.indexOf('## Checked'), body.indexOf('The reviewer also listed'));
+  assert.match(checkedSection, /`b\.js` — read the caller/);
+  assert.doesNotMatch(checkedSection, /`a\.js`|`nope\.js`/);
+  assert.match(body, /not in the patch[\s\S]*- `nope\.js`/);
+});
+
+test('depth/ an unreadable rollout gives null instead of failing the run', () => {
+  const root = tmp();
+  const id = '01a1c05c-e73a-7633-bd28-1a7031777916';
+  mkdirSync(join(root, '2026', '11', '09', `rollout-x-${id}.jsonl`), { recursive: true });
+  assert.equal(readRunDepth('', `session id: ${id}\n`, root), null);
+  rmSync(root, { recursive: true, force: true });
 });

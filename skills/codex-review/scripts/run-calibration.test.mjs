@@ -17,13 +17,13 @@ const SCRIPT = join(HERE, 'run-calibration.mjs');
 // Corpus integrity.
 // ---------------------------------------------------------------------------
 
-test('manifest has 9 fixtures: 5 buggy expecting NEEDS-WORK, 4 clean expecting PASS', () => {
+test('manifest has 12 fixtures: 7 buggy expecting NEEDS-WORK, 5 clean expecting PASS', () => {
   const manifest = loadManifest();
-  assert.equal(manifest.fixtures.length, 9);
+  assert.equal(manifest.fixtures.length, 12);
   const buggy = manifest.fixtures.filter((f) => f.kind === 'buggy');
   const clean = manifest.fixtures.filter((f) => f.kind === 'clean');
-  assert.equal(buggy.length, 5);
-  assert.equal(clean.length, 4);
+  assert.equal(buggy.length, 7);
+  assert.equal(clean.length, 5);
   for (const f of buggy) assert.equal(f.expected_verdict, 'NEEDS-WORK');
   for (const f of clean) assert.equal(f.expected_verdict, 'PASS');
   for (const f of manifest.fixtures) {

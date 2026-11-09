@@ -737,3 +737,38 @@ test('writer-gate/ the log path creates a missing base directory like --no-log d
   assert.match(readFileSync(join(v, 'log.md'), 'utf8'), /\[\[note\]\]/);
   rmSync(v, { recursive: true, force: true });
 });
+
+// ---------------------------------------------------------------- checked/
+
+test('checked/ a PASS that skips a changed file is capped and the file is named', () => {
+  const r = makeRepo();
+  write(r.dir, 'a.txt', 'v1\n');
+  write(r.dir, 'b.txt', 'v1\n');
+  commitAll(r.g);
+  write(r.dir, 'a.txt', 'v2\n');
+  write(r.dir, 'b.txt', 'v2\n');
+  const prep = JSON.parse(runner('prepare', ['--uncommitted', '--repo', r.dir]).stdout);
+
+  const id = '01a1c05c-e73a-7633-bd28-1a7031777916';
+  const codexHome = mkdtempSync(join(tmpdir(), 'cxr-home-'));
+  mkdirSync(join(codexHome, 'sessions', '2026', '11', '09'), { recursive: true });
+  writeFileSync(join(codexHome, 'sessions', '2026', '11', '09', `rollout-x-${id}.jsonl`), [
+    JSON.stringify({ type: 'response_item', payload: { type: 'custom_tool_call', input: 'cat a.txt' } }),
+    JSON.stringify({ type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { reasoning_output_tokens: 77 } } } }),
+  ].join('\n'));
+
+  const fake = makeFakeCodex({ json: goodResult({ verdict: 'PASS' }), stderr: `session id: ${id}` });
+  const res = spawnSync('node', [RUNNER, 'run', '--bundle', prep.bundle], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${fake.dir}:${process.env.PATH}`, CODEX_HOME: codexHome },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const out = JSON.parse(res.stdout);
+  assert.equal(out.reviewer_verdict, 'PASS');
+  assert.equal(out.final_verdict, 'NEEDS-WORK');
+  assert.deepEqual(out.frontmatter.unchecked_paths, ['b.txt']);
+  assert.deepEqual(out.frontmatter.review_depth, { tool_calls: 1, reasoning_output_tokens: 77 });
+  assert.match(out.body, /## Checked\n\n- `a\.txt`/);
+  rmSync(codexHome, { recursive: true, force: true });
+  fake.cleanup(); r.cleanup();
+});
