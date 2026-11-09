@@ -1,11 +1,13 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { dirname, join, relative, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { ensureSafeDir, fail } from './tools.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_ARCHIVE = 1024 * 1024 * 1024;
+const RUN_TIMEOUT_MS = 600 * 1000;
+const MAX_OUTPUT = 64 * 1024 * 1024;
 
 function pruneOldRuns(runRoot) {
   for (const name of readdirSync(runRoot)) {
@@ -120,10 +122,73 @@ export function makeSnapshot(repoRoot, base, generatedInputs, runRoot) {
   return { dir, fingerprints };
 }
 
-/** From the snapshot: `nuxt.config.ts` means `nuxt`, else `tsc`; `typecheck` stays `null` until the typecheck task fills it. */
+/** From the snapshot: `nuxt.config.ts` means `nuxt`, else `tsc`; typecheck is the snapshot's `typecheck` script, else the loaded `tsc` with `--noEmit -p tsconfig.json`. */
 export function detectAdapter(dir, tsInfo) {
+  let scripts = {};
+  try {
+    scripts = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).scripts ?? {};
+  } catch {}
+  const typecheck = typeof scripts.typecheck === 'string' ? ['npm', 'run', 'typecheck'] : ['node', tsInfo?.tscPath, '--noEmit', '-p', 'tsconfig.json'];
   if (existsSync(join(dir, 'nuxt.config.ts'))) {
-    return { name: 'nuxt', generatedInputs: ['generated'], prepare: ['npx', '--no-install', 'nuxi', 'prepare'], typecheck: null };
+    return { name: 'nuxt', generatedInputs: ['generated'], prepare: ['npx', '--no-install', 'nuxi', 'prepare'], typecheck };
   }
-  return { name: 'tsc', generatedInputs: [], prepare: null, typecheck: null };
+  return { name: 'tsc', generatedInputs: [], prepare: null, typecheck };
+}
+
+/** Runs the adapter's prepare command in `dir`; throws code 3 `blocked: prepare failed` on a nonzero exit or a spawn error; does nothing when `prepare` is `null`. */
+export function runPrepare(dir, adapter) {
+  if (!adapter.prepare) return;
+  const [cmd, ...args] = adapter.prepare;
+  const r = spawnSync(cmd, args, { cwd: dir, encoding: 'utf8', timeout: RUN_TIMEOUT_MS, maxBuffer: MAX_OUTPUT });
+  if (r.error || r.status !== 0) {
+    const reason = r.error ? (r.error.code ?? r.error.message) : `exit ${r.status}`;
+    const tail = String(r.stderr ?? '').trim().split('\n').slice(-5).join('\n');
+    throw fail(`blocked: prepare failed (${reason})${tail ? `\n${tail}` : ''}`, 3);
+  }
+}
+
+const ANSI = /\u001b\[[0-9;]*m/g;
+const PLAIN_DIAGNOSTIC = /^(.+?)\((\d+),\d+\): error TS\d+: (.*)$/;
+const PRETTY_DIAGNOSTIC = /^(.+?):(\d+):\d+ - error TS\d+: (.*)$/;
+
+function toRelative(dir, file) {
+  const slashed = file.replaceAll('\\', '/');
+  if (!isAbsolute(file) && !/^[A-Za-z]:\//.test(slashed)) return slashed.replace(/^\.\//, '');
+  const roots = [dir, realpathSync.native(dir)].map((d) => d.replaceAll('\\', '/').replace(/\/+$/, ''));
+  const root = roots.find((r) => slashed.startsWith(`${r}/`));
+  return root ? slashed.slice(root.length + 1) : slashed;
+}
+
+/** Repo-relative, `/`-separated paths of the files the snapshot's `tsconfig.json` includes; throws code 3 `blocked: tsconfig unreadable` when it is missing or invalid. */
+export function coveredFiles(dir, ts) {
+  const unreadable = () => {
+    throw fail('blocked: tsconfig unreadable', 3);
+  };
+  const configPath = join(dir, 'tsconfig.json');
+  if (!existsSync(configPath)) unreadable();
+  const host = { ...ts.sys, onUnRecoverableConfigFileDiagnostic: unreadable };
+  const parsed = ts.getParsedCommandLineOfConfigFile(configPath, {}, host);
+  if (!parsed) unreadable();
+  return new Set(parsed.fileNames.map((f) => toRelative(dir, f)));
+}
+
+function parseDiagnostics(dir, output) {
+  const diagnostics = [];
+  for (const raw of output.replace(ANSI, '').split(/\r?\n/)) {
+    const m = PLAIN_DIAGNOSTIC.exec(raw) ?? PRETTY_DIAGNOSTIC.exec(raw);
+    if (m) diagnostics.push({ file: toRelative(dir, m[1]), line: Number(m[2]), message: m[3] });
+  }
+  return diagnostics;
+}
+
+/** Runs the adapter's typecheck in `dir` and never throws; parses `file(line,col): error TSnnnn: message` and `file:line:col - error TSnnnn: message` lines from stdout and stderr into repo-relative diagnostics. */
+export function runTypecheck(dir, adapter) {
+  const [cmd, ...args] = adapter.typecheck;
+  const r = spawnSync(cmd, args, { cwd: dir, encoding: 'utf8', timeout: RUN_TIMEOUT_MS, maxBuffer: MAX_OUTPUT });
+  return {
+    exitCode: r.status,
+    signal: r.signal ?? null,
+    spawnError: r.error ? (r.error.code ?? r.error.message) : null,
+    diagnostics: parseDiagnostics(dir, `${r.stdout ?? ''}\n${r.stderr ?? ''}`),
+  };
 }

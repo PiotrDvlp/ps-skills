@@ -1,10 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, utimesSync, realpathSync, renameSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
+import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { tmp } from './test-tmp.mjs';
-import { makeSnapshot, detectAdapter } from './snapshot.mjs';
+import { makeSnapshot, detectAdapter, coveredFiles, runTypecheck } from './snapshot.mjs';
+import { loadTypescript } from './tools.mjs';
+
+const worktreeRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const tsInfo = () => loadTypescript(worktreeRoot, join(homedir(), '.cache/skeleton-plan'));
 
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', ...args], { cwd, encoding: 'utf8' });
 
@@ -151,4 +157,53 @@ test('a node_modules that is itself a link leaving the run dir blocks the snapsh
   symlinkSync(external, join(repo, 'node_modules'));
   assert.throws(() => makeSnapshot(repo, base, [], runRoot), (e) => e.code === 3 && /^blocked: dependency link leaves snapshot: .*node_modules$/.test(e.message));
   assert.equal(readFileSync(join(external, 'pkg-a', 'index.js'), 'utf8'), 'module.exports = 1;\n');
+});
+
+test("the repo's typecheck script is used when present", () => {
+  const dir = tmp('sk-adapter-');
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { typecheck: 'vue-tsc --noEmit' } }));
+  assert.deepEqual(detectAdapter(dir, tsInfo()).typecheck, ['npm', 'run', 'typecheck']);
+});
+
+test("the gate's tsc is used when the repo has no typescript", () => {
+  const dir = tmp('sk-adapter-');
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { build: 'x' } }));
+  const info = tsInfo();
+  assert.equal(info.source, 'gate');
+  assert.deepEqual(detectAdapter(dir, info).typecheck, ['node', info.tscPath, '--noEmit', '-p', 'tsconfig.json']);
+  assert.deepEqual(detectAdapter(tmp('sk-adapter-'), info).typecheck, ['node', info.tscPath, '--noEmit', '-p', 'tsconfig.json']);
+});
+
+test('coverage is read after splice', () => {
+  const dir = tmp('sk-cover-');
+  mkdirSync(join(dir, 'src'));
+  mkdirSync(join(dir, 'other'));
+  writeFileSync(join(dir, 'tsconfig.json'), JSON.stringify({ include: ['src'] }));
+  writeFileSync(join(dir, 'src', 'a.ts'), 'export const a = 1;\n');
+  writeFileSync(join(dir, 'src', 'new.ts'), 'export const n = 1;\n');
+  writeFileSync(join(dir, 'other', 'excluded.ts'), 'export const e = 1;\n');
+  const covered = coveredFiles(dir, tsInfo().ts);
+  assert.equal(covered.has('src/new.ts'), true);
+  assert.equal(covered.has('src/a.ts'), true);
+  assert.equal(covered.has('other/excluded.ts'), false);
+  assert.throws(() => coveredFiles(tmp('sk-cover-'), tsInfo().ts), (e) => e.code === 3 && e.message === 'blocked: tsconfig unreadable');
+});
+
+test('runTypecheck parses .ts and .vue diagnostics', () => {
+  const dir = tmp('sk-tc-');
+  const esc = String.fromCharCode(27);
+  const lines = ['src/a.ts(3,5): error TS2322: Type mismatch.', `${esc}[96m${join(dir, 'src', 'B.vue')}${esc}[0m:7:2 - ${esc}[91merror${esc}[0m${esc}[90m TS2304: ${esc}[0mCannot find name.`];
+  const script = `console.log(${JSON.stringify(lines.join('\n'))});process.exit(2)`;
+  const r = runTypecheck(dir, { name: 'tsc', generatedInputs: [], prepare: null, typecheck: ['node', '-e', script] });
+  assert.equal(r.exitCode, 2);
+  assert.equal(r.spawnError, null);
+  assert.deepEqual(r.diagnostics.map((d) => [d.file, d.line]), [['src/a.ts', 3], ['src/B.vue', 7]]);
+  assert.match(r.diagnostics[0].message, /Type mismatch/);
+});
+
+test('runTypecheck reports a command that cannot start', () => {
+  const r = runTypecheck(tmp('sk-tc-'), { name: 'tsc', generatedInputs: [], prepare: null, typecheck: ['skeleton-plan-no-such-binary'] });
+  assert.equal(r.spawnError, 'ENOENT');
+  assert.equal(r.exitCode, null);
+  assert.deepEqual(r.diagnostics, []);
 });
