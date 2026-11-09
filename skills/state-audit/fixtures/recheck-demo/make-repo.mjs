@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const FIXED_DATE = '2026-01-01T00:00:00Z';
@@ -169,8 +169,10 @@ git show "\${REV}:src/client.mjs"
 `;
 }
 
-export function makeDemo(repoDir, outDir) {
+function makeDemo(repoDir, outDir) {
   if (!repoDir || !outDir) throw new UsageError('Usage: node make-repo.mjs <repo-dir> <out-dir>');
+  const fromRepo = relative(resolve(repoDir), resolve(outDir));
+  if (!fromRepo.startsWith('..') && !isAbsolute(fromRepo)) throw new UsageError(`${outDir} is inside ${repoDir}; the builder clears the repo folder for every snapshot`);
   for (const dir of [repoDir, outDir]) {
     if (isNonEmptyDir(dir)) throw new UsageError(`${dir} exists and is not empty`);
   }

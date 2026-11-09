@@ -1,7 +1,7 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -11,7 +11,13 @@ import { parseLivingNote, checkRecords } from '../../scripts/check-records.mjs';
 const CLI = fileURLToPath(new URL('./make-repo.mjs', import.meta.url));
 const TAGS = ['v1-defect', 'v2-moved', 'v3-fixed', 'v4-wrapper', 'v5-missing'];
 
-const temp = () => mkdtempSync(join(tmpdir(), 'sa-demo-'));
+const temps = [];
+const temp = () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sa-demo-'));
+  temps.push(dir);
+  return dir;
+};
+after(() => temps.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 const git = (repo, ...args) => spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
 
 function make(env = {}) {
@@ -85,6 +91,14 @@ for (const which of ['out', 'repo']) {
     assert.equal(existsSync(other), false);
   });
 }
+
+test('refuses an out directory inside the repo directory and writes nothing', () => {
+  const repo = join(temp(), 'demo');
+  const res = spawnSync(process.execPath, [CLI, repo, join(repo, 'notes')], { encoding: 'utf8' });
+  assert.equal(res.status, 2, res.stderr);
+  assert.match(res.stderr, /inside/);
+  assert.equal(existsSync(repo), false);
+});
 
 test('a missing argument exits 2', () => {
   assert.equal(spawnSync(process.execPath, [CLI, temp()], { encoding: 'utf8' }).status, 2);
