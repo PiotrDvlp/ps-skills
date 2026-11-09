@@ -16,4 +16,5 @@ jobs:
       - run: |
           git config --global user.email ci@example.com
           git config --global user.name ci
+      - run: node skills/skeleton-plan/scripts/check-plan.mjs setup
       - run: node --test $(git ls-files '*.test.mjs')
