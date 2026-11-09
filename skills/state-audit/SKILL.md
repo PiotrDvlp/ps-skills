@@ -65,9 +65,11 @@ runs/YYYY-MM-DD-<mode>-<n>.md   one note per run, never edited after it is compl
 (`git rev-list --max-parents=0 HEAD`, first line). On every run, compare it with the audited repo.
 On a mismatch, two unrelated repos share a folder name: refuse and ask for `--out`.
 
-With an `Activity log: FILE` line in `CLAUDE.md`, a completed run prepends
-`## [YYYY-MM-DD] state-audit | <title> → [[<run note slug>]]` right after the
-`<!-- log:entries -->` line of that file. No such line: skip it.
+With an `Activity log: FILE` line in `CLAUDE.md`, a completed run whose folder came from step 3
+(`Notes root:`) prepends `## [YYYY-MM-DD] state-audit | <title> → [[<run note slug>]]` right after
+the `<!-- log:entries -->` line of that file; with step 2, the extension file decides. A run saved
+with `--out` or to the default folder never logs: its note is outside the notes, so the link would
+point nowhere. No `Activity log:` line: skip it.
 
 ## Writing a run
 

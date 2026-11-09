@@ -86,6 +86,12 @@ test('writing a run: validate before the run is marked complete, quote paths, cr
   assertContains(skill, ['field changes']);
 });
 
+test('activity log is written only for runs saved under the notes root or by the extension', () => {
+  const skill = read('SKILL.md');
+  const rule = skill.slice(skill.indexOf('`Activity log: FILE`') - 200, skill.indexOf('## Writing a run'));
+  assertContains(rule, ['`--out`', 'never logs']);
+});
+
 test('fixtures and tests use neutral identifiers', () => {
   const banned = ['untan' + 'gle_product', 'pdp' + 'Store', 'createApollo' + 'Client', 'isItemData' + 'Loading'];
   for (const file of filesUnder(SKILL_DIR)) {
