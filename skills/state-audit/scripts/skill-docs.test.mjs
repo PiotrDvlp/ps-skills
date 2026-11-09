@@ -86,6 +86,13 @@ test('writing a run: validate before the run is marked complete, quote paths, cr
   assertContains(skill, ['field changes']);
 });
 
+test('an abandoned run can be discarded instead of re-applied', () => {
+  const skill = read('SKILL.md');
+  const section = skill.slice(skill.indexOf('**Existing lock.**'), skill.indexOf('**Re-apply rule.**'));
+  assertContains(section, ['discard', 'status: discarded', 'discard_reason:']);
+  assertContains(skill, ['Skip `status: discarded`']);
+});
+
 test('activity log is written only for runs saved under the notes root or by the extension', () => {
   const skill = read('SKILL.md');
   const rule = skill.slice(skill.indexOf('`Activity log: FILE`') - 200, skill.indexOf('## Writing a run'));

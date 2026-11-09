@@ -93,8 +93,17 @@ Quote every path: a notes root may contain spaces.
 
 **Existing lock.** Refuse and print `owner.txt`. If the run note it names is still
 `status: incomplete`, call it an abandoned run, and tell the user how to tell it from an active
-one: no other session is working on this repo now. Only after the user confirms: remove `.lock/`,
-take a new lock, re-apply the abandoned run, then finish from step 5 for that run.
+one: no other session is working on this repo now. Only after the user confirms, remove `.lock/`,
+take a new lock, and ask whether to re-apply or discard the abandoned run. Re-apply is the
+default. Offer discard when the run note looks wrong (a run ID that is not the next free number,
+rows that duplicate an earlier run, a scope the user did not ask for) or the user does not trust it.
+
+- Re-apply: follow the re-apply rule below, then finish from step 5 for that run.
+- Discard: undo what reached the living note before the crash. Remove the rows carrying this
+  run ID, remove records the run note lists as new under their IDs, and set each listed field
+  change back to its old value when the field still holds the new one. Then run step 5 for the
+  living note, set the run note to `status: discarded` with a `discard_reason:` line, and remove
+  the lock. A discarded run keeps its file and its run ID; the ID is never reused.
 
 **Re-apply rule.** An observation's identity is its finding ID plus its run ID. Re-applying a run
 adds only rows whose run ID is not yet in that finding's table, so replaying the same run twice
@@ -110,7 +119,7 @@ small run (mode `decision`): set `disposition`, and for a rejection also `lifecy
 the field changes in the run note, and write it as above. A rejection keeps the finding's
 observations; a later recheck that finds it `present` again reopens it.
 
-At the start of every invocation, list run notes still `status: incomplete` first.
+At the start of every invocation, list run notes still `status: incomplete` first. Skip `status: discarded` ones.
 
 ## recheck
 
