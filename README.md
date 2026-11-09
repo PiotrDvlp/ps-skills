@@ -1,6 +1,6 @@
 # ps-skills
 
-Fourteen development skills and a principles reference for Claude Code and Codex, by Piotr Strzelecki.
+Sixteen development skills and a principles reference for Claude Code and Codex, by Piotr Strzelecki.
 
 ## Install
 
@@ -36,6 +36,7 @@ npx skills@latest add PiotrDvlp/ps-skills
 | `mr-watchman` | One read-only status pass over your open MRs: conflicts, then review threads, then CI; twins grouped. `--followup <iid> --out <file>` writes a local package of one MR's unresolved threads and failed jobs for a fix session | Node 22+, authenticated `glab` |
 | `test-teeth` | Sampled-mutation audit of a feature's vitest tests: which mutants each test case kills and whether zero-kill cases are removable | Node 22+, vitest 3 in the audited repo |
 | `teeth-build` | Builds an approved plan task by task: red-first tests from a separate writer, locked test files, scope and removed-test checks, and a Stryker gate on each task's changed lines, and a fresh reviewer per task whose blocking finding stops the commit | Node 22+, vitest 3; Stryker 10 installed outside the repo by `setup` |
+| `state-audit` | Finds explicit and implicit state machines, records reachable invalid states with evidence, rechecks them after code changes, and prepares owner-selected fix packets | Node 22+ for the validator |
 
 ## Principles
 
@@ -74,19 +75,20 @@ This costs about 170 lines of context per session. Without the line, the skill i
 
 `commit` and `dual-branch-finish` share the read-only MR verifier `skills/dual-branch-finish/scripts/verify-mr.mjs` (`--help`). `dual-branch-finish` also uses `skills/dual-branch-finish/scripts/twin-parity.mjs` (`--help`), which compares two pushed twin branches by stable patch-id.
 
-Five optional lines in your `~/.claude/CLAUDE.md`:
+Six optional lines in your `~/.claude/CLAUDE.md`:
 
 ```
 Notes root: /absolute/path/to/your/notes
 Activity log: /absolute/path/to/your/notes/log.md
 task-auditor extension: /absolute/path/to/a-markdown-file.md
 codex-review extension: /absolute/path/to/a-markdown-file.md
+state-audit extension: /absolute/path/to/a-markdown-file.md
 prove-ui projects: /absolute/path/to/a-directory
 ```
 
 `prove-ui projects:` holds one folder per repo, named after the repo's main checkout directory, with that project's `adapter.md`, `features/` and `checks/`; every worktree of the repo resolves the same folder. Without it, `prove-ui` reads `.claude/prove-ui/` in the main checkout.
 
-Without `Notes root:`, `task-auditor` answers in chat, `codex-review` writes to `$TMPDIR/codex-reviews/`, and `second-view --save` is refused. With `Activity log:`, skills that save a note prepend `## [date] <op> | <title> → [[slug]]` after a `<!-- log:entries -->` line in that file. The extension files are plain Markdown instructions the skill follows after its own work is done.
+Without `Notes root:`, `task-auditor` answers in chat, `codex-review` writes to `$TMPDIR/codex-reviews/`, `state-audit` writes to `~/.state-audit/<repo-name>/`, and `second-view --save` is refused. With `Activity log:`, skills that save a note prepend `## [date] <op> | <title> → [[slug]]` after a `<!-- log:entries -->` line in that file. The extension files are plain Markdown instructions. `task-auditor` follows its extension after the audit note is written; `codex-review` and `state-audit` read theirs before writing, because the extension decides where the note goes.
 
 ## Paths
 
