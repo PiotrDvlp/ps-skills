@@ -1,3 +1,9 @@
+import { createHash } from 'node:crypto';
+import { closeSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { parsePlan, planHash } from './plan-format.mjs';
+import { ensureSafeDir, fail } from './tools.mjs';
+
 /** @typedef {{ status: 'passed'|'failed'|'blocked'|'passed-ungated'|'not-typechecked', code: 0|1|3|4|5, reason?: string, ungated: string[] }} GateResult */
 
 const isVue = (path) => path.endsWith('.vue');
@@ -36,4 +42,69 @@ export function classify(result, plan, covered, splice) {
   if (caller) return failed(`caller broken: ${caller.file}`);
   if (diagnostics.length > 0) return failed(`typecheck reported ${diagnostics.length} diagnostics`);
   return failed(`typecheck exited ${result.exitCode} without diagnostics`);
+}
+
+/** Takes the per-plan lock and deletes an earlier receipt; throws code 3 `blocked: another run on this plan` if locked. */
+export function startRun(planPath, runRoot) {
+  const locks = join(runRoot, 'locks');
+  ensureSafeDir(runRoot, 'run root');
+  ensureSafeDir(locks, 'locks dir');
+  const lock = join(locks, `${createHash('sha256').update(realpathSync(planPath)).digest('hex')}.lock`);
+  const pid = String(process.pid);
+
+  const alive = (other) => {
+    try {
+      process.kill(other, 0);
+      return true;
+    } catch (err) {
+      return err.code === 'EPERM';
+    }
+  };
+  const take = () => {
+    const fd = openSync(lock, 'wx', 0o600);
+    try {
+      writeFileSync(fd, pid);
+    } finally {
+      closeSync(fd);
+    }
+  };
+
+  try {
+    take();
+  } catch (err) {
+    if (err.code !== 'EEXIST') throw err;
+    const holder = Number.parseInt(readFileSync(lock, 'utf8'), 10);
+    if (Number.isInteger(holder) && alive(holder)) throw fail('blocked: another run on this plan', 3);
+    process.stderr.write(`warning: removing stale lock of pid ${holder}\n`);
+    rmSync(lock, { force: true });
+    try {
+      take();
+    } catch (retry) {
+      if (retry.code === 'EEXIST') throw fail('blocked: another run on this plan', 3);
+      throw retry;
+    }
+  }
+
+  rmSync(`${planPath}.receipt.json`, { force: true });
+  return {
+    release() {
+      try {
+        if (readFileSync(lock, 'utf8') === pid) rmSync(lock, { force: true });
+      } catch {}
+    },
+  };
+}
+
+/** Writes `<plan>.receipt.json` via temp file and rename, only if the plan still hashes to `expected`; returns false otherwise. */
+export function writeReceipt(planPath, expected, receipt) {
+  try {
+    if (planHash(parsePlan(readFileSync(planPath, 'utf8'))) !== expected) return false;
+  } catch {
+    return false;
+  }
+  const target = `${planPath}.receipt.json`;
+  const temp = `${target}.tmp-${process.pid}`;
+  writeFileSync(temp, `${JSON.stringify({ approvalHash: expected, ...receipt }, null, 2)}\n`);
+  renameSync(temp, target);
+  return true;
 }

@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classify } from './receipt.mjs';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { classify, startRun, writeReceipt } from './receipt.mjs';
+import { parsePlan, planHash } from './plan-format.mjs';
+import { tmp } from './test-tmp.mjs';
 
 const block = (path) => ({ id: 'b', path, op: 'create', selectors: [], label: 'x', code: '', line: 1 });
 const row = (path) => ({ action: 'modify', path, change: 'x' });
@@ -86,4 +92,54 @@ test('a block in an uncovered file blocks', () => {
   assert.equal(r.status, 'blocked');
   assert.equal(r.code, 3);
   assert.equal(r.reason, 'uncovered: src/x.ts');
+});
+
+const MARK = '*Below this line: for the implementer, the gates and the reviewer.*';
+const setup = () => {
+  const dir = tmp('receipt-');
+  const planPath = join(dir, 'plan.md');
+  writeFileSync(planPath, `# Plan\n\nBase: abc\n\n${MARK}\n`);
+  const runRoot = join(dir, 'runs');
+  return { dir, planPath, runRoot, hash: planHash(parsePlan(readFileSync(planPath, 'utf8'))) };
+};
+const lockPath = (runRoot, planPath) =>
+  join(runRoot, 'locks', `${createHash('sha256').update(realpathSync(planPath)).digest('hex')}.lock`);
+
+test('writeReceipt renames only when the hash still matches', () => {
+  const { planPath, hash } = setup();
+  assert.equal(writeReceipt(planPath, hash, { status: 'passed' }), true);
+  const written = JSON.parse(readFileSync(`${planPath}.receipt.json`, 'utf8'));
+  assert.equal(written.status, 'passed');
+  assert.equal(written.approvalHash, hash);
+  rmSync(`${planPath}.receipt.json`);
+  writeFileSync(planPath, `# Plan edited\n\n${MARK}\n`);
+  assert.equal(writeReceipt(planPath, hash, { status: 'passed' }), false);
+  assert.equal(existsSync(`${planPath}.receipt.json`), false);
+  assert.deepEqual(readdirSync(dirname(planPath)).filter((n) => n.includes('tmp-')), []);
+  writeFileSync(planPath, 'no marker here');
+  assert.equal(writeReceipt(planPath, hash, {}), false);
+  assert.equal(existsSync(`${planPath}.receipt.json`), false);
+});
+
+test('startRun deletes an earlier receipt', () => {
+  const { planPath, runRoot, hash } = setup();
+  writeReceipt(planPath, hash, { status: 'passed' });
+  assert.equal(existsSync(`${planPath}.receipt.json`), true);
+  const run = startRun(planPath, runRoot);
+  assert.equal(existsSync(`${planPath}.receipt.json`), false);
+  run.release();
+});
+
+test('a second run on the same plan is blocked', () => {
+  const { planPath, runRoot } = setup();
+  mkdirSync(join(runRoot, 'locks'), { recursive: true, mode: 0o700 });
+  writeFileSync(lockPath(runRoot, planPath), String(process.pid));
+  assert.throws(() => startRun(planPath, runRoot), (e) => e.code === 3 && e.message === 'blocked: another run on this plan');
+  rmSync(lockPath(runRoot, planPath));
+  const child = spawnSync(process.execPath, ['-e', '']);
+  writeFileSync(lockPath(runRoot, planPath), String(child.pid));
+  const run = startRun(planPath, runRoot);
+  assert.equal(readFileSync(lockPath(runRoot, planPath), 'utf8'), String(process.pid));
+  run.release();
+  assert.equal(existsSync(lockPath(runRoot, planPath)), false);
 });
