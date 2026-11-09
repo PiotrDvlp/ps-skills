@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   resolveTarget, buildPatch, countUntracked, stateDigest, parsePatch,
-  validateAgainstSchema, validateSemantics, findUnanchoredIssues, findUncheckedPaths, deriveFinalVerdict, readRunDepth,
+  validateAgainstSchema, validateSemantics, findUnanchoredIssues, findUncheckedPaths, findForeignChecked, deriveFinalVerdict, readRunDepth,
   assemblePrompt, renderBody, validateModel, resolveModelFromOutput, DEFAULT_MODEL,
   sha256, git, ReviewError, PROTOCOL_VERSION, SOFT_WARN_BYTES, HARD_REFUSE_BYTES,
 } from './code-review-core.mjs';
@@ -262,9 +262,10 @@ async function cmdRun(args) {
     // schema, so without this the schema contract would be untested.
     validateAgainstSchema(parsed, JSON.parse(readFileSync(SCHEMA_PATH, 'utf8')));
     validateSemantics(parsed);
-    const { citations } = parsePatch(patch);
+    const { citations, renames } = parsePatch(patch);
     const unanchored = findUnanchoredIssues(parsed, citations);
-    const unchecked = findUncheckedPaths(parsed, citations);
+    const unchecked = findUncheckedPaths(parsed, citations, renames);
+    const foreignChecked = findForeignChecked(parsed, citations, renames);
 
     const digestAfter = stateDigest(repoRoot);
     if (digestAfter !== digestBefore) {
@@ -279,6 +280,7 @@ async function cmdRun(args) {
       finalVerdict,
       unreviewable: manifest.unreviewable_paths,
       unchecked,
+      foreignChecked,
       untrackedIncluded: manifest.untracked_included,
       unanchored,
     });

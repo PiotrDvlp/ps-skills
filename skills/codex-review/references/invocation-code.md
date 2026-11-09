@@ -113,7 +113,10 @@ Two fields, and they are not interchangeable:
 - The same cap applies when the reviewer's `checked` list leaves out a changed
   path with line content: `frontmatter.unchecked_paths` names those paths, and the
   note lists them under `## Incomplete coverage`. A `PASS` must say what was
-  examined per file; an empty `checked` is not a clean review.
+  examined per file; an empty `checked` is not a clean review. A renamed file
+  counts as checked under either of its paths, and a leading `a/` or `b/` is
+  ignored. `checked` entries whose path is not in the patch are listed apart and
+  never shown as checked. Consumer of `unchecked_paths`: human audit.
 
 Record both. The note states which rule fired when they differ.
 

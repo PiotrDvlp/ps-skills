@@ -42,9 +42,9 @@ and bundles for inspection.
   is credited; the report shows per-fixture found/missing so a verdict that is right for
   the wrong reason is visible.
 - **Depth**: each fixture line shows the reviewer's tool calls and reasoning tokens, read
-  from the Codex session rollout (`review_depth`). A tier that scores well while making
-  one or two calls per fixture is solving toy diffs, not reviewing; compare depth on the
-  `caller-*` fixtures before trusting a new default.
+  from the Codex session rollout (`review_depth`). The corpus does not test depth yet:
+  every fixture, `caller-*` included, is solved in a few calls, so a shallow tier passes
+  as well as a deep one. Compare a new tier's `review_depth` on real reviews instead.
 - `--threshold <r>` exits 1 when recall < r — for wiring calibration into a gate. Without
   it, calibration is measurement: exit 0 with the report.
 - An errored fixture (e.g. `codex_failed`) is excluded from the matrix, listed as an

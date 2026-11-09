@@ -9,7 +9,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 
 export const PROTOCOL_VERSION = 'codex-review-code/v1';
 export const MAX_ISSUES = 10;
@@ -289,6 +289,7 @@ export function stateDigest(repoRoot) {
  */
 export function parsePatch(patch) {
   const citations = new Map();
+  const renames = new Map();
   const unreviewable = [];
   const lines = patch.split('\n');
 
@@ -345,6 +346,7 @@ export function parsePatch(patch) {
     if (raw.startsWith('+++ ')) {
       const p = raw.slice(4).trim();
       newPath = p === '/dev/null' ? null : strip(p);
+      if (oldPath && newPath && oldPath !== newPath) renames.set(oldPath, newPath);
       continue;
     }
     const hunk = raw.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
@@ -362,7 +364,7 @@ export function parsePatch(patch) {
   }
   if (pendingBinary && newPath) unreviewable.push(newPath);
 
-  return { citations, unreviewable: [...new Set(unreviewable)] };
+  return { citations, renames, unreviewable: [...new Set(unreviewable)] };
 }
 
 // ---------------------------------------------------------------------------
@@ -432,13 +434,28 @@ export function findUnanchoredIssues(result, citations) {
     citations.get(`${issue.path}\0${issue.side}`)?.has(issue.line) ? [] : [n]);
 }
 
+const canonicalPath = (path, renames) => {
+  const p = path.replace(/^[ab]\//, '');
+  return renames.get(p) ?? p;
+};
+
+const reviewablePaths = (citations, renames) =>
+  new Set([...citations.keys()].map((k) => canonicalPath(k.split('\0')[0], renames)));
+
 /** Paths with line content in the patch that the reviewer did not list in `checked`. */
-export function findUncheckedPaths(result, citations) {
-  const reviewable = new Set([...citations.keys()].map((k) => k.split('\0')[0]));
+export function findUncheckedPaths(result, citations, renames = new Map()) {
   const checked = new Set((result.checked ?? [])
     .filter((c) => c.verified?.trim())
-    .map((c) => c.path));
-  return [...reviewable].filter((p) => !checked.has(p)).sort();
+    .map((c) => canonicalPath(c.path, renames)));
+  return [...reviewablePaths(citations, renames)].filter((p) => !checked.has(p)).sort();
+}
+
+/** `checked` entries whose path is not a file of the patch. */
+export function findForeignChecked(result, citations, renames = new Map()) {
+  const reviewable = reviewablePaths(citations, renames);
+  return (result.checked ?? [])
+    .map((c) => c.path)
+    .filter((p) => !reviewable.has(canonicalPath(p, renames)));
 }
 
 /** Coverage cap. A DERIVATION, never a validation failure. */
@@ -450,7 +467,7 @@ export function deriveFinalVerdict(reviewerVerdict, unreviewablePaths, unchecked
 function findRollout(dir, id) {
   let files;
   try { files = readdirSync(dir, { recursive: true }); } catch { return null; }
-  const hit = files.find((f) => /(^|\/)rollout-[^/]*$/.test(f) && f.endsWith(`${id}.jsonl`));
+  const hit = files.find((f) => basename(f).startsWith('rollout-') && f.endsWith(`${id}.jsonl`));
   return hit ? join(dir, hit) : null;
 }
 
@@ -463,9 +480,11 @@ export function readRunDepth(rawStdout, rawStderr, sessionsRoot) {
   if (!id) return null;
   const file = findRollout(sessionsRoot, id);
   if (!file) return null;
+  let text;
+  try { text = readFileSync(file, 'utf8'); } catch { return null; }
   let toolCalls = 0;
   let reasoning = 0;
-  for (const line of readFileSync(file, 'utf8').split('\n')) {
+  for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let ev;
     try { ev = JSON.parse(line); } catch { continue; }
@@ -535,7 +554,9 @@ export function assemblePrompt({ rubric, manifest, patch, context = null }) {
 // Rendering
 // ---------------------------------------------------------------------------
 
-export function renderBody(result, { finalVerdict, unreviewable = [], unchecked = [], untrackedIncluded = 0, unanchored = [] }) {
+export function renderBody(result, {
+  finalVerdict, unreviewable = [], unchecked = [], foreignChecked = [], untrackedIncluded = 0, unanchored = [],
+}) {
   const out = ['## Verdict', ''];
   out.push(finalVerdict === result.verdict
     ? finalVerdict
@@ -551,9 +572,15 @@ export function renderBody(result, { finalVerdict, unreviewable = [], unchecked 
       out.push('');
     });
   }
-  if (result.checked?.length) {
+  const shown = (result.checked ?? [])
+    .filter((c) => c.verified?.trim() && !foreignChecked.includes(c.path));
+  if (shown.length) {
     out.push('', '## Checked', '');
-    result.checked.forEach((c) => out.push(`- \`${c.path}\` — ${c.verified}`));
+    shown.forEach((c) => out.push(`- \`${c.path}\` — ${c.verified}`));
+  }
+  if (foreignChecked.length) {
+    out.push('', 'The reviewer also listed these paths as checked, but they are not in the patch:', '');
+    foreignChecked.forEach((p) => out.push(`- \`${p}\``));
   }
   if (unreviewable.length || unchecked.length) {
     out.push('', '## Incomplete coverage', '');

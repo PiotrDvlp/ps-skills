@@ -10,7 +10,7 @@ import {
   validateAgainstSchema, validateSemantics, findUnanchoredIssues, deriveFinalVerdict,
   buildPathspecs, makeDelimiter, assemblePrompt, renderBody,
   validateModel, resolveModelFromOutput, ReviewError, PROTOCOL_VERSION,
-  findUncheckedPaths, readRunDepth,
+  findUncheckedPaths, findForeignChecked, readRunDepth,
 } from './code-review-core.mjs';
 import { makeRepo, write, commitAll } from './test-helpers.mjs';
 
@@ -757,5 +757,67 @@ test('depth/ reads tool calls and reasoning tokens from the session rollout', ()
     { tool_calls: 3, reasoning_output_tokens: 520 });
   assert.equal(readRunDepth('', 'session id: 00000000-0000-0000-0000-000000000000\n', root), null);
   assert.equal(readRunDepth('', 'no header at all', root), null);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test('checked/ a renamed and edited file is checked under either of its paths', () => {
+  const { citations, renames } = parsePatch([
+    'diff --git a/src/old/mod.ts b/src/new/mod.ts',
+    'similarity index 90%',
+    'rename from src/old/mod.ts',
+    'rename to src/new/mod.ts',
+    '--- a/src/old/mod.ts',
+    '+++ b/src/new/mod.ts',
+    '@@ -1 +1 @@',
+    '-old',
+    '+new',
+    '',
+  ].join('\n'));
+  const result = (path) => ({
+    protocol_version: PROTOCOL_VERSION, verdict: 'PASS', issues: [],
+    checked: [{ path, verified: 'read both importers' }], unresolved_assumptions: [],
+  });
+  assert.deepEqual(findUncheckedPaths(result('src/new/mod.ts'), citations, renames), []);
+  assert.deepEqual(findUncheckedPaths(result('src/old/mod.ts'), citations, renames), []);
+  assert.deepEqual(findUncheckedPaths(result('other.ts'), citations, renames), ['src/new/mod.ts']);
+});
+
+test('checked/ a git a/ or b/ prefix still matches, a path outside the patch is foreign', () => {
+  const { citations, renames } = parsePatch([
+    'diff --git a/a.js b/a.js', '--- a/a.js', '+++ b/a.js', '@@ -1 +1 @@', '-x', '+y', '',
+  ].join('\n'));
+  const result = {
+    protocol_version: PROTOCOL_VERSION, verdict: 'PASS', issues: [],
+    checked: [{ path: 'b/a.js', verified: 'read callers' }, { path: 'nope.js', verified: 'read it' }],
+    unresolved_assumptions: [],
+  };
+  assert.deepEqual(findUncheckedPaths(result, citations, renames), []);
+  assert.deepEqual(findForeignChecked(result, citations, renames), ['nope.js']);
+});
+
+test('checked/ blank or foreign entries are not rendered as checked', () => {
+  const body = renderBody(
+    {
+      protocol_version: PROTOCOL_VERSION, verdict: 'PASS', issues: [],
+      checked: [
+        { path: 'a.js', verified: '   ' },
+        { path: 'b.js', verified: 'read the caller' },
+        { path: 'nope.js', verified: 'read it' },
+      ],
+      unresolved_assumptions: [],
+    },
+    { finalVerdict: 'NEEDS-WORK', unchecked: ['a.js'], foreignChecked: ['nope.js'] },
+  );
+  const checkedSection = body.slice(body.indexOf('## Checked'), body.indexOf('The reviewer also listed'));
+  assert.match(checkedSection, /`b\.js` — read the caller/);
+  assert.doesNotMatch(checkedSection, /`a\.js`|`nope\.js`/);
+  assert.match(body, /not in the patch[\s\S]*- `nope\.js`/);
+});
+
+test('depth/ an unreadable rollout gives null instead of failing the run', () => {
+  const root = tmp();
+  const id = '01a1c05c-e73a-7633-bd28-1a7031777916';
+  mkdirSync(join(root, '2026', '11', '09', `rollout-x-${id}.jsonl`), { recursive: true });
+  assert.equal(readRunDepth('', `session id: ${id}\n`, root), null);
   rmSync(root, { recursive: true, force: true });
 });
