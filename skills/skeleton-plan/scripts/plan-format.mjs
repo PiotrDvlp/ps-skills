@@ -84,6 +84,7 @@ const readTaskSignatures = (lines) => {
   const map = new Map();
   let task = null;
   let inInterfaces = false;
+  let produces = false;
   for (const line of lines) {
     const heading = line.match(/^### (Task \d+)\b/);
     if (heading) {
@@ -92,9 +93,18 @@ const readTaskSignatures = (lines) => {
       continue;
     }
     if (!task) continue;
-    if (line.startsWith('**Interfaces:**')) inInterfaces = true;
+    if (line.startsWith('**Interfaces:**')) {
+      inInterfaces = true;
+      produces = false;
+    }
     else if (line.trim() === '' || /^(#|\*\*|Decided here)/.test(line)) inInterfaces = false;
-    if (inInterfaces) map.set(task, [...(map.get(task) ?? []), ...backticked(line)]);
+    if (!inInterfaces) continue;
+    const found = [];
+    for (const part of line.split(/\b(Produces|Consumes)\b/)) {
+      if (part === 'Produces' || part === 'Consumes') produces = part === 'Produces';
+      else if (produces) found.push(...backticked(part));
+    }
+    map.set(task, [...(map.get(task) ?? []), ...found]);
   }
   return map;
 };
@@ -140,9 +150,12 @@ export function checkFormat(plan) {
     }
   }
   for (const [task, values] of plan.taskSignatures) {
+    let current = null;
     for (const sig of values) {
-      if (ids.has(sig)) continue;
-      if (!plan.blocks.some((b) => b.code.includes(sig))) out.push(`format: signature \`${sig}\` in ${task} matches no block`);
+      if (ids.has(sig)) current = plan.blocks.find((b) => b.id === sig);
+      else if (!(current ? [current] : plan.blocks).some((b) => b.code.includes(sig))) {
+        out.push(`format: signature \`${sig}\` in ${task} not found in ${current ? current.id : 'any block'}`);
+      }
     }
   }
   return out;

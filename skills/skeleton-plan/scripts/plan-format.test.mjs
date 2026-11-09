@@ -42,7 +42,7 @@ ${marker ? MARKER : ''}
 ### Task 1: Helper
 
 **Files:** Create \`src/a.ts\`.
-**Interfaces:** Produces \`t1-a\`. Consumes \`run(x: number): number\`.
+**Interfaces:** Produces \`t1-a\`, \`t2-b\`, \`run(x: number): number\`. Consumes \`Fixtures\` (\`specs/support/cart.ts:5\`).
 ${below}`;
 
 test('parsePlan stops the approval part at the marker line', () => {
@@ -56,7 +56,7 @@ test('parsePlan stops the approval part at the marker line', () => {
     { action: 'modify', path: 'src/b.ts', change: 'use the helper' },
   ]);
   assert.deepEqual(p.unchanged, ['`load` in `src/c.ts`: now caches.', 'The b test: uses the helper.']);
-  assert.deepEqual([...p.taskSignatures], [['Task 1', ['t1-a', 'run(x: number): number']]]);
+  assert.deepEqual([...p.taskSignatures], [['Task 1', ['t1-a', 't2-b', 'run(x: number): number']]]);
 });
 
 test("parsePlan reads each block's label, metadata and code", () => {
@@ -122,9 +122,10 @@ test('checkFormat flags two blocks with the same selector', () => {
 });
 
 test('checkFormat flags a task signature that differs from its block', () => {
-  const md = plan().replace('Consumes `run(x: number): number`', 'Consumes `run(y: number): number`');
+  const md = plan().replace('`run(x: number): number`', '`run(y: number): number`');
   assert.deepEqual(kinds(md), ['format: signature']);
-  assert.deepEqual(violations(plan().replace('Produces `t1-a`', 'Produces `t1-a`, `t2-b`')), []);
+  assert.deepEqual(violations(plan()), []);
+  assert.deepEqual(kinds(plan().replace('`t2-b`, `run(x', '`run(x')), ['format: signature']);
 });
 
 test('checkFormat flags a path that leaves the repo', () => {
