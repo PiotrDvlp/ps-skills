@@ -1,7 +1,7 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { ensureSafeDir, fail } from './tools.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -34,13 +34,16 @@ function files(root, dir = root) {
 }
 
 function assertNoEscapingLinks(dir) {
-  const real = realpathSync(dir);
+  const real = realpathSync.native(dir);
   const walk = (d) => {
     for (const e of readdirSync(d, { withFileTypes: true })) {
       const p = join(d, e.name);
       if (e.isSymbolicLink()) {
-        const rel = relative(real, resolve(realpathSync(d), readlinkSync(p)));
-        if (rel === '..' || rel.startsWith('../')) throw fail(`blocked: link leaves snapshot: ${p}`, 3);
+        let target = null;
+        try {
+          target = realpathSync.native(p);
+        } catch {}
+        if (target !== real && !(target ?? '').startsWith(real + sep)) throw fail(`blocked: link leaves snapshot: ${p}`, 3);
       } else if (e.isDirectory()) walk(p);
     }
   };
@@ -65,7 +68,18 @@ export function makeSnapshot(repoRoot, base, generatedInputs, runRoot) {
   ensureSafeDir(runRoot, 'runs directory');
   pruneOldRuns(runRoot);
   const dir = newRunDir(runRoot);
-  const archive = execFileSync('git', ['-C', repoRoot, 'archive', '--format=tar', base], { maxBuffer: MAX_ARCHIVE });
+  let sha;
+  try {
+    sha = execFileSync('git', ['-C', repoRoot, 'rev-parse', '--verify', '--end-of-options', `${base}^{commit}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  } catch {
+    throw fail(`blocked: base ${base} is not a commit`, 3);
+  }
+  let archive;
+  try {
+    archive = execFileSync('git', ['-C', repoRoot, 'archive', '--format=tar', sha], { maxBuffer: MAX_ARCHIVE, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    throw fail(`blocked: snapshot export failed: ${String(e.stderr ?? e.message).trim()}`, 3);
+  }
   const untar = spawnSync('tar', ['-x', '-C', dir], { input: archive });
   if (untar.status !== 0) throw fail(`blocked: snapshot extract failed: ${String(untar.stderr).trim()}`, 3);
   const fingerprints = {};

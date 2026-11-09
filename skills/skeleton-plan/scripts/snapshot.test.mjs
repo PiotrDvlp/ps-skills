@@ -67,6 +67,46 @@ test('run dirs older than 24 hours are deleted', () => {
   mkdirSync(old);
   const t = new Date(Date.now() - 25 * 3600 * 1000);
   utimesSync(old, t, t);
+  const recent = join(runRoot, `${Date.now()}-1`);
+  mkdirSync(recent);
   makeSnapshot(repo, base, [], runRoot);
   assert.equal(existsSync(old), false);
+  assert.equal(existsSync(recent), true);
+});
+
+test('a link that stays inside the snapshot is allowed', () => {
+  const { repo, runRoot } = fixtureRepo();
+  symlinkSync('a.ts', join(repo, 'alias.ts'));
+  git(repo, 'add', 'alias.ts');
+  git(repo, 'commit', '-q', '-m', 'inner link');
+  const base = git(repo, 'rev-parse', 'HEAD').trim();
+  const { dir } = makeSnapshot(repo, base, [], runRoot);
+  assert.equal(readFileSync(join(dir, 'alias.ts'), 'utf8'), 'export const a = 1;\n');
+});
+
+test('a two-link chain that escapes through .. blocks the snapshot', () => {
+  const { repo, runRoot } = fixtureRepo();
+  symlinkSync('.', join(repo, 's'));
+  symlinkSync('s/..', join(repo, 'x'));
+  git(repo, 'add', 's', 'x');
+  git(repo, 'commit', '-q', '-m', 'chain');
+  const base = git(repo, 'rev-parse', 'HEAD').trim();
+  assert.throws(() => makeSnapshot(repo, base, [], runRoot), (e) => e.code === 3 && /^blocked: link leaves snapshot: /.test(e.message));
+});
+
+test('a dangling link blocks the snapshot', () => {
+  const { repo, runRoot } = fixtureRepo();
+  symlinkSync('nowhere', join(repo, 'dangling'));
+  git(repo, 'add', 'dangling');
+  git(repo, 'commit', '-q', '-m', 'dangling');
+  const base = git(repo, 'rev-parse', 'HEAD').trim();
+  assert.throws(() => makeSnapshot(repo, base, [], runRoot), (e) => e.code === 3 && /link leaves snapshot/.test(e.message));
+});
+
+test('a base that is not a commit is rejected and cannot inject git options', () => {
+  const { repo, runRoot, base } = fixtureRepo();
+  const out = join(runRoot, '..', 'injected.tar');
+  assert.throws(() => makeSnapshot(repo, `--output=${out}`, [], runRoot), (e) => e.code === 3 && /^blocked: base .* is not a commit$/.test(e.message));
+  assert.equal(existsSync(out), false);
+  assert.equal(makeSnapshot(repo, base, [], runRoot).dir.length > 0, true);
 });
