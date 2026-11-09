@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { posix } from 'node:path';
 
 const MARKER = '*Below this line: for the implementer, the gates and the reviewer.*';
 const SPLICE = /^<!-- skeleton (\{.*\}) -->$/;
@@ -33,6 +34,13 @@ const readFiles = (lines) => {
   return rows;
 };
 
+const isString = (value) => typeof value === 'string';
+const wellTyped = (meta) =>
+  meta !== null && typeof meta === 'object' && !Array.isArray(meta)
+  && ['id', 'path', 'op'].every((key) => isString(meta[key]))
+  && ['selector', 'after', 'into', 'property'].every((key) => meta[key] === undefined || isString(meta[key]))
+  && (meta.selectors === undefined || (Array.isArray(meta.selectors) && meta.selectors.every(isString)));
+
 const readBlocks = (lines) => {
   const blocks = [];
   for (let i = 0; i < lines.length; i++) {
@@ -48,6 +56,7 @@ const readBlocks = (lines) => {
     } catch {
       throw fail(`bad splice comment at line ${i + 1}`);
     }
+    if (!wellTyped(meta)) throw fail(`bad splice comment at line ${i + 1}`);
     const fence = lines[i + 1]?.match(/^(`{3,})/);
     if (!fence) throw fail(`no code block after line ${i + 1}`);
     const end = lines.findIndex((l, j) => j > i + 1 && l.startsWith(fence[1]) && l.trim() === fence[1]);
@@ -126,23 +135,74 @@ export function parsePlan(markdown) {
 }
 
 const VERBS = { create: 'Create', insert: 'Insert into', replace: 'Replace in', 'delete-declaration': 'Delete in', 'delete-file': 'Delete in' };
+const ROWS = { create: 'create', insert: 'modify', replace: 'modify', 'delete-declaration': 'modify', 'delete-file': 'delete' };
+const SELECTOR_KINDS = ['const', 'function', 'type', 'interface', 'class', 'enum'];
+const SOURCE_FILE = /\.(ts|tsx|mts|cts|vue)$/i;
 const tail = (path) => path.split('/').slice(-2).join('/');
 const leavesRepo = (path) => path.startsWith('/') || path.split(/[\\/]/).includes('..');
+const notNormalised = (path) => path === '' || path.endsWith('/') || posix.normalize(path) !== path;
+const capitalised = (word) => word.charAt(0).toUpperCase() + word.slice(1);
 
-/** Every format violation as `format: <reason>`, including block paths that are absolute or contain `..`; empty means clean. */
+const namesPath = (tokens, path) => {
+  const segments = Math.min(2, path.split('/').length);
+  return tokens.some((t) => t.split('/').length >= segments && (t === path || path.endsWith(`/${t}`)));
+};
+
+/** `{ kind, name }` of a `kind:name` selector, or `{ error }` with the `format:` reason when it is malformed or its kind is unknown. */
+export function parseSelector(selector) {
+  const m = selector.match(/^([^:]+):([A-Za-z_$][\w$]*)$/);
+  if (!m) return { error: `format: bad selector ${selector}` };
+  if (!SELECTOR_KINDS.includes(m[1])) return { error: `format: unknown selector kind ${m[1]}` };
+  return { kind: m[1], name: m[2] };
+}
+
+const blockErrors = (b, sharing) => {
+  const out = [];
+  const at = `${b.id} (line ${b.line})`;
+  if (leavesRepo(b.path)) out.push(`format: path ${b.path} leaves the repo in ${at}`);
+  else if (notNormalised(b.path)) out.push(`format: path ${b.path} is not normalised`);
+  if (!SOURCE_FILE.test(b.path)) out.push(`format: path ${b.path} is not a TypeScript or Vue file in ${b.id}`);
+  if (!Object.hasOwn(VERBS, b.op)) return [...out, `format: unsupported op ${b.op} in block ${b.id}`];
+  if ((b.op === 'create' || b.op === 'delete-file') && sharing > 1) out.push(`format: ${b.op} must be the only block for ${b.path}`);
+  if (b.op === 'insert' && b.after !== 'imports') {
+    if (b.into !== 'export-default') out.push(`format: insert needs after or into in block ${b.id}`);
+    else if (!b.property) out.push(`format: insert into export-default needs property in block ${b.id}`);
+  }
+  const names = [];
+  if (b.op === 'replace' || b.op === 'delete-declaration') {
+    for (const selector of b.selectors) {
+      const parsed = parseSelector(selector);
+      if (parsed.error) out.push(parsed.error);
+      else names.push(parsed.name);
+    }
+  }
+  const tokens = backticked(b.label);
+  const unnamed = [];
+  if (!b.label.includes(VERBS[b.op])) unnamed.push(`verb "${VERBS[b.op]}"`);
+  if (!namesPath(tokens, b.path)) unnamed.push(`path \`${tail(b.path)}\``);
+  for (const name of names) if (!tokens.includes(name)) unnamed.push(`selector \`${name}\``);
+  if (b.op === 'insert' && b.after !== 'imports' && b.property && !tokens.includes(b.property)) unnamed.push(`property \`${b.property}\``);
+  for (const what of unnamed) out.push(`format: label "${b.label}" does not name ${what} in ${at}`);
+  return out;
+};
+
+/** Every format violation as `format: <reason>`: labels, files rows, paths, ops, selectors, inserts, overlaps and task signatures; empty means clean. */
 export function checkFormat(plan) {
   const out = [];
-  const known = new Set(plan.files.map((f) => f.path));
   const ids = new Set(plan.blocks.map((b) => b.id));
+  const perPath = new Map();
+  for (const b of plan.blocks) perPath.set(b.path, (perPath.get(b.path) ?? 0) + 1);
   const claimed = new Map();
   for (const b of plan.blocks) {
-    const at = `${b.id} (line ${b.line})`;
-    if (leavesRepo(b.path)) out.push(`format: path ${b.path} leaves the repo in ${at}`);
-    if (!b.label.includes(tail(b.path)) || !b.label.includes(VERBS[b.op] ?? '')) {
-      out.push(`format: label "${b.label}" does not match ${VERBS[b.op]} ${b.path} in ${at}`);
+    out.push(...blockErrors(b, perPath.get(b.path)));
+    const rows = plan.files.filter((f) => f.path === b.path);
+    if (rows.length === 0) out.push(`format: not in files table ${b.path} in ${b.id} (line ${b.line})`);
+    for (const row of rows) {
+      if (Object.hasOwn(ROWS, b.op) && row.action !== ROWS[b.op]) {
+        out.push(`format: row ${capitalised(row.action)} for ${b.path} does not fit op ${b.op} in ${b.id}`);
+      }
     }
-    if (!known.has(b.path)) out.push(`format: not in files table ${b.path} in ${at}`);
-    if (b.selectorConflict) out.push(`format: selector and selectors both set in ${at}`);
+    if (b.selectorConflict) out.push(`format: selector and selectors both set in ${b.id} (line ${b.line})`);
     for (const sel of b.selectors) {
       const key = `${b.path}\0${sel}`;
       if (claimed.has(key)) out.push(`format: overlapping ${sel} in ${b.path}: ${claimed.get(key)} and ${b.id}`);
@@ -158,7 +218,7 @@ export function checkFormat(plan) {
       }
     }
   }
-  return out;
+  return [...new Set(out)];
 }
 
 /** sha256 over the approval part and each block's metadata and code; text below the line does not count. */

@@ -101,6 +101,17 @@ test('label-mismatch: exit 1, format:, no run directory created', () => {
   assert.equal(existsSync(join(f.cache, 'runs')), false);
 });
 
+test('a malformed splice comment prints a format line first, never a stack trace', () => {
+  const f = fixture('label-mismatch');
+  for (const [from, to] of [['"path":"src/greet.ts",', ''], ['"op":"create"', '"op":"create","selectors":5']]) {
+    writeFileSync(f.plan, readFileSync(join(FIXTURES, 'label-mismatch', 'plan.md'), 'utf8').replace(from, to));
+    const r = gate(f);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.first, /^format: bad splice comment at line \d+$/);
+    assert.doesNotMatch(r.out, /\n\s+at /);
+  }
+});
+
 test('overlap: exit 1, format: overlapping', () => {
   const f = fixture('overlap');
   const r = gate(f);

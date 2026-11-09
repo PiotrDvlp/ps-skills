@@ -88,12 +88,13 @@ function gate({ planPath, repoRoot, cacheDir, adapterOverride, plan, expected, r
 export async function runGate({ planPath, repoRoot, cacheDir = defaultCacheDir(), adapterOverride }) {
   planPath = resolve(planPath);
   let plan;
+  let violations;
   try {
     plan = parsePlan(readFileSync(planPath, 'utf8'));
+    violations = checkFormat(plan);
   } catch (e) {
     return e.code === undefined && /^format:/.test(e.message) ? { code: 1, lines: [e.message] } : fromError(e);
   }
-  const violations = checkFormat(plan);
   if (violations.length > 0) return { code: 1, lines: violations };
   const expected = planHash(plan);
   const runRoot = join(cacheDir, 'runs');

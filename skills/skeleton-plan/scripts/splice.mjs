@@ -1,5 +1,6 @@
 import { lstatSync, mkdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, posix, sep } from 'node:path';
+import { parseSelector } from './plan-format.mjs';
 import { fail } from './tools.mjs';
 
 const KINDS = {
@@ -32,15 +33,9 @@ const deletionEnd = (ts, source, end) => {
   return lineBreak ? after + lineBreak[0].length : after;
 };
 
-const parseSelector = (selector) => {
-  const m = selector.match(/^([^:]+):([A-Za-z_$][\w$]*)$/);
-  if (!m) throw fail(`format: bad selector ${selector}`, 1);
-  if (!Object.hasOwn(KINDS, m[1])) throw fail(`format: unknown selector kind ${m[1]}`, 1);
-  return [m[1], m[2]];
-};
-
 const resolveSelector = (ts, file, source, selector) => {
-  const [kind, name] = parseSelector(selector);
+  const { error, kind, name } = parseSelector(selector);
+  if (error) throw fail(error, 1);
   const groups = [];
   file.statements.forEach((statement, i) => {
     if (!declaredNames(ts, statement, kind).includes(name)) return;
