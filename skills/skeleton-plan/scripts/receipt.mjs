@@ -16,7 +16,7 @@ export function classify(result, plan, covered, splice) {
 
   if (result.spawnError || result.signal) return blocked('typecheck could not run');
   if (splice.gated === 0) return blocked('no gated block');
-  const uncovered = plan.blocks.find((b) => !isVue(b.path) && !covered.has(b.path));
+  const uncovered = plan.blocks.find((b) => b.op !== 'delete-file' && !isVue(b.path) && !covered.has(b.path));
   if (uncovered) return blocked(`uncovered: ${uncovered.path}`);
 
   const diagnostics = result.diagnostics;

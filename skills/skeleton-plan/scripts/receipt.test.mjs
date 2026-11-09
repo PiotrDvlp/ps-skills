@@ -45,6 +45,7 @@ test('a skipped sfc block with a clean run gives status 4, not a plain pass', ()
   assert.equal(r.status, 'passed-ungated');
   assert.equal(r.code, 4);
   assert.equal(r.reason, 'passed with 1 ungated items');
+  assert.deepEqual(r.ungated, ['src/v.vue']);
 });
 
 test('a diagnostic in an unlisted .ts file is a broken caller', () => {
@@ -58,6 +59,13 @@ test('a diagnostic in a listed ts file is a plain failure', () => {
   const r = classify(run({ exitCode: 1, diagnostics: [diag('src/a.ts')] }), plan(), covered, spliced);
   assert.equal(r.status, 'failed');
   assert.ok(!r.reason.startsWith('caller broken'));
+});
+
+test('a file-deleting block needs no coverage', () => {
+  const blocks = [block('src/a.ts'), { ...block('src/old.ts'), op: 'delete-file' }];
+  const r = classify(run(), plan(blocks, [row('src/a.ts'), row('src/old.ts')]), covered, spliced);
+  assert.equal(r.status, 'passed');
+  assert.equal(r.code, 0);
 });
 
 test('a mix of sfc and ts diagnostics in listed files is a plain failure', () => {
