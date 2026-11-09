@@ -66,11 +66,21 @@ test("parsePlan reads each block's label, metadata and code", () => {
     id: 't1-a', path: 'src/a.ts', op: 'create', selectors: [],
     label: 'Create `src/a.ts`', code: 'export const a = 1', line: 18,
   });
-  assert.equal(blocks[1].id, 't2-b');
-  assert.equal(blocks[1].op, 'replace');
-  assert.deepEqual(blocks[1].selectors, ['function:run', 'const:stop']);
-  assert.equal(blocks[1].label, 'Replace in `src/b.ts` — `run`, `stop`');
-  assert.equal(blocks[1].code, 'export function run(x: number): number { return x }\nexport const stop = (): void => undefined');
+  assert.deepEqual(blocks[1], {
+    id: 't2-b', path: 'src/b.ts', op: 'replace', selectors: ['function:run', 'const:stop'],
+    label: 'Replace in `src/b.ts` — `run`, `stop`',
+    code: 'export function run(x: number): number { return x }\nexport const stop = (): void => undefined',
+    line: 24,
+  });
+});
+
+test('parsePlan rejects a splice comment that almost matches', () => {
+  const good = '<!-- skeleton {"id":"t1-a","path":"src/a.ts","op":"create"} -->';
+  for (const bad of [good.replace('<!-- ', '<!--'), good.replace(' -->', '-->'), good.replace(' -->', '')]) {
+    const md = plan().replace(good, bad);
+    assert.throws(() => parsePlan(md), { message: 'format: bad splice comment at line 18' }, bad);
+  }
+  assert.equal(parsePlan(plan().replace(good, `${good}  `)).blocks.length, 2);
 });
 
 test('parsePlan fails without the marker', () => {

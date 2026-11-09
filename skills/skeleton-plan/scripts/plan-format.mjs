@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 const MARKER = '*Below this line: for the implementer, the gates and the reviewer.*';
 const SPLICE = /^<!-- skeleton (\{.*\}) -->$/;
+const SPLICE_START = /^<!--\s*skeleton/;
 const UNCHANGED_LABEL = '**Signature unchanged, behaviour changed**';
 
 /** @typedef {'create'|'insert'|'replace'|'delete-declaration'|'delete-file'} Op */
@@ -35,8 +36,12 @@ const readFiles = (lines) => {
 const readBlocks = (lines) => {
   const blocks = [];
   for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(SPLICE);
-    if (!m) continue;
+    const text = lines[i].trim();
+    const m = text.match(SPLICE);
+    if (!m) {
+      if (SPLICE_START.test(text)) throw fail(`bad splice comment at line ${i + 1}`);
+      continue;
+    }
     let meta;
     try {
       meta = JSON.parse(m[1]);
