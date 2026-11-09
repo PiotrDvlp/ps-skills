@@ -87,7 +87,7 @@ A `.vue` file with a type error and no files row is `failed: caller broken` (sta
 
 | Field | Content |
 |---|---|
-| `approvalHash` | sha256 over the approval part and every block's fields and code. Text below the marker, the `Gate:` line above `## 1. Files` and block line numbers do not count. |
+| `approvalHash` | sha256 over the approval part and every block's fields and code. Text below the marker, the `Gate:` line above `## 1. Files` and block line numbers do not count; trailing whitespace and extra blank lines are normalised away first (see `format.md`, "Header"). |
 | `blockHashes` | `{ id, path, hash }` per block; the hash leaves out the line number. |
 | `baseCommit` | The full sha `base:` resolved to. |
 | `generatedInputs` | Fingerprint of each generated input copied from the checkout (`nuxt` adapter only). |
@@ -105,9 +105,10 @@ A `.vue` file with a type error and no files row is `failed: caller broken` (sta
 node ${CLAUDE_SKILL_DIR}/scripts/check-plan.mjs verify --plan <plan.md>
 ```
 
-Prints `receipt matches` and exits 0 only when both hold:
+Prints `receipt matches` and exits 0 only when all three hold:
 
 - the plan still hashes to the receipt's `approvalHash`;
+- the receipt's `status` is `passed` or `passed-ungated` (otherwise `receipt stale: the receipt status <status> is not a pass`);
 - the plan's `Gate:` line is the line the gate printed for the receipt's status: `Gate: passed`, or `Gate: passed with N ungated items` with N the receipt's number of ungated items.
 
 Otherwise it exits 1 with one of:

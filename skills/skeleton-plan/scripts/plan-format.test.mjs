@@ -110,6 +110,23 @@ test('the Gate line above the files table is left out of the approval hash', () 
   assert.notEqual(planHash(parsePlan(inFiles('Gate: passed'))), planHash(parsePlan(inFiles('Gate: failed'))));
 });
 
+test('gateLine ignores Gate lines in the front matter and in code fences', () => {
+  const front = plan().replace('title: Example\n', 'title: Example\nGate: passed\n');
+  assert.equal(parsePlan(front).gateLine, null);
+  assert.ok(parsePlan(front).approval.includes('Gate: passed'));
+  const fenced = plan().replace('# Example plan\n', '# Example plan\n\n```text\nGate: passed\n```\n\nGate: failed: x\n');
+  assert.equal(parsePlan(fenced).gateLine, 'Gate: failed: x');
+  assert.ok(parsePlan(fenced).approval.includes('Gate: passed'));
+  const onlyFenced = plan().replace('# Example plan\n', '# Example plan\n\n~~~\nGate: passed\n~~~\n');
+  assert.equal(parsePlan(onlyFenced).gateLine, null);
+});
+
+test('planHash ignores trailing whitespace and extra blank lines', () => {
+  const hash = planHash(parsePlan(plan()));
+  assert.equal(planHash(parsePlan(`\n\n${plan().replace('# Example plan\n', '# Example plan   \n\n\n\n')}`)), hash);
+  assert.notEqual(planHash(parsePlan(plan().replace('# Example plan\n', '# Example  plan\n'))), hash);
+});
+
 test("planHash changes when a block's code changes", () => {
   const a = planHash(parsePlan(plan()));
   const b = planHash(parsePlan(plan({ code: 'export const a = 2' })));
@@ -154,6 +171,7 @@ test('checkFormat wants the path tail as a whole backticked token in the label',
     'format: label "Create `src/a.tsx`" does not name path `src/a.ts` in t1-a (line 18)',
   ]);
   assert.deepEqual(kinds(plan().replace('**Create `src/a.ts`**', '**Create src/a.ts**')), ['format: label']);
+  assert.deepEqual(kinds(plan().replace('**Create `src/a.ts`**', '**Create `rc/a.ts`**')), ['format: label']);
   const deep = plan()
     .replace('| `src/a.ts` | the helper', '| `lib/cart/a.ts` | the helper')
     .replace('"path":"src/a.ts"', '"path":"lib/cart/a.ts"');

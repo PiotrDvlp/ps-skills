@@ -80,7 +80,7 @@ function gate({ planPath, repoRoot, cacheDir, adapterOverride, plan, expected, r
 }
 
 /**
- * The whole gate for one plan; writes only inside the run root and the receipt path. `adapterOverride` is read only under `node --test`.
+ * The whole gate for one plan. The gate's own writes go to the run root and the receipt path, but the prepare and typecheck commands it spawns run the repo's code without isolation. `adapterOverride` is read only under `node --test`.
  * @returns {Promise<{ code: 0|1|3|4|5, lines: string[] }>} the exit code and the output, status line first
  */
 export async function runGate({ planPath, repoRoot, cacheDir = defaultCacheDir(), adapterOverride }) {

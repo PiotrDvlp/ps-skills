@@ -122,10 +122,18 @@ const readTaskSignatures = (lines) => {
 
 const findGateLine = (above) => {
   const files = above.findIndex((l) => FILES_HEADING.test(l));
-  return files < 0 ? -1 : above.slice(0, files).findIndex((l) => GATE_LINE.test(l));
+  const frontEnd = above[0] === '---' ? above.indexOf('---', 1) : -1;
+  let fence = null;
+  for (let i = frontEnd + 1; i < files; i++) {
+    const marker = above[i].match(/^\s*(`{3,}|~{3,})/)?.[1];
+    if (fence === null && marker) fence = marker;
+    else if (fence !== null && marker?.[0] === fence[0] && marker.length >= fence.length && above[i].trim() === marker) fence = null;
+    else if (fence === null && GATE_LINE.test(above[i])) return i;
+  }
+  return -1;
 };
 
-/** Splits at the "Below this line" marker; reads files table, labelled blocks, unchanged lines, task signatures. The first `Gate: ` line above `## 1. Files` is `gateLine` and is left out of `approval`. Throws `format: <reason>`. */
+/** Splits at the "Below this line" marker; reads files table, labelled blocks, unchanged lines, task signatures. The first `Gate: ` header line above `## 1. Files`, outside the front matter and code fences, is `gateLine` and is left out of `approval`. Throws `format: <reason>`. */
 export function parsePlan(markdown) {
   const lines = markdown.split(/\r?\n/);
   const cut = lines.findIndex((l) => l.trim() === MARKER);
@@ -231,10 +239,17 @@ export function checkFormat(plan) {
   return [...new Set(out)];
 }
 
-/** sha256 over the approval part and each block's metadata (not its line number) and code; text below the line and the Gate line do not count. */
+const normalised = (text) => text
+  .split('\n')
+  .map((line) => line.trimEnd())
+  .join('\n')
+  .replace(/\n{3,}/g, '\n\n')
+  .replace(/^\n+|\n+$/g, '');
+
+/** sha256 over the approval part, with trailing whitespace stripped and blank-line runs collapsed, and each block's metadata (not its line number) and code; text below the line and the Gate line do not count. */
 export function planHash(plan) {
   const hash = createHash('sha256');
-  hash.update(plan.approval);
+  hash.update(normalised(plan.approval));
   for (const { code, line, ...meta } of plan.blocks) hash.update(`\0${JSON.stringify(meta)}\0${code}`);
   return hash.digest('hex');
 }

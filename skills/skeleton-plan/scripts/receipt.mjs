@@ -40,7 +40,7 @@ export function classify(result, plan, covered, splice, baseCovered) {
     return splice.ungated.length > 0 ? ungatedStatus([]) : { status: 'passed', code: 0, ungated: [] };
   }
   const listed = new Set(plan.files.map((f) => f.path));
-  const caller = diagnostics.find((d) => (/\.[mc]?tsx?$/.test(d.file) || isVue(d.file)) && !listed.has(d.file));
+  const caller = diagnostics.find((d) => (/\.[mc]?tsx?$/i.test(d.file) || isVue(d.file)) && !listed.has(d.file));
   if (caller) return failed(`caller broken: ${caller.file}`);
   if (diagnostics.length > 0 && diagnostics.every((d) => isVue(d.file))) {
     return ungatedStatus(diagnostics.map((d) => d.file));
@@ -115,7 +115,7 @@ export function writeReceipt(planPath, expected, receipt) {
 }
 
 /**
- * The receipt check: `receipt matches` (code 0) only when the plan still hashes to the receipt's `approvalHash` and its Gate line is the line the gate printed for the receipt's status; otherwise `receipt stale: ...` or `receipt missing: <path>` (code 1).
+ * The receipt check: `receipt matches` (code 0) only when the plan still hashes to the receipt's `approvalHash`, the receipt's status is `passed` or `passed-ungated`, and the plan's Gate line is the line the gate printed for the receipt's status; otherwise `receipt stale: ...` or `receipt missing: <path>` (code 1).
  * @returns {{ code: 0|1, lines: string[] }}
  */
 export function verifyReceipt(planPath) {
@@ -130,6 +130,7 @@ export function verifyReceipt(planPath) {
   }
   const stale = (why) => ({ code: 1, lines: [`receipt stale: ${why}`] });
   if (planHash(plan) !== receipt.approvalHash) return stale('the approval part changed');
+  if (receipt.status !== 'passed' && receipt.status !== 'passed-ungated') return stale(`the receipt status ${receipt.status} is not a pass`);
   const expected = `Gate: ${receipt.status === 'passed-ungated' ? ungatedLine(receipt.ungated?.length ?? 0) : receipt.status}`;
   if (plan.gateLine?.trimEnd() !== expected) {
     return stale(`${plan.gateLine === null ? 'the plan has no Gate line' : `the plan says "${plan.gateLine}"`}, the receipt says "${expected}"`);

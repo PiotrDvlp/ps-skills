@@ -71,7 +71,7 @@ test('a diagnostic in an unlisted .vue file is a broken caller', () => {
 });
 
 test('a diagnostic in an unlisted .tsx, .mts or .cts file is a broken caller', () => {
-  for (const file of ['src/c.tsx', 'src/c.mts', 'src/c.cts']) {
+  for (const file of ['src/c.tsx', 'src/c.mts', 'src/c.cts', 'src/C.TSX', 'src/c.Ts']) {
     const r = classify(run({ exitCode: 1, diagnostics: [diag(file)] }), plan(), covered, spliced);
     assert.equal(r.code, 1, file);
     assert.equal(r.reason, `caller broken: ${file}`);
@@ -166,6 +166,26 @@ test('verifyReceipt matches only when the hash and the Gate line agree with the 
   write('Gate: passed with 2 ungated items');
   writeReceipt(planPath, hash, { status: 'passed-ungated', ungated: ['a.vue', 'b.vue'] });
   assert.deepEqual(verifyReceipt(planPath), { code: 0, lines: ['receipt matches'] });
+  write('Gate: passed with 3 ungated items');
+  assert.deepEqual(verifyReceipt(planPath), { code: 1, lines: ['receipt stale: the plan says "Gate: passed with 3 ungated items", the receipt says "Gate: passed with 2 ungated items"'] });
+});
+
+test('verifyReceipt accepts a Gate line added with blank lines around it after the run', () => {
+  const { planPath } = setup();
+  const body = (gate) => `---\nbase: abc\n---\n\n# Plan\n\nGoal: one line.${gate}\n\n## 1. Files\n\n${MARK}\n`;
+  writeFileSync(planPath, body(''));
+  writeReceipt(planPath, planHash(parsePlan(readFileSync(planPath, 'utf8'))), { status: 'passed', ungated: [] });
+  writeFileSync(planPath, body('\n\nGate: passed  \n\n'));
+  assert.deepEqual(verifyReceipt(planPath), { code: 0, lines: ['receipt matches'] });
+  writeFileSync(planPath, body('\n\nGate: passed\n\nAn added sentence.'));
+  assert.deepEqual(verifyReceipt(planPath), { code: 1, lines: ['receipt stale: the approval part changed'] });
+});
+
+test('verifyReceipt never matches a receipt whose status is not a pass', () => {
+  const { planPath } = setup();
+  writeFileSync(planPath, `# Plan\n\nGate: failed\n\n## 1. Files\n\n${MARK}\n`);
+  writeReceipt(planPath, planHash(parsePlan(readFileSync(planPath, 'utf8'))), { status: 'failed', ungated: [] });
+  assert.deepEqual(verifyReceipt(planPath), { code: 1, lines: ['receipt stale: the receipt status failed is not a pass'] });
 });
 
 test('writeReceipt renames only when the hash still matches', () => {

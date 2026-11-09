@@ -115,7 +115,9 @@ One goal line, the base commit, a link to the design document if one exists, and
 Gate: <the first line the gate printed>
 ```
 
-The line starts with exactly `Gate: ` and sits above `## 1. Files`. The first such line is left out of the approval hash, so writing it after a run keeps the receipt valid. Everything else in the header is part of the hash: edit it after a gate run and the receipt no longer matches, so you rerun the gate. After every run, write the line the gate printed, also for a failure or a block (`Gate: blocked: baseline broken`). `check-plan.mjs verify` compares this line with the receipt (see `cli.md`).
+The line starts with exactly `Gate: ` and sits above `## 1. Files`, outside the front matter and outside code fences. The first such line is left out of the approval hash, so writing it after a run, with or without blank lines around it, keeps the receipt valid. Everything else in the header is part of the hash: edit it after a gate run and the receipt no longer matches, so you rerun the gate.
+
+Before hashing, the approval part loses trailing whitespace on each line, every run of blank lines becomes one, and leading and trailing blank lines go; this also applies to blank-line runs inside code fences. After every run, write the line the gate printed, also for a failure or a block (`Gate: blocked: baseline broken`). `check-plan.mjs verify` compares this line with the receipt (see `cli.md`).
 
 ### 1. Files
 
