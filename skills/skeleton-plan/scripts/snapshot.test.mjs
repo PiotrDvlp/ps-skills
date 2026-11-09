@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { tmp } from './test-tmp.mjs';
 import { makeSnapshot, detectAdapter, coveredFiles, runTypecheck } from './snapshot.mjs';
 import { loadTypescript } from './tools.mjs';
+import { classify } from './receipt.mjs';
 
 const worktreeRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const tsInfo = () => loadTypescript(worktreeRoot, join(homedir(), '.cache/skeleton-plan'));
@@ -199,6 +200,17 @@ test('runTypecheck parses .ts and .vue diagnostics', () => {
   assert.equal(r.spawnError, null);
   assert.deepEqual(r.diagnostics.map((d) => [d.file, d.line]), [['src/a.ts', 3], ['src/B.vue', 7]]);
   assert.match(r.diagnostics[0].message, /Type mismatch/);
+});
+
+test('a file-less error is a diagnostic, so a global error beside .vue errors fails', () => {
+  const dir = tmp('sk-tc-');
+  const lines = ['error TS5083: Cannot read file tsconfig.base.json.', 'src/B.vue(7,2): error TS2304: Cannot find name.'];
+  const script = `console.log(${JSON.stringify(lines.join('\n'))});process.exit(2)`;
+  const r = runTypecheck(dir, { name: 'tsc', generatedInputs: [], prepare: null, typecheck: ['node', '-e', script] });
+  assert.deepEqual(r.diagnostics.map((d) => [d.file, d.line]), [['', 0], ['src/B.vue', 7]]);
+  assert.match(r.diagnostics[0].message, /Cannot read file/);
+  const plan = { base: 'x', approval: '', files: [], blocks: [], unchanged: [], taskSignatures: new Map() };
+  assert.equal(classify(r, plan, new Set(), { gated: 1, ungated: [] }).status, 'failed');
 });
 
 test('runTypecheck reports a command that cannot start', () => {

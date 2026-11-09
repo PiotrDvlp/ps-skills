@@ -150,6 +150,7 @@ export function runPrepare(dir, adapter) {
 const ANSI = /\u001b\[[0-9;]*m/g;
 const PLAIN_DIAGNOSTIC = /^(.+?)\((\d+),\d+\): error TS\d+: (.*)$/;
 const PRETTY_DIAGNOSTIC = /^(.+?):(\d+):\d+ - error TS\d+: (.*)$/;
+const GLOBAL_DIAGNOSTIC = /^error TS\d+: (.*)$/;
 
 function toRelative(dir, file) {
   const slashed = file.replaceAll('\\', '/');
@@ -177,11 +178,13 @@ function parseDiagnostics(dir, output) {
   for (const raw of output.replace(ANSI, '').split(/\r?\n/)) {
     const m = PLAIN_DIAGNOSTIC.exec(raw) ?? PRETTY_DIAGNOSTIC.exec(raw);
     if (m) diagnostics.push({ file: toRelative(dir, m[1]), line: Number(m[2]), message: m[3] });
+    const global = m ? null : GLOBAL_DIAGNOSTIC.exec(raw);
+    if (global) diagnostics.push({ file: '', line: 0, message: global[1] });
   }
   return diagnostics;
 }
 
-/** Runs the adapter's typecheck in `dir` and never throws; parses `file(line,col): error TSnnnn: message` and `file:line:col - error TSnnnn: message` lines from stdout and stderr into repo-relative diagnostics. */
+/** Runs the adapter's typecheck in `dir` and never throws; parses `file(line,col): error TSnnnn: message` and `file:line:col - error TSnnnn: message` lines from stdout and stderr into repo-relative diagnostics; a file-less `error TSnnnn: message` gets `file: ''`. */
 export function runTypecheck(dir, adapter) {
   const [cmd, ...args] = adapter.typecheck;
   const r = spawnSync(cmd, args, { cwd: dir, encoding: 'utf8', timeout: RUN_TIMEOUT_MS, maxBuffer: MAX_OUTPUT });
