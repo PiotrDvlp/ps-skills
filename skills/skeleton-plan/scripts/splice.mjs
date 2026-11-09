@@ -1,33 +1,44 @@
 import { fail } from './tools.mjs';
 
+const KINDS = {
+  const: 'isVariableStatement',
+  function: 'isFunctionDeclaration',
+  type: 'isTypeAliasDeclaration',
+  interface: 'isInterfaceDeclaration',
+  class: 'isClassDeclaration',
+  enum: 'isEnumDeclaration',
+};
+
 const declaredNames = (ts, statement, kind) => {
-  const is = {
-    const: ts.isVariableStatement,
-    function: ts.isFunctionDeclaration,
-    type: ts.isTypeAliasDeclaration,
-    interface: ts.isInterfaceDeclaration,
-    class: ts.isClassDeclaration,
-    enum: ts.isEnumDeclaration,
-  }[kind];
-  if (!is?.(statement)) return [];
+  if (!ts[KINDS[kind]](statement)) return [];
   if (kind === 'const') {
     return statement.declarationList.declarations.filter((d) => ts.isIdentifier(d.name)).map((d) => d.name.text);
   }
   return statement.name ? [statement.name.text] : [];
 };
 
-const leadingStart = (ts, source, node) =>
-  ts.getLeadingCommentRanges(source, node.getFullStart())?.[0]?.pos ?? node.getStart();
+const leadingStart = (ts, source, node) => {
+  const jsdoc = (ts.getLeadingCommentRanges(source, node.getFullStart()) ?? [])
+    .filter((c) => source.startsWith('/**', c.pos) && !source.startsWith('/**/', c.pos));
+  return jsdoc.at(-1)?.pos ?? node.getStart();
+};
 
 const deletionEnd = (ts, source, end) => {
   const trailing = ts.getTrailingCommentRanges(source, end);
   const after = trailing?.length ? trailing.at(-1).end : end;
   const lineBreak = source.slice(after).match(/^[ \t]*\r?\n/);
-  return lineBreak ? after + lineBreak[0].length : end;
+  return lineBreak ? after + lineBreak[0].length : after;
+};
+
+const parseSelector = (selector) => {
+  const m = selector.match(/^([^:]+):([A-Za-z_$][\w$]*)$/);
+  if (!m) throw fail(`format: bad selector ${selector}`, 1);
+  if (!Object.hasOwn(KINDS, m[1])) throw fail(`format: unknown selector kind ${m[1]}`, 1);
+  return [m[1], m[2]];
 };
 
 const resolveSelector = (ts, file, source, selector) => {
-  const [kind, name] = selector.split(':');
+  const [kind, name] = parseSelector(selector);
   const groups = [];
   file.statements.forEach((statement, i) => {
     if (!declaredNames(ts, statement, kind).includes(name)) return;

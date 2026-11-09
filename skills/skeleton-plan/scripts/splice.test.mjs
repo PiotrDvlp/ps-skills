@@ -88,6 +88,23 @@ test('an ambiguous selector fails', () => {
   );
 });
 
+test('replace keeps a file header above the first declaration', () => {
+  const source = '// Copyright X\n// @ts-nocheck\n\nconst a = 1;\nconst b = 2;\n';
+  const out = spliceFile(ts, 'src/a.ts', source, [block('replace', ['const:a'], 'const a = 3;')]);
+  assert.equal(out, '// Copyright X\n// @ts-nocheck\n\nconst a = 3;\nconst b = 2;\n');
+});
+
+test('an unknown or malformed selector fails as a format error', () => {
+  assert.throws(
+    () => spliceFile(ts, 'src/a.ts', THREE, [block('replace', ['klass:a'], 'class a {}')]),
+    (e) => e.code === 1 && e.message === 'format: unknown selector kind klass',
+  );
+  assert.throws(
+    () => spliceFile(ts, 'src/a.ts', THREE, [block('replace', ['const'], 'const a = 2;')]),
+    (e) => e.code === 1 && e.message === 'format: bad selector const',
+  );
+});
+
 test('delete-declaration removes only that declaration', () => {
   const out = spliceFile(ts, 'src/a.ts', THREE, [block('delete-declaration', ['function:b'])]);
   assert.equal(out, [
