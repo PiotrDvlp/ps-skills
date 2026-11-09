@@ -119,7 +119,7 @@ small run (mode `decision`): set `disposition`, and for a rejection also `lifecy
 the field changes in the run note, and write it as above. A rejection keeps the finding's
 observations; a later recheck that finds it `present` again reopens it.
 
-At the start of every invocation, list run notes still `status: incomplete` first. Skip `status: discarded` ones.
+At the start of every invocation, list run notes still `status: incomplete` first. Skip `status: discarded` ones. With no lock present, the same choice applies: take the lock, then offer re-apply or discard as under "Existing lock", before any new work.
 
 ## recheck
 
