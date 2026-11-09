@@ -38,8 +38,10 @@ test('a spawn error or signal blocks', () => {
   }
 });
 
-test('only .vue diagnostics with a gated block give status 4', () => {
-  const r = classify(run({ exitCode: 1, diagnostics: [diag('src/v.vue')] }), plan(), covered, spliced);
+const withVue = () => plan([block('src/a.ts')], [row('src/a.ts'), row('src/v.vue')]);
+
+test('only .vue diagnostics in listed files with a gated block give status 4', () => {
+  const r = classify(run({ exitCode: 1, diagnostics: [diag('src/v.vue')] }), withVue(), covered, spliced);
   assert.equal(r.status, 'passed-ungated');
   assert.equal(r.code, 4);
   assert.equal(r.reason, 'passed with 1 ungated items');
@@ -61,21 +63,43 @@ test('a diagnostic in an unlisted .ts file is a broken caller', () => {
   assert.equal(r.reason, 'caller broken: src/caller.ts');
 });
 
+test('a diagnostic in an unlisted .vue file is a broken caller', () => {
+  const r = classify(run({ exitCode: 1, diagnostics: [diag('src/v.vue')] }), plan(), covered, spliced);
+  assert.equal(r.status, 'failed');
+  assert.equal(r.code, 1);
+  assert.equal(r.reason, 'caller broken: src/v.vue');
+});
+
+test('.vue is matched in any letter case', () => {
+  const files = [row('src/a.ts'), row('src/V.VUE')];
+  const r = classify(run({ exitCode: 1, diagnostics: [diag('src/V.VUE')] }), plan([block('src/a.ts')], files), covered, spliced);
+  assert.equal(r.status, 'passed-ungated');
+  assert.equal(r.code, 4);
+  const sfc = classify(run(), plan([block('src/a.ts'), block('src/W.Vue')], [row('src/a.ts'), row('src/W.Vue')]), covered, { gated: 1, ungated: ['src/W.Vue'] });
+  assert.equal(sfc.status, 'passed-ungated');
+});
+
 test('a diagnostic in a listed ts file is a plain failure', () => {
   const r = classify(run({ exitCode: 1, diagnostics: [diag('src/a.ts')] }), plan(), covered, spliced);
   assert.equal(r.status, 'failed');
   assert.ok(!r.reason.startsWith('caller broken'));
 });
 
-test('a file-deleting block needs no coverage', () => {
+test('a file-deleting block needs the file in the base coverage', () => {
   const blocks = [block('src/a.ts'), { ...block('src/old.ts'), op: 'delete-file' }];
-  const r = classify(run(), plan(blocks, [row('src/a.ts'), row('src/old.ts')]), covered, spliced);
+  const p = plan(blocks, [row('src/a.ts'), row('src/old.ts')]);
+  const r = classify(run(), p, covered, spliced, new Set(['src/a.ts', 'src/old.ts']));
   assert.equal(r.status, 'passed');
   assert.equal(r.code, 0);
+  const excluded = classify(run(), p, covered, spliced, new Set(['src/a.ts']));
+  assert.equal(excluded.status, 'blocked');
+  assert.equal(excluded.code, 3);
+  assert.equal(excluded.reason, 'uncovered: src/old.ts');
 });
 
 test('a mix of sfc and ts diagnostics in listed files is a plain failure', () => {
-  const r = classify(run({ exitCode: 1, diagnostics: [diag('src/v.vue'), diag('src/a.ts')] }), plan(), covered, spliced);
+  const r = classify(run({ exitCode: 1, diagnostics: [diag('src/v.vue'), diag('src/a.ts')] }), withVue(), covered, spliced);
+  assert.equal(r.reason, 'typecheck reported 2 diagnostics');
   assert.equal(r.status, 'failed');
   assert.equal(r.code, 1);
 });

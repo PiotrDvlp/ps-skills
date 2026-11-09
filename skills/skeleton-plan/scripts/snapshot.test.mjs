@@ -6,7 +6,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { tmp } from './test-tmp.mjs';
-import { makeSnapshot, detectAdapter, coveredFiles, runTypecheck } from './snapshot.mjs';
+import { makeSnapshot, detectAdapter, coveredFiles, generatedInputsAt, runTypecheck } from './snapshot.mjs';
 import { loadTypescript } from './tools.mjs';
 import { classify } from './receipt.mjs';
 
@@ -56,6 +56,19 @@ test('detectAdapter reads the snapshot, not the checkout', () => {
   assert.deepEqual(detectAdapter(dir, null).generatedInputs, []);
   assert.equal(detectAdapter(repo, null).name, 'nuxt');
   assert.deepEqual(detectAdapter(repo, null).generatedInputs, ['generated']);
+});
+
+test('generated inputs are read from the base at the repo root passed in, also in a subdirectory', () => {
+  const { repo, base } = fixtureRepo();
+  assert.deepEqual(generatedInputsAt(repo, base), []);
+  mkdirSync(join(repo, 'app'));
+  writeFileSync(join(repo, 'app', 'nuxt.config.ts'), 'export default {};\n');
+  git(repo, 'add', '.');
+  git(repo, 'commit', '-q', '-m', 'nuxt app in a subdirectory');
+  const sha = git(repo, 'rev-parse', 'HEAD').trim();
+  assert.deepEqual(generatedInputsAt(join(repo, 'app'), sha), detectAdapter(join(repo, 'app'), null).generatedInputs);
+  assert.deepEqual(generatedInputsAt(join(repo, 'app'), sha), ['generated']);
+  assert.deepEqual(generatedInputsAt(repo, sha), []);
 });
 
 test('a symlink leaving the snapshot blocks it', () => {
@@ -209,8 +222,8 @@ test('a file-less error is a diagnostic, so a global error beside .vue errors fa
   const r = runTypecheck(dir, { name: 'tsc', generatedInputs: [], prepare: null, typecheck: ['node', '-e', script] });
   assert.deepEqual(r.diagnostics.map((d) => [d.file, d.line]), [['', 0], ['src/B.vue', 7]]);
   assert.match(r.diagnostics[0].message, /Cannot read file/);
-  const plan = { base: 'x', approval: '', files: [], blocks: [], unchanged: [], taskSignatures: new Map() };
-  assert.equal(classify(r, plan, new Set(), { gated: 1, ungated: [] }).status, 'failed');
+  const plan = { base: 'x', approval: '', files: [{ action: 'modify', path: 'src/B.vue', change: '' }], blocks: [], unchanged: [], taskSignatures: new Map() };
+  assert.equal(classify(r, plan, new Set(), { gated: 1, ungated: [] }).reason, 'typecheck reported 2 diagnostics');
 });
 
 test('runTypecheck reports a command that cannot start', () => {

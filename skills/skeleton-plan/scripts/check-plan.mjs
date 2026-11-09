@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkFormat, parsePlan, planHash } from './plan-format.mjs';
 import { classify, receiptPath, startRun, verifyReceipt, writeReceipt } from './receipt.mjs';
-import { coveredFiles, detectAdapter, makeSnapshot, runPrepare, runTypecheck } from './snapshot.mjs';
+import { coveredFiles, detectAdapter, generatedInputsAt, makeSnapshot, runPrepare, runTypecheck } from './snapshot.mjs';
 import { spliceSnapshot } from './splice.mjs';
 import { defaultCacheDir, fail, loadTypescript, setupCli } from './tools.mjs';
 
@@ -30,9 +30,6 @@ function resolveBase(repoRoot, base) {
   }
 }
 
-const generatedInputsAt = (repoRoot, sha) =>
-  spawnSync('git', ['-C', repoRoot, 'cat-file', '-e', `${sha}:nuxt.config.ts`], { stdio: 'ignore' }).status === 0 ? ['generated'] : [];
-
 function gate({ planPath, repoRoot, cacheDir, adapterOverride, plan, expected, runRoot }) {
   const commands = [];
   const timed = (step, command, run) => {
@@ -51,6 +48,7 @@ function gate({ planPath, repoRoot, cacheDir, adapterOverride, plan, expected, r
   const adapter = { ...detectAdapter(dir, tsInfo), ...(underTest() && adapterOverride) };
 
   prepare(dir, adapter);
+  const baseCovered = coveredFiles(dir, tsInfo.ts);
   const baseline = timed('baseline typecheck', adapter.typecheck, () => runTypecheck(dir, adapter));
   if (baseline.spawnError || baseline.signal) return { code: 3, lines: ['blocked: typecheck could not run'] };
   if (baseline.exitCode !== 0 || baseline.diagnostics.length > 0) {
@@ -61,12 +59,12 @@ function gate({ planPath, repoRoot, cacheDir, adapterOverride, plan, expected, r
   const result = timed('typecheck', adapter.typecheck, () => runTypecheck(dir, adapter));
   const hook = process.env.SKELETON_PLAN_TEST_AFTER_TYPECHECK;
   if (underTest() && hook) spawnSync(process.execPath, [hook, planPath], { stdio: 'ignore' });
-  const verdict = classify(result, plan, coveredFiles(dir, tsInfo.ts), splice);
+  const verdict = classify(result, plan, coveredFiles(dir, tsInfo.ts), splice, baseCovered);
   const details = [...diagnosticLines(result.diagnostics), ...verdict.ungated.map((path) => `ungated: ${path}`)];
   if (verdict.code !== 0 && verdict.code !== 4) return { code: verdict.code, lines: [`${verdict.status}: ${verdict.reason}`, ...details] };
 
   const receipt = {
-    blockHashes: plan.blocks.map(({ code, line, ...meta }) =>({ id: meta.id, path: meta.path, hash: sha256(`${JSON.stringify(meta)}\0${code}`) })),
+    blockHashes: plan.blocks.map(({ code, line, ...meta }) => ({ id: meta.id, path: meta.path, hash: sha256(`${JSON.stringify(meta)}\0${code}`) })),
     baseCommit,
     generatedInputs: Object.fromEntries(inputs.filter((i) => fingerprints[i]).map((i) => [i, fingerprints[i]])),
     lockfileHash: fingerprints.lockfileHash ?? null,

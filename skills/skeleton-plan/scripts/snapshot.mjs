@@ -122,6 +122,14 @@ export function makeSnapshot(repoRoot, base, generatedInputs, runRoot) {
   return { dir, fingerprints };
 }
 
+const NUXT = { config: 'nuxt.config.ts', name: 'nuxt', generatedInputs: ['generated'], prepare: ['npx', '--no-install', 'nuxi', 'prepare'] };
+
+/** The `nuxt` adapter's generated inputs when `<sha>:./nuxt.config.ts` exists relative to `repoRoot` (which may be a subdirectory of the git repo), else `[]`. */
+export function generatedInputsAt(repoRoot, sha) {
+  const found = spawnSync('git', ['-C', repoRoot, 'cat-file', '-e', `${sha}:./${NUXT.config}`], { stdio: 'ignore' }).status === 0;
+  return found ? [...NUXT.generatedInputs] : [];
+}
+
 /** From the snapshot: `nuxt.config.ts` means `nuxt`, else `tsc`; typecheck is the snapshot's `typecheck` script, else the loaded `tsc` with `--noEmit -p tsconfig.json`. */
 export function detectAdapter(dir, tsInfo) {
   let scripts = {};
@@ -129,8 +137,8 @@ export function detectAdapter(dir, tsInfo) {
     scripts = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).scripts ?? {};
   } catch {}
   const typecheck = typeof scripts.typecheck === 'string' ? ['npm', 'run', 'typecheck'] : ['node', tsInfo?.tscPath, '--noEmit', '-p', 'tsconfig.json'];
-  if (existsSync(join(dir, 'nuxt.config.ts'))) {
-    return { name: 'nuxt', generatedInputs: ['generated'], prepare: ['npx', '--no-install', 'nuxi', 'prepare'], typecheck };
+  if (existsSync(join(dir, NUXT.config))) {
+    return { name: NUXT.name, generatedInputs: [...NUXT.generatedInputs], prepare: [...NUXT.prepare], typecheck };
   }
   return { name: 'tsc', generatedInputs: [], prepare: null, typecheck };
 }

@@ -10,6 +10,7 @@ base: HEAD
 | Action | File | Change |
 |---|---|---|
 | Create | `src/greet.ts` | the helper |
+| Modify | `src/components/Card.vue` | passes a name to `greet` |
 
 ## 2. Interfaces
 

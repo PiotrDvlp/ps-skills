@@ -15,7 +15,7 @@ const RECEIPT_FIELDS = ['approvalHash', 'blockHashes', 'baseCommit', 'generatedI
 
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', ...args], { cwd, encoding: 'utf8' });
 
-function fixture(name) {
+function fixture(name, planFile = 'plan.md') {
   const root = tmp(`sk-e2e-${name}-`);
   const repo = join(root, 'repo');
   const source = join(FIXTURES, name, 'repo');
@@ -34,7 +34,7 @@ function fixture(name) {
   git(repo, 'commit', '-q', '--allow-empty', '-m', 'base');
   const base = git(repo, 'rev-parse', 'HEAD').trim();
   const plan = join(root, 'plan.md');
-  writeFileSync(plan, readFileSync(join(FIXTURES, name, 'plan.md'), 'utf8').replace(/^base:.*$/m, `base: ${base}`));
+  writeFileSync(plan, readFileSync(join(FIXTURES, name, planFile), 'utf8').replace(/^base:.*$/m, `base: ${base}`));
   const cache = tmp('sk-e2e-cache-');
   symlinkSync(GATE_TOOL, join(cache, 'tool'));
   return { root, repo, plan, base, cache, receipt: join(root, 'plan.receipt.json') };
@@ -76,6 +76,15 @@ test('vue-caller: exit 4, passed with 1 ungated items', () => {
   assert.equal(r.first, 'passed with 1 ungated items');
   assert.match(r.out, /ungated: src\/components\/Card\.vue/);
   assert.deepEqual(receiptOf(f).ungated, ['src/components/Card.vue']);
+});
+
+test('vue-caller without its files row: exit 1, caller broken: the .vue file', () => {
+  const f = fixture('vue-caller');
+  writeFileSync(f.plan, readFileSync(f.plan, 'utf8').replace(/^\| Modify \| `src\/components\/Card\.vue`.*\n/m, ''));
+  const r = gate(f);
+  assert.equal(r.code, 1, r.out);
+  assert.equal(r.first, 'failed: caller broken: src/components/Card.vue');
+  assert.equal(existsSync(f.receipt), false);
 });
 
 test('unknown-type: exit 1, failed:', () => {
@@ -125,6 +134,14 @@ test('excluded-file: exit 3, blocked: uncovered:', () => {
   const r = gate(f);
   assert.equal(r.code, 3, r.out);
   assert.equal(r.first, 'blocked: uncovered: tools/build.ts');
+});
+
+test('excluded-file delete: exit 3, a deleted file the base tsconfig does not include is uncovered', () => {
+  const f = fixture('excluded-file', 'delete-plan.md');
+  const r = gate(f);
+  assert.equal(r.code, 3, r.out);
+  assert.equal(r.first, 'blocked: uncovered: tools/old.ts');
+  assert.equal(existsSync(f.receipt), false);
 });
 
 test('broken-baseline: exit 3, blocked: baseline broken', () => {
