@@ -52,6 +52,8 @@ Before the gate, check the plan against the design:
 
 ## 4. Run the gate
 
+Run the gate only on a plan that you or your own session wrote. Prepare and typecheck run the plan's spliced code, for example a changed `nuxt.config.ts`, with your file and network access (`references/cli.md`, "Not a sandbox").
+
 ```bash
 C --plan <plan.md> --repo <repo root>
 ```
