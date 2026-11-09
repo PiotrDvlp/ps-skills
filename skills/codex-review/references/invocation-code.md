@@ -110,7 +110,18 @@ Two fields, and they are not interchangeable:
   (binary, submodule) and the reviewer said `PASS`, this is `NEEDS-WORK`, so a
   `PASS` never overstates coverage.
 
+- The same cap applies when the reviewer's `checked` list leaves out a changed
+  path with line content: `frontmatter.unchecked_paths` names those paths, and the
+  note lists them under `## Incomplete coverage`. A `PASS` must say what was
+  examined per file; an empty `checked` is not a clean review.
+
 Record both. The note states which rule fired when they differ.
+
+`frontmatter.review_depth` (`{ tool_calls, reasoning_output_tokens }`) is read
+from the Codex session rollout named by the `session id:` header
+(`$CODEX_HOME/sessions`, default `~/.codex/sessions`). It is `null` when the
+rollout cannot be found. Use it to spot a shallow review; token counts do not
+compare across model families.
 
 ## Failure modes
 

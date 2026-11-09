@@ -81,6 +81,33 @@
       "kind": "clean",
       "expected_verdict": "PASS",
       "defects": []
+    },
+    {
+      "id": "caller-unit-break",
+      "description": "getCartTotals switches from integer cents to euros and updates badge.js and its test, but the unchanged checkout/limits.js still compares gross against MAX_ORDER_CENTS (500000) — the credit-check limit silently becomes 100x higher. Visible only by reading the caller outside the patch",
+      "kind": "buggy",
+      "expected_verdict": "NEEDS-WORK",
+      "defects": [
+        { "keyword": "limits", "note": "must name the unchanged caller that breaks" },
+        { "keyword": "MAX_ORDER_CENTS", "note": "or the cents constant it now compares euros against" }
+      ]
+    },
+    {
+      "id": "caller-async-break",
+      "description": "getSession becomes async; routes/account.js is updated to await it, but the unchanged middleware/blockBanned.js reads getSession(req).isBanned off a Promise — always undefined, so banned accounts pass the check. Visible only by reading the caller outside the patch",
+      "kind": "buggy",
+      "expected_verdict": "NEEDS-WORK",
+      "defects": [
+        { "keyword": "blockBanned", "note": "must name the unchanged middleware that breaks" },
+        { "keyword": "Promise", "note": "the property is read off a Promise" }
+      ]
+    },
+    {
+      "id": "clean-caller-updated",
+      "description": "same cents-to-euros change as caller-unit-break, but checkout/limits.js is updated in the patch to compare against MAX_ORDER_EUROS (5000) — every caller agrees with the new unit (twin of caller-unit-break)",
+      "kind": "clean",
+      "expected_verdict": "PASS",
+      "defects": []
     }
   ]
 }

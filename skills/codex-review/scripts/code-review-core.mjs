@@ -8,7 +8,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const PROTOCOL_VERSION = 'codex-review-code/v1';
@@ -432,10 +432,50 @@ export function findUnanchoredIssues(result, citations) {
     citations.get(`${issue.path}\0${issue.side}`)?.has(issue.line) ? [] : [n]);
 }
 
+/** Paths with line content in the patch that the reviewer did not list in `checked`. */
+export function findUncheckedPaths(result, citations) {
+  const reviewable = new Set([...citations.keys()].map((k) => k.split('\0')[0]));
+  const checked = new Set((result.checked ?? [])
+    .filter((c) => c.verified?.trim())
+    .map((c) => c.path));
+  return [...reviewable].filter((p) => !checked.has(p)).sort();
+}
+
 /** Coverage cap. A DERIVATION, never a validation failure. */
-export function deriveFinalVerdict(reviewerVerdict, unreviewablePaths) {
-  if (unreviewablePaths.length && reviewerVerdict === 'PASS') return 'NEEDS-WORK';
+export function deriveFinalVerdict(reviewerVerdict, unreviewablePaths, uncheckedPaths = []) {
+  if ((unreviewablePaths.length || uncheckedPaths.length) && reviewerVerdict === 'PASS') return 'NEEDS-WORK';
   return reviewerVerdict;
+}
+
+function findRollout(dir, id) {
+  let files;
+  try { files = readdirSync(dir, { recursive: true }); } catch { return null; }
+  const hit = files.find((f) => /(^|\/)rollout-[^/]*$/.test(f) && f.endsWith(`${id}.jsonl`));
+  return hit ? join(dir, hit) : null;
+}
+
+/**
+ * Review depth from the Codex session rollout named by the `session id:` header.
+ * Best-effort: returns null when the header or the rollout file is missing.
+ */
+export function readRunDepth(rawStdout, rawStderr, sessionsRoot) {
+  const id = `${deStyle(rawStderr)}\n${deStyle(rawStdout)}`.match(/^session id:\s*([0-9a-f-]{36})\s*$/m)?.[1];
+  if (!id) return null;
+  const file = findRollout(sessionsRoot, id);
+  if (!file) return null;
+  let toolCalls = 0;
+  let reasoning = 0;
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    let ev;
+    try { ev = JSON.parse(line); } catch { continue; }
+    const p = ev.payload ?? {};
+    if (p.type === 'custom_tool_call' || p.type === 'function_call') toolCalls++;
+    if (ev.type === 'event_msg' && p.type === 'token_count') {
+      reasoning = p.info?.total_token_usage?.reasoning_output_tokens ?? reasoning;
+    }
+  }
+  return { tool_calls: toolCalls, reasoning_output_tokens: reasoning };
 }
 
 // ---------------------------------------------------------------------------
@@ -495,7 +535,7 @@ export function assemblePrompt({ rubric, manifest, patch, context = null }) {
 // Rendering
 // ---------------------------------------------------------------------------
 
-export function renderBody(result, { finalVerdict, unreviewable = [], untrackedIncluded = 0, unanchored = [] }) {
+export function renderBody(result, { finalVerdict, unreviewable = [], unchecked = [], untrackedIncluded = 0, unanchored = [] }) {
   const out = ['## Verdict', ''];
   out.push(finalVerdict === result.verdict
     ? finalVerdict
@@ -511,13 +551,25 @@ export function renderBody(result, { finalVerdict, unreviewable = [], untrackedI
       out.push('');
     });
   }
-  if (unreviewable.length) {
+  if (result.checked?.length) {
+    out.push('', '## Checked', '');
+    result.checked.forEach((c) => out.push(`- \`${c.path}\` — ${c.verified}`));
+  }
+  if (unreviewable.length || unchecked.length) {
     out.push('', '## Incomplete coverage', '');
-    out.push('These paths changed but have no reviewable line content, so no finding could be anchored to them:');
-    out.push('');
-    unreviewable.forEach((p) => out.push(`- \`${p}\``));
-    out.push('');
-    out.push('The verdict is capped at `NEEDS-WORK` for this reason; a `PASS` would overstate coverage.');
+    if (unreviewable.length) {
+      out.push('These paths changed but have no reviewable line content, so no finding could be anchored to them:');
+      out.push('');
+      unreviewable.forEach((p) => out.push(`- \`${p}\``));
+      out.push('');
+    }
+    if (unchecked.length) {
+      out.push('The reviewer did not list these changed paths as checked:');
+      out.push('');
+      unchecked.forEach((p) => out.push(`- \`${p}\``));
+      out.push('');
+    }
+    out.push('A `PASS` is capped at `NEEDS-WORK` for this reason; it would overstate coverage.');
   }
   if (result.unresolved_assumptions?.length) {
     out.push('', '## Unresolved assumptions', '');

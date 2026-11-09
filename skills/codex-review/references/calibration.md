@@ -17,7 +17,7 @@ node "${CLAUDE_SKILL_DIR}/scripts/run-calibration.mjs" run [--filter <id>] [--mo
 node "${CLAUDE_SKILL_DIR}/scripts/run-calibration.mjs" dry-run [--filter <id>]
 ```
 
-`run` spends one real Codex call per fixture (9 by default; `--filter` picks one).
+`run` spends one real Codex call per fixture (12 by default; `--filter` picks one).
 `dry-run` materializes + prepares only — it spawns no Codex and is what the test suite
 runs. Both scripts' paths are relative to the skill directory.
 
@@ -41,12 +41,16 @@ and bundles for inspection.
   A finding that names the exact boundary value (`100`) or the throwing call (`toFixed`)
   is credited; the report shows per-fixture found/missing so a verdict that is right for
   the wrong reason is visible.
+- **Depth**: each fixture line shows the reviewer's tool calls and reasoning tokens, read
+  from the Codex session rollout (`review_depth`). A tier that scores well while making
+  one or two calls per fixture is solving toy diffs, not reviewing; compare depth on the
+  `caller-*` fixtures before trusting a new default.
 - `--threshold <r>` exits 1 when recall < r — for wiring calibration into a gate. Without
   it, calibration is measurement: exit 0 with the report.
 - An errored fixture (e.g. `codex_failed`) is excluded from the matrix, listed as an
   error, and makes the run exit 1.
 
-## Corpus (2026-11-08)
+## Corpus (2026-11-09)
 
 | id | kind | planted defect | expected |
 |----|------|----------------|----------|
@@ -59,6 +63,18 @@ and bundles for inspection.
 | `stale-response` | buggy | `search()` drops its request-generation guard — an older response overwrites newer results and clears `loading` while the newer request is pending | NEEDS-WORK |
 | `clean-stale-guard` | clean | the same guard extracted into `isCurrent()`; behaviour identical (twin of `stale-response`) | PASS |
 | `clean-unrelated-preexisting` | clean | `summarize()` refactored, output identical; the unguarded `search()` race in the same file is pre-existing and out of scope | PASS |
+| `caller-unit-break` | buggy | `getCartTotals` moves from cents to euros; the unchanged `checkout/limits.js` still compares against `MAX_ORDER_CENTS`, so the credit-check limit becomes 100x higher | NEEDS-WORK |
+| `caller-async-break` | buggy | `getSession` becomes async; the unchanged `blockBanned` middleware reads `.isBanned` off a Promise, so banned accounts pass | NEEDS-WORK |
+| `clean-caller-updated` | clean | the same cents-to-euros change with `limits.js` updated in the patch (twin of `caller-unit-break`) | PASS |
+
+The three `caller-*` fixtures were added on 2026-11-09 after real reviews returned PASS
+while `/code-review` found defects: the first nine are solved in 11-321 reasoning tokens
+and cannot tell a shallow review from a real one. In the `caller-*` fixtures the defect,
+or its absence, is visible only in a file outside the patch. They are still small
+(1.5-2.8 KB patches), so they test whether the reviewer reads callers, not how it copes
+with a 30-120 KB diff. First run, 2026-11-09, `gpt-6.1-sol` with the `checked` rubric:
+TP 7, FP 0, TN 5; the `caller-*` fixtures took 3-4 tool calls and 19-90 reasoning
+tokens each, so they do not separate a shallow reviewer from a deep one either.
 
 ## Interpretation
 
@@ -69,6 +85,6 @@ and bundles for inspection.
   calibration, not acceptance of the FP.
 - Defect keywords missing despite a correct verdict = the finding is right but vague —
   worth checking, since a vague finding is hard to act on.
-- The corpus is deliberately small and cheap (9 fixtures, about 4.5 min of sequential Codex calls: 260-293 s over 6 runs on 2026-11-08). It measures
+- The corpus is deliberately small and cheap (12 fixtures; the first 9 took 260-293 s of sequential Codex calls over 6 runs on 2026-11-08). It measures
   drift, not absolutes: run it before trusting a new model tier, after a rubric change, or
   on a schedule.
