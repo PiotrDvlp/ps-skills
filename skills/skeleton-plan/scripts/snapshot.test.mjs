@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, utimesSync, realpathSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, utimesSync, realpathSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tmp } from './test-tmp.mjs';
@@ -142,4 +142,13 @@ test('a dependency link leaving the run dir blocks the snapshot', () => {
   symlinkSync(realpathSync(join(repo, 'node_modules', 'pkg-a')), join(repo, 'node_modules', 'linked'));
   assert.throws(() => makeSnapshot(repo, base, [], runRoot), (e) => e.code === 3 && /^blocked: dependency link leaves snapshot: .*linked$/.test(e.message));
   assert.equal(readFileSync(original, 'utf8'), 'module.exports = 1;\n');
+});
+
+test('a node_modules that is itself a link leaving the run dir blocks the snapshot', () => {
+  const { repo, runRoot, base } = depsRepo('{"v":1}\n');
+  const external = join(repo, '..', 'external-modules');
+  renameSync(join(repo, 'node_modules'), external);
+  symlinkSync(external, join(repo, 'node_modules'));
+  assert.throws(() => makeSnapshot(repo, base, [], runRoot), (e) => e.code === 3 && /^blocked: dependency link leaves snapshot: .*node_modules$/.test(e.message));
+  assert.equal(readFileSync(join(external, 'pkg-a', 'index.js'), 'utf8'), 'module.exports = 1;\n');
 });

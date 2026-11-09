@@ -35,18 +35,21 @@ function files(root, dir = root) {
 
 function assertNoEscapingLinks(dir, scan = dir, label = 'link') {
   const real = realpathSync.native(dir);
+  const checkLink = (p) => {
+    let target = null;
+    try {
+      target = realpathSync.native(p);
+    } catch {}
+    if (target !== real && !(target ?? '').startsWith(real + sep)) throw fail(`blocked: ${label} leaves snapshot: ${p}`, 3);
+  };
   const walk = (d) => {
     for (const e of readdirSync(d, { withFileTypes: true })) {
       const p = join(d, e.name);
-      if (e.isSymbolicLink()) {
-        let target = null;
-        try {
-          target = realpathSync.native(p);
-        } catch {}
-        if (target !== real && !(target ?? '').startsWith(real + sep)) throw fail(`blocked: ${label} leaves snapshot: ${p}`, 3);
-      } else if (e.isDirectory()) walk(p);
+      if (e.isSymbolicLink()) checkLink(p);
+      else if (e.isDirectory()) walk(p);
     }
   };
+  if (lstatSync(scan).isSymbolicLink()) checkLink(scan);
   walk(scan);
 }
 
@@ -66,7 +69,7 @@ function cloneDependencies(repoRoot, dir, fingerprints) {
   if (spawnSync('cp', ['-cR', from, to]).status !== 0) {
     rmSync(to, { recursive: true, force: true });
     const copy = spawnSync('cp', ['-R', from, to]);
-    if (copy.status !== 0) throw fail(`blocked: dependency clone failed: ${String(copy.stderr).trim()}`, 3);
+    if (copy.status !== 0) throw fail(`blocked: dependency clone failed: ${(copy.error?.message ?? String(copy.stderr)).trim()}`, 3);
   }
   assertNoEscapingLinks(dir, to, 'dependency link');
 }
