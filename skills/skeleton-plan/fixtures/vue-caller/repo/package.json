@@ -1,0 +1,1 @@
+{ "name": "fixture", "private": true, "scripts": { "typecheck": "node check.mjs" } }

@@ -67,18 +67,25 @@ export async function setupTypescript(cacheDir, install = npmInstall) {
   return { installed: true, toolDir: tool };
 }
 
-const defaultCache = () => join(homedir(), '.cache', 'skeleton-plan');
+/** Default cache root: `~/.cache/skeleton-plan`. */
+export const defaultCacheDir = () => join(homedir(), '.cache', 'skeleton-plan');
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [cmd, ...rest] = process.argv.slice(2);
+/** The `setup [--cache-dir D]` command: installs the pinned TypeScript, prints the result, returns the exit code. */
+export async function setupCli(args) {
+  const [cmd, ...rest] = args;
   const i = rest.indexOf('--cache-dir');
-  const cacheDir = i >= 0 && rest[i + 1] ? resolve(rest[i + 1]) : defaultCache();
+  const cacheDir = i >= 0 && rest[i + 1] ? resolve(rest[i + 1]) : defaultCacheDir();
   try {
-    if (cmd !== 'setup') throw fail('usage: tools.mjs setup [--cache-dir D]');
+    if (cmd !== 'setup') throw fail('usage: setup [--cache-dir D]');
     const r = await setupTypescript(cacheDir);
     console.log(r.installed ? `installed typescript@${PINNED_TYPESCRIPT} in ${r.toolDir}` : `already complete: ${r.toolDir}`);
+    return 0;
   } catch (e) {
     console.error(e.message);
-    process.exit(Number.isInteger(e.code) ? e.code : 3);
+    return Number.isInteger(e.code) ? e.code : 3;
   }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exitCode = await setupCli(process.argv.slice(2));
 }
