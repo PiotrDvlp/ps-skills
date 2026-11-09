@@ -88,6 +88,21 @@ test('C4 observation without revision', () => {
   oneProblem(edit(VALID, '| R001 | f3c24361 | present |', '| R001 |  | present |'), 'revision');
 });
 
+test('C4 observation revision that is a tag name, not a commit', () => {
+  oneProblem(edit(VALID, '| R001 | f3c24361 | present |', '| R001 | v2-moved | present |'), 'revision');
+});
+
+test('C4 the same run ID twice in one finding', () => {
+  const row = '| R001 | f3c24361 | present | confirmed | code_trace | no | anchors moved |';
+  oneProblem(edit(VALID, row, `${row}\n${row}`), 'R001');
+});
+
+test('parse: a longer fence that holds a shorter one stays one block', () => {
+  const nested = '````markdown\n```bash\n### F009: example inside a fence\n```\n## Issues\n````\n';
+  const anchor = '#### Recipe\n```bash\nREV=feature/item_refactor\n';
+  assert.deepEqual(problemsOf(edit(VALID, anchor, `${nested}${anchor}`)), []);
+});
+
 test('C5 enum', () => {
   oneProblem(edit(VALID, '- severity: P2', '- severity: P9'), 'enum');
 });
@@ -170,11 +185,18 @@ test('CLI: valid note exits 0 and ends with 0 problems', () => {
   assert.match(res.stdout.trimEnd(), /0 problems$/);
 });
 
-for (const name of ['invalid-absent-without-blocker.md', 'invalid-recipe-quoting.md', 'invalid-resolved-then-present.md']) {
-  test(`CLI: ${name} exits 1`, () => {
+const INVALID = {
+  'invalid-absent-without-blocker.md': /: F00\d: absent observation needs a note starting 'blocker:'/,
+  'invalid-recipe-quoting.md': /: F00\d: recipe quoting: /,
+  'invalid-resolved-then-present.md': /: F00\d: resolved finding has a present row after its regression test/,
+};
+
+for (const [name, message] of Object.entries(INVALID)) {
+  test(`CLI: ${name} exits 1 and names its problem`, () => {
     const res = cli(fixture(name));
     assert.equal(res.status, 1, res.stdout + res.stderr);
     assert.match(res.stdout.trimEnd(), /1 problems$/);
+    assert.match(res.stdout, message);
   });
 }
 

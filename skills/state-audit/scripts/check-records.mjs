@@ -14,7 +14,7 @@ export const ENUMS = {
   severity: ['P1', 'P2', 'P3'],
 };
 
-export const ALLOWED_PAIRS = {
+const ALLOWED_PAIRS = {
   open: ['proposed', 'selected', 'deferred', 'reopened'],
   closed: ['rejected', 'resolved'],
 };
@@ -23,22 +23,8 @@ const SECTION_KIND = { Machines: 'machines', Findings: 'findings', Issues: 'issu
 const ROW_KEYS = ['run', 'revision', 'assessment', 'confidence', 'verification', 'on_target', 'note'];
 
 function splitRow(line) {
-  const cells = [];
-  let cur = '';
   const body = line.trim().replace(/^\|/, '').replace(/\|$/, '');
-  for (let i = 0; i < body.length; i++) {
-    if (body[i] === '\\' && body[i + 1] === '|') {
-      cur += '|';
-      i++;
-    } else if (body[i] === '|') {
-      cells.push(cur.trim());
-      cur = '';
-    } else {
-      cur += body[i];
-    }
-  }
-  cells.push(cur.trim());
-  return cells;
+  return body.split(/(?<!\\)\|/).map((cell) => cell.replace(/\\\|/g, '|').trim());
 }
 
 export function parseLivingNote(text) {
@@ -57,16 +43,17 @@ export function parseLivingNote(text) {
   let kind = null;
   let record = null;
   let section = null;
-  let inFence = false;
+  let fence = null;
   for (; i < lines.length; i++) {
     const line = lines[i];
     const lineNo = i + 1;
-    if (/^\s*(```|~~~)/.test(line)) {
-      inFence = !inFence;
+    const marker = line.match(/^\s*(`{3,}|~{3,})/)?.[1];
+    if (marker && (!fence || (marker[0] === fence[0] && marker.length >= fence.length))) {
+      fence = fence ? null : marker;
       if (section) section.body += line + '\n';
       continue;
     }
-    if (!inFence) {
+    if (!fence) {
       const h2 = line.match(/^##\s+(.+?)\s*$/);
       if (h2 && !line.startsWith('###')) {
         kind = SECTION_KIND[h2[1]] ?? null;
@@ -84,7 +71,7 @@ export function parseLivingNote(text) {
           continue;
         }
         const idMatch = h3[1].match(/^([A-Za-z0-9-]+)\s*:/);
-        record = { id: idMatch ? idMatch[1] : h3[1], line: lineNo, fields: {}, kind };
+        record = { id: idMatch ? idMatch[1] : h3[1], line: lineNo, fields: {}, fieldLines: {}, kind };
         if (kind === 'machines') record.invariants = [];
         if (kind === 'findings') {
           record.sections = {};
@@ -109,7 +96,7 @@ export function parseLivingNote(text) {
         const field = line.match(/^-\s+([a-z_]+):\s*(.*)$/);
         if (field) {
           record.fields[field[1]] = field[2].trim();
-          record.fieldLines = { ...record.fieldLines, [field[1]]: lineNo };
+          record.fieldLines[field[1]] = lineNo;
           continue;
         }
       }
@@ -187,7 +174,7 @@ export function checkRecords(note) {
 
   const findingIds = new Set(note.findings.map((f) => f.id));
   for (const f of note.findings) {
-    const fl = f.fieldLines ?? {};
+    const fl = f.fieldLines;
     const machine = machines.get(f.fields.machine);
     let invariant;
     if (!machine) {
@@ -208,9 +195,13 @@ export function checkRecords(note) {
     checkEnum(out, f, 'disposition', f.fields.disposition, fl.disposition ?? f.line);
     checkEnum(out, f, 'severity', f.fields.severity, fl.severity ?? f.line, { required: false });
 
+    const runs = new Set();
     for (const row of f.observations) {
+      if (runs.has(row.run)) out.push({ line: row.line, id: f.id, message: `run ${row.run} has two rows; a run adds one row per finding` });
+      runs.add(row.run);
       if (row.cells !== ROW_KEYS.length) out.push({ line: row.line, id: f.id, message: `observation row has ${row.cells} cells, expected ${ROW_KEYS.length}` });
       if (!row.revision) out.push({ line: row.line, id: f.id, message: 'observation without revision' });
+      else if (!/^[0-9a-f]{7,40}$/.test(row.revision)) out.push({ line: row.line, id: f.id, message: `observation revision '${row.revision}' is not a commit hash; write the commit it resolved to` });
       for (const key of ['assessment', 'confidence', 'verification', 'on_target']) checkEnum(out, f, key, row[key], row.line);
       if (row.assessment === 'absent' && !row.note.startsWith('blocker:')) out.push({ line: row.line, id: f.id, message: "absent observation needs a note starting 'blocker:'" });
       if (row.assessment === 'unresolved' && !row.note.startsWith('reason:')) out.push({ line: row.line, id: f.id, message: "unresolved observation needs a note starting 'reason:'" });
