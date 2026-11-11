@@ -54,9 +54,9 @@ If the current branch isn't based on `main`, figure out the real merge-base firs
 (`git merge-base HEAD origin/main`) and use that — never assume.
 
 When the branch is already pushed and the MR's review bot or an earlier session reviewed its
-pushed commits, both passes below cover only what is not pushed yet: `origin/<name>..HEAD`
-(`/codex-review code --base origin/<name>`). Re-reviewing the pushed range repeats findings
-the MR threads already hold.
+pushed commits, the ponytail pass below covers only what is not pushed yet: `origin/<name>..HEAD`
+(`git diff origin/<name>...HEAD`). Re-reviewing the pushed range repeats findings the MR
+threads already hold.
 
 When a twin may already be pushed, refresh every remote ref first (the `git fetch origin main develop`
 above does not update `origin/<name>_develop`), then test for it:
@@ -103,15 +103,6 @@ twice: a `delete:`/`yagni:`/`shrink:` finding fixed here is carried to develop b
 free, fixed after Step 2 it needs a second cherry-pick. Apply the findings you agree with via
 the `commit` skill, then re-run `git log --oneline origin/main..HEAD` so the range includes
 the fix. One pass only; never ask it for more findings. Without the plugin, skip the pass.
-
-Then run one `/codex-review code --base origin/main` on the same range, also before anything is
-cherry-picked, unless a Codex review of this exact range already ran in the session (for
-example from a standalone `commit` run). A remote review bot finds what this pass would have found, one push and one
-cherry-pick per round later: on one change it took four push rounds to surface four defects.
-Rank a finding that lets a blocking gate pass (a check, a waiver, an exit code) High, however
-unlikely the input; likelihood lowers only non-gate findings. Fix the accepted findings via the
-`commit` skill and re-run `git log --oneline origin/main..HEAD`. Codex unavailable: say so in
-one line and mark the range unreviewed in Step 5's Verification.
 
 ## Step 2 — Create the develop sibling and cherry-pick
 
@@ -239,9 +230,9 @@ only the new commits.
 - **Lists identical** — the sibling carries the exact patch, so the Step 1 review covers it; do
   not review the sibling again. Home's checks do not carry over: the same patch on develop's
   base can still fail (a typecheck error once appeared only on the develop twin).
-- **Lists differ** — a Step 3 resolution or develop's surrounding code changed the hunks. Run
-  the Step 1 review on the sibling range (`/codex-review code --base origin/develop`;
-  `--base origin/<name>_develop` in the twin case).
+- **Lists differ** — a Step 3 resolution or develop's surrounding code changed the hunks. With the
+  ponytail plugin installed, run the Step 1 ponytail pass on the sibling range (`git diff origin/develop...<name>_develop`;
+  `origin/<name>_develop...<name>_develop` in the twin case).
 
 In both cases run the sibling's own checks on the files the range touches:
 `npx vitest related --run <files>` and `npx eslint <files>`, plus the repo's typecheck script
