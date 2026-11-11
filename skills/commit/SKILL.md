@@ -78,15 +78,6 @@ If the ponytail plugin is installed (`/ponytail-review` exists), run one `ponyta
 one line each, and let the user decide what to cut before anything is committed. One pass,
 never re-asked for more. Without the plugin, skip this step.
 
-## Step 3c — Codex review before committing (conditional)
-
-When Step 5 will apply to this branch (not skipped), run one `/codex-review code` on the unstaged
-diff before Step 4, unless a Codex review of this exact diff already ran in the session. A
-finding caught here is fixed in the same commit; caught at Step 5, it costs a follow-up commit
-on the branch and on its twin, plus a rerun of every check (2026-10-16: the review
-after commit found a stale-flag defect that took a second commit on two branches and a browser
-rerun). Present accepted findings with the commit plan and fix them before committing.
-
 ## Step 4 — Execute
 
 Commit each group with `git commit --only -m "<msg>" -- <paths>` (`git add <file>` first for untracked files). A bare `git commit -m` commits the whole index, so anything pre-staged would leak into the first group; if `git diff --cached --name-only` shows files you did not expect, stop and report them instead. Never `git add .`/`-A`, never `--no-verify`.
@@ -127,13 +118,6 @@ Skip when another skill invoked this one (dual-branch-finish prints both links i
 the branch is `main`/`develop`, or when `origin` is not GitLab. Otherwise end the reply with the
 branch's MR creation link, with the title and description already in it. Target is `develop`
 when the branch ends in `_develop` or `_dev`, else `main`.
-
-Before building the link, run one `/codex-review code --base origin/<target>` on the branch
-unless a Codex review of this exact range already ran in the session, or Step 3c reviewed every
-commit in `origin/<target>..HEAD` before it was committed. A remote review bot finds
-the same defects one push later. Rank a finding that lets a blocking gate pass High, however
-unlikely the input. Fix accepted findings with this skill before the link; Codex unavailable:
-say so in one line and mark the range unreviewed in the description's Verification.
 
 When the repo has `.gitlab/merge_request_templates/Default.md` (read it from the target branch
 with `git show origin/<target>:<path>` when the working tree lacks it), fill it in for
