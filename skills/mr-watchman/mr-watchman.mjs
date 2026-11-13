@@ -9,7 +9,8 @@ const HELP = `Read-only GitLab MR status pass (Node 22+, authenticated glab). Ne
 Usage: node mr-watchman.mjs --repo <path> [--branch <name>] [--author <user>] [--replies] [--json]
        node mr-watchman.mjs --repo <path> --followup <iid> --out <absolute file> [--author <user>]
 Order per MR: conflicts, then unresolved review threads, then CI. Twins (<name> and <name>_develop) are grouped.
-Exit 0: every MR ready or waiting for approval; 1: at least one MR needs action, GitLab is still checking, or --branch matched nothing;
+An MR GitLab reports as still checking is re-read once after 60s (MR_WATCHMAN_RETRY_MS overrides the delay).
+Exit 0: every MR ready or waiting for approval; 1: at least one MR needs action, GitLab is still checking after the retry, or --branch matched nothing;
 2: glab unavailable, invalid input, or a list at the 100-entry cap.
 --followup writes a package for one MR in state threads or ci-failed (exit 0, path printed); any other state prints state and next and exits 1; an existing --out exits 2.
 Temp names left by an interrupted run (<out>.tmp-*, <stem>.threads.tmp-*) are listed on stderr as "leftover temp: <path>" and kept.
@@ -126,15 +127,28 @@ const failedJobsOf = (repo, mr) => {
     : []
 }
 
+export const CHECKING_RETRY_MS = 60_000
+
+const retryMs = () => /^\d+$/.test(process.env.MR_WATCHMAN_RETRY_MS ?? '') ? Number(process.env.MR_WATCHMAN_RETRY_MS) : CHECKING_RETRY_MS
+
+const rowOf = (repo, iid) => {
+  const mr = glab(['mr', 'view', String(iid), '-F', 'json'], repo)
+  const threads = unresolved(page(`discussions of !${iid}`, glab(['api', `projects/:id/merge_requests/${iid}/discussions?per_page=100`], repo)))
+  const failedJobs = failedJobsOf(repo, mr).map((j) => j.name)
+  return { iid: mr.iid, branch: mr.source_branch, target: mr.target_branch, headSha: String(mr.sha).slice(0, 8), twin: baseName(mr.source_branch), twinIid: null, url: mr.web_url, threads, ...verdict(mr, threads, failedJobs) }
+}
+
 export function collect(repo, { branch, author = '@me' } = {}) {
   const list = listMine(repo, author)
   const wanted = branch ? list.filter((m) => baseName(m.source_branch) === baseName(branch)) : list
-  const rows = wanted.map((m) => {
-    const mr = glab(['mr', 'view', String(m.iid), '-F', 'json'], repo)
-    const threads = unresolved(page(`discussions of !${m.iid}`, glab(['api', `projects/:id/merge_requests/${m.iid}/discussions?per_page=100`], repo)))
-    const failedJobs = failedJobsOf(repo, mr).map((j) => j.name)
-    return { iid: mr.iid, branch: mr.source_branch, target: mr.target_branch, headSha: String(mr.sha).slice(0, 8), twin: baseName(mr.source_branch), twinIid: null, url: mr.web_url, threads, ...verdict(mr, threads, failedJobs) }
-  }).sort((a, b) => a.twin.localeCompare(b.twin) || a.branch.length - b.branch.length)
+  let rows = wanted.map((m) => rowOf(repo, m.iid))
+  if (rows.some((r) => r.state === 'checking')) {
+    const ms = retryMs()
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+    rows = rows.map((r) => r.state === 'checking' ? rowOf(repo, r.iid) : r)
+    for (const r of rows) if (r.state === 'checking') r.next = `GitLab still recomputing merge status ${Math.round(ms / 1000)}s later, after one retry; not a blocker, re-run later`
+  }
+  rows.sort((a, b) => a.twin.localeCompare(b.twin) || a.branch.length - b.branch.length)
   for (const r of rows) {
     const other = rows.find((o) => o.twin === r.twin && o.iid !== r.iid && o.target !== r.target)
     if (!other) continue

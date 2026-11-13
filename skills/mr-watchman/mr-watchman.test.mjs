@@ -24,12 +24,12 @@ const summary = (body) => ({ id: 'd2', individual_note: true, notes: [{ resolvab
 const reply = (author, body, created_at = '2026-01-02T08:27:00Z', system = false) => ({ resolvable: true, resolved: false, system, author: { username: author }, body, created_at })
 const answered = (first, ...replies) => ({ ...first, notes: [...first.notes, ...replies] })
 
-function run(t, { mrs, discussions = {}, jobs = {}, traces = {}, args = [], json = true, glabError = false, malformed = false, followup = null, out, preexisting = false, failTrace = null, origin = 'https://gitlab.example.com/team/shop.git', moveHead = false, leftovers = [] }) {
+function run(t, { mrs, discussions = {}, jobs = {}, traces = {}, args = [], json = true, glabError = false, malformed = false, followup = null, out, preexisting = false, failTrace = null, origin = 'https://gitlab.example.com/team/shop.git', moveHead = false, leftovers = [], mergeStatuses = {}, retryMs = '0' }) {
   const root = mkdtempSync(join(tmpdir(), 'mr watchman-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
   for (const name of leftovers) writeFileSync(join(root, name), 'old')
   const log = join(root, 'calls.jsonl')
-  const config = { mrs, discussions, jobs, traces, glabError, malformed, failTrace, moveHead }
+  const config = { mrs, discussions, jobs, traces, glabError, malformed, failTrace, moveHead, mergeStatuses }
   const pkgPath = out === undefined ? join(root, 'pkg.json') : out
   if (followup !== null) {
     spawnSync('git', ['init', '-q'], { cwd: root })
@@ -47,8 +47,12 @@ if (config.malformed) { console.log('<html>'); process.exit(0); }
 if (args[0] === 'mr' && args[1] === 'list') console.log(JSON.stringify(config.mrs));
 else if (args[0] === 'mr' && args[1] === 'view') {
 const found = config.mrs.find((m) => String(m.iid) === args[2]);
-const views = fs.readFileSync(${JSON.stringify(log)}, 'utf8').split('\\n').filter((l) => l.startsWith('["mr","view"')).length;
-console.log(JSON.stringify(config.moveHead && views >= 2 ? { ...found, sha: 'f'.repeat(40) } : found));
+const viewLines = fs.readFileSync(${JSON.stringify(log)}, 'utf8').split('\\n').filter((l) => l.startsWith('["mr","view"'));
+const views = viewLines.length;
+const statuses = config.mergeStatuses[args[2]];
+const own = viewLines.filter((l) => JSON.parse(l)[2] === args[2]).length;
+const shown = statuses ? { ...found, detailed_merge_status: statuses[Math.min(own, statuses.length) - 1] } : found;
+console.log(JSON.stringify(config.moveHead && views >= 2 ? { ...shown, sha: 'f'.repeat(40) } : shown));
 }
 else if (args[0] === 'api' && /\\/jobs\\/\\d+\\/trace/.test(args[1])) {
 if (config.failTrace === args[1].match(/jobs\\/(\\d+)/)[1]) { console.error('x509: certificate error'); process.exit(1); }
@@ -59,7 +63,7 @@ else if (args[0] === 'api' && /pipelines/.test(args[1])) console.log(JSON.string
 else process.exit(1);
 `, { mode: 0o755 })
   const result = spawnSync(process.execPath, [CLI, '--repo', root, ...(json ? ['--json'] : []), ...args],
-    { encoding: 'utf8', env: { ...process.env, PATH: `${root}:${process.env.PATH}` } })
+    { encoding: 'utf8', env: { ...process.env, PATH: `${root}:${process.env.PATH}`, MR_WATCHMAN_RETRY_MS: retryMs } })
   const calls = (existsSync(log) ? readFileSync(log, 'utf8') : '').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
   for (const c of calls) assertReadOnly(c)
   return { root, pkgPath, status: result.status, stderr: result.stderr, out: result.stdout, rows: json && result.status !== 2 ? JSON.parse(result.stdout) : null, calls }
@@ -137,6 +141,33 @@ test('checking is not ready', (t) => {
   const { status, rows } = run(t, { mrs: [mr(5, 'fix/e', { detailed_merge_status: 'checking' })] })
   assert.equal(status, 1)
   assert.equal(rows[0].state, 'checking')
+})
+
+const viewsOf = (calls, iid) => calls.filter((c) => c[0] === 'mr' && c[1] === 'view' && c[2] === String(iid)).length
+
+test('checking on the first read and mergeable on the retry reads ready, and only that MR is read twice', (t) => {
+  const { status, rows, calls } = run(t, { mrs: [mr(21, 'fix/u'), mr(22, 'fix/v')], mergeStatuses: { 22: ['checking', 'mergeable'] } })
+  assert.equal(status, 0)
+  assert.deepEqual(rows.map((r) => [r.iid, r.state]), [[21, 'ready'], [22, 'ready']])
+  assert.equal(viewsOf(calls, 22), 2)
+  assert.equal(viewsOf(calls, 21), 1)
+})
+
+test('checking on both reads stays checking, exits 1, and says the retry already ran', (t) => {
+  const { status, rows, calls } = run(t, { mrs: [mr(23, 'fix/w', { detailed_merge_status: 'checking' })] })
+  assert.equal(status, 1)
+  assert.equal(rows[0].state, 'checking')
+  assert.equal(viewsOf(calls, 23), 2)
+  assert.match(rows[0].next, /after one retry; not a blocker/)
+})
+
+test('no checking row on the first pass means no retry and no wait', (t) => {
+  const started = Date.now()
+  const { status, calls } = run(t, { mrs: [mr(24, 'fix/x'), mr(25, 'fix/y', { detailed_merge_status: 'not_approved' })], retryMs: '30000' })
+  assert.ok(Date.now() - started < 15_000)
+  assert.equal(status, 0)
+  assert.equal(viewsOf(calls, 24), 1)
+  assert.equal(viewsOf(calls, 25), 1)
 })
 
 test('all mergeable exits 0', (t) => {
