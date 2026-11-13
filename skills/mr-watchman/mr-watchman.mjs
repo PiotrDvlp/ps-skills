@@ -6,10 +6,11 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
 const HELP = `Read-only GitLab MR status pass (Node 22+, authenticated glab). Never merges, rebases, retries or comments.
-Usage: node mr-watchman.mjs --repo <path> [--branch <name>] [--author <user>] [--replies] [--json]
+Usage: node mr-watchman.mjs --repo <path> [--branch <name>] [--author <user>] [--replies] [--json | --json2]
        node mr-watchman.mjs --repo <path> --followup <iid> --out <absolute file> [--author <user>]
 Order per MR: conflicts, then unresolved review threads, then CI. Twins (<name> and <name>_develop) are grouped.
 An MR GitLab reports as still checking is re-read once after 60s (MR_WATCHMAN_RETRY_MS overrides the delay).
+--json2 prints {coverage, rows}; coverage is partial when a row is unverified (a glab call for that MR failed).
 Exit 0: every MR ready or waiting for approval; 1: at least one MR needs action, GitLab is still checking after the retry, or --branch matched nothing;
 2: glab unavailable, invalid input, or a list at the 100-entry cap.
 --followup writes a package for one MR in state threads or ci-failed (exit 0, path printed); any other state prints state and next and exits 1; an existing --out exits 2.
@@ -131,21 +132,42 @@ export const CHECKING_RETRY_MS = 60_000
 
 const retryMs = () => /^\d+$/.test(process.env.MR_WATCHMAN_RETRY_MS ?? '') ? Number(process.env.MR_WATCHMAN_RETRY_MS) : CHECKING_RETRY_MS
 
-const rowOf = (repo, iid) => {
-  const mr = glab(['mr', 'view', String(iid), '-F', 'json'], repo)
-  const threads = unresolved(page(`discussions of !${iid}`, glab(['api', `projects/:id/merge_requests/${iid}/discussions?per_page=100`], repo)))
-  const failedJobs = failedJobsOf(repo, mr).map((j) => j.name)
-  return { iid: mr.iid, branch: mr.source_branch, target: mr.target_branch, headSha: String(mr.sha).slice(0, 8), twin: baseName(mr.source_branch), twinIid: null, url: mr.web_url, threads, ...verdict(mr, threads, failedJobs) }
+/**
+ * One MR's row from its `glab mr list` entry. A failed `mr view`, discussions or failed-jobs call
+ * returns an `unverified` row instead of throwing.
+ */
+const rowOf = (repo, entry) => {
+  let call = 'mr view'
+  let fullHeadSha = String(entry.sha ?? '')
+  let mr, threads, failedJobs
+  try {
+    mr = glab(['mr', 'view', String(entry.iid), '-F', 'json'], repo)
+    fullHeadSha = String(mr.sha)
+    call = 'discussions read'
+    threads = unresolved(page(`discussions of !${entry.iid}`, glab(['api', `projects/:id/merge_requests/${entry.iid}/discussions?per_page=100`], repo)))
+    call = 'failed jobs read'
+    failedJobs = failedJobsOf(repo, mr).map((j) => j.name)
+  } catch (error) {
+    return { iid: entry.iid, branch: entry.source_branch, target: entry.target_branch, headSha: fullHeadSha.slice(0, 8), fullHeadSha, pipelineSha: null,
+      twin: baseName(entry.source_branch), twinIid: null, url: entry.web_url, threads: [], state: 'unverified', next: `${call} failed: ${plain(error.message)}; re-run` }
+  }
+  return { iid: mr.iid, branch: mr.source_branch, target: mr.target_branch, headSha: fullHeadSha.slice(0, 8), fullHeadSha, pipelineSha: mr.head_pipeline ? pipelineSha(mr.head_pipeline) : null,
+    twin: baseName(mr.source_branch), twinIid: null, url: mr.web_url, threads, ...verdict(mr, threads, failedJobs) }
 }
 
-export function collect(repo, { branch, author = '@me' } = {}) {
+/**
+ * Rows plus coverage for --json2: 'partial' when any row is 'unverified', else 'complete'.
+ * Throws only when `glab mr list` fails or reaches the 100-entry cap.
+ * @returns {{ coverage: 'complete' | 'partial', rows: object[] }}
+ */
+export function collectCoverage(repo, { branch, author = '@me' } = {}) {
   const list = listMine(repo, author)
   const wanted = branch ? list.filter((m) => baseName(m.source_branch) === baseName(branch)) : list
-  let rows = wanted.map((m) => rowOf(repo, m.iid))
+  let rows = wanted.map((m) => rowOf(repo, m))
   if (rows.some((r) => r.state === 'checking')) {
     const ms = retryMs()
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
-    rows = rows.map((r) => r.state === 'checking' ? rowOf(repo, r.iid) : r)
+    rows = rows.map((r, i) => r.state === 'checking' ? rowOf(repo, wanted[i]) : r)
     for (const r of rows) if (r.state === 'checking') r.next = `GitLab still recomputing merge status ${Math.round(ms / 1000)}s later, after one retry; not a blocker, re-run later`
   }
   rows.sort((a, b) => a.twin.localeCompare(b.twin) || a.branch.length - b.branch.length)
@@ -155,8 +177,10 @@ export function collect(repo, { branch, author = '@me' } = {}) {
     r.twinIid = other.iid
     if (r.state !== 'ready') r.next += `; twin !${other.iid}`
   }
-  return rows
+  return { coverage: rows.some((r) => r.state === 'unverified') ? 'partial' : 'complete', rows }
 }
+
+export const collect = (repo, options) => collectCoverage(repo, options).rows
 
 export const INLINE_CHARS = 4000
 export const TRACE_LINES = 120
@@ -179,6 +203,7 @@ export function collectFollowup(repo, iid, { author = '@me' } = {}) {
   const rows = collect(repo, { branch: mine.source_branch, author })
   const row = rows.find((r) => r.iid === iid)
   if (!row) throw new Error(`!${iid} is not open or not authored by ${author}`)
+  if (row.state === 'unverified') throw new Error(row.next)
   const mr = glab(['mr', 'view', String(iid), '-F', 'json'], repo)
   if (!String(mr.sha).startsWith(row.headSha)) throw new Error('head moved; re-run')
   const twin = rows.find((r) => r.iid === row.twinIid)
@@ -260,12 +285,15 @@ const remoteUrl = (repo) => {
   return parsed.href
 }
 
+const jsonLine = (value) => JSON.stringify(value).replace(/[\u007f-\u009f\p{Zl}\p{Zp}]/gu, ' ')
+
 const isMain = process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))
 
 if (isMain) {
   try {
-    const { values } = parseArgs({ options: { repo: { type: 'string' }, branch: { type: 'string' }, author: { type: 'string' }, json: { type: 'boolean' }, replies: { type: 'boolean' }, followup: { type: 'string' }, out: { type: 'string' }, help: { type: 'boolean' } } })
+    const { values } = parseArgs({ options: { repo: { type: 'string' }, branch: { type: 'string' }, author: { type: 'string' }, json: { type: 'boolean' }, json2: { type: 'boolean' }, replies: { type: 'boolean' }, followup: { type: 'string' }, out: { type: 'string' }, help: { type: 'boolean' } } })
     if (values.help) { console.log(HELP); process.exit(0) }
+    if (values.json && values.json2) { console.error('--json and --json2 cannot be combined'); process.exit(2) }
     if (values.branch?.startsWith('-') || values.author?.startsWith('-')) throw new Error('invalid --branch or --author')
     if (values.followup !== undefined || values.out !== undefined) {
       if (!/^\d+$/.test(values.followup ?? '')) throw new Error('--followup <iid> needs a numeric IID')
@@ -285,13 +313,14 @@ if (isMain) {
       console.log(values.out)
       process.exit()
     }
-    const rows = collect(path.resolve(values.repo ?? process.cwd()), { branch: values.branch, author: values.author })
+    const { coverage, rows } = collectCoverage(path.resolve(values.repo ?? process.cwd()), { branch: values.branch, author: values.author })
     if (values.branch && !rows.length) {
-      console.log(values.json ? '[]' : `no open MR for branch ${plain(values.branch)}`)
+      console.log(values.json2 ? JSON.stringify({ coverage, rows }) : values.json ? '[]' : `no open MR for branch ${plain(values.branch)}`)
       process.exitCode = 1
       process.exit()
     }
-    if (values.json) console.log(JSON.stringify(rows).replace(/[\u007f-\u009f\p{Zl}\p{Zp}]/gu, ' '))
+    if (values.json2) console.log(jsonLine({ coverage, rows }))
+    else if (values.json) console.log(jsonLine(rows))
     else if (!rows.length) console.log('no open MRs')
     else {
       const header = ['mr', 'branch', 'state', 'threads', 'next']

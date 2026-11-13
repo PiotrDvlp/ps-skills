@@ -24,12 +24,12 @@ const summary = (body) => ({ id: 'd2', individual_note: true, notes: [{ resolvab
 const reply = (author, body, created_at = '2026-01-02T08:27:00Z', system = false) => ({ resolvable: true, resolved: false, system, author: { username: author }, body, created_at })
 const answered = (first, ...replies) => ({ ...first, notes: [...first.notes, ...replies] })
 
-function run(t, { mrs, discussions = {}, jobs = {}, traces = {}, args = [], json = true, glabError = false, malformed = false, followup = null, out, preexisting = false, failTrace = null, origin = 'https://gitlab.example.com/team/shop.git', moveHead = false, leftovers = [], mergeStatuses = {}, retryMs = '0' }) {
+function run(t, { mrs, discussions = {}, jobs = {}, traces = {}, args = [], json = true, glabError = false, malformed = false, followup = null, out, preexisting = false, failTrace = null, origin = 'https://gitlab.example.com/team/shop.git', moveHead = false, leftovers = [], mergeStatuses = {}, failCalls = [], retryMs = '0' }) {
   const root = mkdtempSync(join(tmpdir(), 'mr watchman-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
   for (const name of leftovers) writeFileSync(join(root, name), 'old')
   const log = join(root, 'calls.jsonl')
-  const config = { mrs, discussions, jobs, traces, glabError, malformed, failTrace, moveHead, mergeStatuses }
+  const config = { mrs, discussions, jobs, traces, glabError, malformed, failTrace, moveHead, mergeStatuses, failCalls }
   const pkgPath = out === undefined ? join(root, 'pkg.json') : out
   if (followup !== null) {
     spawnSync('git', ['init', '-q'], { cwd: root })
@@ -44,6 +44,11 @@ const config = ${JSON.stringify(config)};
 fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n');
 if (config.glabError) { console.error('x509: certificate error'); process.exit(1); }
 if (config.malformed) { console.log('<html>'); process.exit(0); }
+const hit = (a, prefix) => prefix.every((p, i) => a[i] === p || (a[0] === 'api' && i === 1 && a[i]?.startsWith(p)));
+const nthCall = (prefix) => fs.readFileSync(${JSON.stringify(log)}, 'utf8').split('\\n').filter(Boolean).map((l) => JSON.parse(l)).filter((a) => hit(a, prefix)).length;
+for (const [prefix, nth] of config.failCalls) {
+if (hit(args, prefix) && (!nth || nthCall(prefix) === nth)) { console.error('timed out'); process.exit(1); }
+}
 if (args[0] === 'mr' && args[1] === 'list') console.log(JSON.stringify(config.mrs));
 else if (args[0] === 'mr' && args[1] === 'view') {
 const found = config.mrs.find((m) => String(m.iid) === args[2]);
@@ -192,6 +197,86 @@ test('glab failure exits 2 with an unavailable line, malformed JSON too', (t) =>
   assert.equal(html.status, 2)
 })
 
+const viewOf = (iid, nth) => [['mr', 'view', String(iid)], nth]
+
+test('a timed-out mr view marks only that MR unverified', (t) => {
+  const config = { mrs: [mr(1, 'fix/a'), mr(2, 'fix/b')], failCalls: [viewOf(2)] }
+  const { status, rows } = run(t, config)
+  assert.equal(status, 1)
+  assert.deepEqual(rows.map((r) => [r.iid, r.state]), [[1, 'ready'], [2, 'unverified']])
+  const text = run(t, { ...config, json: false })
+  assert.equal(text.status, 1)
+  assert.match(text.out, /^!1\s+fix\/a -> main\s+ready\s+0\s/m)
+  assert.match(text.out, /^!2\s+fix\/b -> main\s+unverified\s+0\s+mr view failed: /m)
+})
+
+test('a failed discussions read marks only that MR unverified', (t) => {
+  const { status, rows } = run(t, { mrs: [mr(1, 'fix/a'), mr(2, 'fix/b')], moveHead: true, failCalls: [[['api', 'projects/:id/merge_requests/2/discussions']]] })
+  assert.equal(status, 1)
+  assert.deepEqual(rows.map((r) => [r.iid, r.state]), [[1, 'ready'], [2, 'unverified']])
+  assert.equal(rows[1].fullHeadSha, 'f'.repeat(40))
+  assert.match(rows[1].next, /^discussions read failed: /)
+})
+
+test('a failed jobs read marks only that MR unverified', (t) => {
+  const { status, rows } = run(t, { mrs: [mr(1, 'fix/a'), mr(2, 'fix/b', { detailed_merge_status: 'ci_must_pass', head_pipeline: { id: 102, status: 'failed', sha: SHA } })],
+    failCalls: [[['api', 'projects/:id/pipelines/102/jobs']]] })
+  assert.equal(status, 1)
+  assert.deepEqual(rows.map((r) => [r.iid, r.state]), [[1, 'ready'], [2, 'unverified']])
+  assert.match(rows[1].next, /^failed jobs read failed: /)
+})
+
+test('a failed checking re-read keeps the MR identity and reads no third time', (t) => {
+  const { rows, calls } = run(t, { mrs: [mr(1, 'fix/a'), mr(2, 'fix/b', { detailed_merge_status: 'checking' })], failCalls: [viewOf(2, 2)] })
+  const row = rows.find((r) => r.iid === 2)
+  assert.deepEqual([row.state, row.branch, row.target, row.twin], ['unverified', 'fix/b', 'main', 'fix/b'])
+  assert.equal(viewsOf(calls, 2), 2)
+})
+
+test('--json2 reports partial coverage with a complete unverified row', (t) => {
+  const r = run(t, { mrs: [mr(1, 'fix/a'), mr(2, 'fix/b')], json: false, args: ['--json2'], failCalls: [viewOf(2)] })
+  const { coverage, rows } = JSON.parse(r.out)
+  assert.equal(coverage, 'partial')
+  const { next, ...rest } = rows[1]
+  assert.deepEqual(rest, { iid: 2, branch: 'fix/b', target: 'main', twin: 'fix/b', twinIid: null, url: 'https://gitlab.example.com/team/shop/-/merge_requests/2',
+    headSha: SHA.slice(0, 8), fullHeadSha: SHA, pipelineSha: null, threads: [], state: 'unverified' })
+  assert.match(next, /^mr view failed: .*; re-run$/)
+})
+
+test('--json2 reports complete coverage with full head and pipeline SHAs', (t) => {
+  const other = 'd'.repeat(40)
+  const r = run(t, { mrs: [mr(1, 'fix/a'), mr(2, 'fix/b', { head_pipeline: { id: 102, status: 'success', sha: other, source_sha: SHA } })], json: false, args: ['--json2'] })
+  const { coverage, rows } = JSON.parse(r.out)
+  assert.equal(r.status, 0)
+  assert.equal(coverage, 'complete')
+  assert.deepEqual(rows.map((x) => [x.fullHeadSha.length, x.pipelineSha]), [[40, SHA], [40, SHA]])
+})
+
+test('--json2 with an unmatched branch prints an empty complete object', (t) => {
+  const r = run(t, { mrs: [mr(1, 'fix/a')], json: false, args: ['--json2', '--branch', 'nope'] })
+  assert.equal(r.status, 1)
+  assert.equal(r.out.trim(), '{"coverage":"complete","rows":[]}')
+})
+
+test('--json together with --json2 is a usage error', (t) => {
+  const r = run(t, { mrs: [mr(1, 'fix/a')], args: ['--json2'] })
+  assert.equal(r.status, 2)
+  assert.equal(r.out, '')
+  assert.match(r.stderr, /--json2/)
+})
+
+test('plain --json keeps the array shape', (t) => {
+  const { rows } = run(t, { mrs: [mr(1, 'fix/a'), mr(2, 'fix/b')] })
+  assert.ok(Array.isArray(rows))
+  assert.equal(rows.length, 2)
+})
+
+test('a failed mr list still exits 2', (t) => {
+  const r = run(t, { mrs: [mr(1, 'fix/a')], failCalls: [[['mr', 'list']]] })
+  assert.equal(r.status, 2)
+  assert.equal(JSON.parse(r.out).status, 'unavailable')
+})
+
 test('assertReadOnly admits only mr list, mr view and a bare api path', () => {
   for (const ok of [['mr', 'list', '--author', '@me', '-F', 'json'], ['mr', 'view', '7', '-F', 'json'], ['api', 'projects/:id/merge_requests/7/discussions?per_page=100']]) {
     assert.doesNotThrow(() => assertReadOnly(ok))
@@ -314,6 +399,14 @@ test('followup: conflicts writes nothing', (t) => {
   assert.match(r.out, /conflicts: rebase fix\/a onto main/)
   assert.equal(existsSync(r.pkgPath), false)
   assert.deepEqual(readdirSync(r.root).filter((f) => f.includes('threads')), [])
+})
+
+test('--followup on an unverified selected MR still exits 2', (t) => {
+  const r = run(t, { mrs: [followupThreads()], followup: 21, json: false, failCalls: [viewOf(21)] })
+  assert.equal(r.status, 2)
+  assert.equal(JSON.parse(r.out).status, 'unavailable')
+  assert.match(JSON.parse(r.out).problems[0], /mr view failed/)
+  assert.equal(existsSync(r.pkgPath), false)
 })
 
 test('followup: an IID that is not open exits 2', (t) => {
