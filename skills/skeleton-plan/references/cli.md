@@ -19,7 +19,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/check-plan.mjs verify --plan <plan.md>
 
 ## What a run does
 
-1. Parses the plan and runs the format check: labels, files rows, paths, ops, selector syntax, insert fields, duplicate selectors and task signatures (every message is in `format.md`). Any violation: exit 1, one `format: ...` line per violation, before any lock, export or command. Edits that overlap only in the base source are found at the splice (step 9) as `format: overlapping ... (block <id>) ...`.
+1. Parses the plan and runs the format check: labels, files rows, orphan rows, paths, ops, selector syntax, insert fields, duplicate selectors and task signatures (every message is in `format.md`). Any violation: exit 1, one `format: ...` line per violation, before any lock, export or command. Edits that overlap only in the base source are found at the splice (step 9) as `format: overlapping ... (block <id>) ...`.
 2. Takes a per-plan lock (`<cache>/runs/locks`) and deletes the plan's earlier receipt. A second run on the same plan while one is running: `blocked: another run on this plan`.
 3. Exports the `base:` commit with `git archive` into a new run directory under `<cache>/runs`. Run directories older than 24 hours are deleted first.
 4. Copies dependencies. When the base commit has a lockfile (`package-lock.json`, `pnpm-lock.yaml` or `yarn.lock`), the same file in `--repo` must be byte-identical, otherwise `blocked: dependencies differ from base`. Then the checkout's `node_modules` is copied into the scratch copy. Without a lockfile at the base, nothing is copied.

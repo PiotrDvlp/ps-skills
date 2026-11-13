@@ -24,5 +24,5 @@ export const greet = (name: string): string => `hi ${name}`
 
 ### Task 1: Helper
 
-**Files:** Create `src/greet.ts`.
+**Files:** Create `src/greet.ts`. Modify `src/app.ts`.
 **Interfaces:** Produces `t1-greet`.

@@ -30,5 +30,5 @@ export function run(): void {}
 
 ### Task 1: Helper
 
-**Files:** Modify `src/app.ts`.
+**Files:** Create `src/greet.ts`. Modify `src/app.ts`.
 **Interfaces:** Produces `t1-run`.
