@@ -11,9 +11,9 @@ Usage: node mr-watchman.mjs --repo <path> [--branch <name>] [--author <user>] [-
 Order per MR: conflicts, then unresolved review threads, then CI. Twins (<name> and <name>_develop) are grouped.
 An MR GitLab reports as still checking is re-read once after 60s (MR_WATCHMAN_RETRY_MS overrides the delay).
 --json2 prints {coverage, rows}; coverage is partial when a row is unverified (a glab call for that MR failed).
-Exit 0: every MR ready or waiting for approval; 1: at least one MR needs action, GitLab is still checking after the retry, or --branch matched nothing;
-2: glab unavailable, invalid input, or a list at the 100-entry cap.
---followup writes a package for one MR in state threads or ci-failed (exit 0, path printed); any other state prints state and next and exits 1; an existing --out exits 2.
+Exit 0: every MR ready or waiting for approval; 1: at least one MR needs action, GitLab is still checking after the retry, a row is unverified, or --branch matched nothing;
+2: glab or the MR list unavailable, invalid input (including --json with --json2), or the MR list at the 100-entry cap.
+--followup writes a package for one MR in state conflicts, threads or ci-failed (exit 0, path printed); any other state prints state and next and exits 1; an existing --out exits 2.
 Temp names left by an interrupted run (<out>.tmp-*, <stem>.threads.tmp-*) are listed on stderr as "leftover temp: <path>" and kept.
 `
 
@@ -87,8 +87,15 @@ const CONFLICT = new Set(['conflict', 'need_rebase'])
 const CHECKING = new Set(['unchecked', 'checking', 'preparing', 'approvals_syncing'])
 const RUNNING = new Set(['running', 'pending', 'created', 'waiting_for_resource', 'preparing', 'scheduled'])
 
+const pipelineFailed = (mr) => {
+  const p = mr.head_pipeline
+  return Boolean(p) && pipelineSha(p) === mr.sha && !RUNNING.has(p.status) && p.status !== 'success'
+}
+
+const hasConflicts = (mr) => mr.has_conflicts || CONFLICT.has(mr.detailed_merge_status)
+
 export function verdict(mr, threads, failedJobs) {
-  if (mr.has_conflicts || CONFLICT.has(mr.detailed_merge_status)) return { state: 'conflicts', next: `rebase ${mr.source_branch} onto ${mr.target_branch}; stop there` }
+  if (hasConflicts(mr)) return { state: 'conflicts', next: `rebase ${mr.source_branch} onto ${mr.target_branch}; stop there` }
   if (threads.length) {
     const done = threads.filter((th) => th.answered).length
     if (done === threads.length) return { state: 'threads', next: `${done} answered thread(s): read the replies against the code, resolve the ones that hold` }
@@ -100,7 +107,7 @@ export function verdict(mr, threads, failedJobs) {
   if (!p) return { state: 'ci-none', next: 'no pipeline for the head commit' }
   if (pipelineSha(p) !== mr.sha) return { state: 'ci-stale', next: `pipeline ${p.id} ran on ${String(pipelineSha(p)).slice(0, 8)}, head is ${mr.sha.slice(0, 8)}; wait for the new pipeline` }
   if (RUNNING.has(p.status)) return { state: 'ci-running', next: `pipeline ${p.id} is ${p.status}; re-run later` }
-  if (p.status !== 'success') {
+  if (pipelineFailed(mr)) {
     const jobs = failedJobs.length ? `failed: ${failedJobs.join(', ')}` : `pipeline ${p.id} ${p.status}`
     return { state: 'ci-failed', next: `${jobs}; one retry if flake, an identical second failure is real; ${mr.diverged_commits_count} commits behind ${mr.target_branch}, a failure outside the diff means stale base` }
   }
@@ -109,6 +116,9 @@ export function verdict(mr, threads, failedJobs) {
   if (mr.detailed_merge_status === 'not_approved') return { state: 'waiting-approval', next: "approval is the reviewer's; nothing on your side" }
   return { state: `blocked:${mr.detailed_merge_status}`, next: 'see the MR page' }
 }
+
+/** Blockers present on one MR in work order: 'conflicts', 'threads', 'ci-failed'; empty when none. */
+export const blockersOf = (mr, threads, failedJobs) => [hasConflicts(mr) && 'conflicts', threads.length > 0 && 'threads', (failedJobs.length > 0 || pipelineFailed(mr)) && 'ci-failed'].filter(Boolean)
 
 export const settled = (row) => row.state === 'ready' || row.state === 'waiting-approval'
 
@@ -123,7 +133,7 @@ const listMine = (repo, author) => page('glab mr list', glab(['mr', 'list', '--a
 
 const failedJobsOf = (repo, mr) => {
   const p = mr.head_pipeline
-  return p && pipelineSha(p) === mr.sha && !RUNNING.has(p.status) && p.status !== 'success'
+  return pipelineFailed(mr)
     ? page(`failed jobs of pipeline ${p.id}`, glab(['api', `projects/:id/pipelines/${p.id}/jobs?scope[]=failed&per_page=100`], repo)).filter((j) => !j.allow_failure)
     : []
 }
@@ -187,7 +197,7 @@ export const TRACE_LINES = 120
 export const TRACE_CHARS = 20_000
 const TOO_LARGE = /ENOBUFS|maxBuffer/
 const ANSI_CSI = /\x1b\[[0-9;?]*[ -\/]*[@-~]/g
-const FOLLOWUP_STATES = new Set(['threads', 'ci-failed'])
+const FOLLOWUP_STATES = new Set(['conflicts', 'threads', 'ci-failed'])
 
 export const spillDirOf = (out) => path.join(path.dirname(out), `${path.basename(out, path.extname(out))}.threads`)
 
@@ -211,6 +221,8 @@ export function collectFollowup(repo, iid, { author = '@me' } = {}) {
   if (!FOLLOWUP_STATES.has(row.state)) return out
   out.discussions = page(`discussions of !${iid}`, glab(['api', `projects/:id/merge_requests/${iid}/discussions?per_page=100`], repo))
   out.jobs = failedJobsOf(repo, mr)
+  out.blockers = blockersOf(mr, unresolved(out.discussions), out.jobs)
+  if (out.blockers[0] !== row.state) throw new Error('state changed; re-run')
   for (const j of out.jobs) {
     try {
       out.traces[j.id] = { text: tailLines(glabText(['api', `projects/:id/jobs/${j.id}/trace`], repo), TRACE_LINES) }
@@ -225,7 +237,7 @@ export function collectFollowup(repo, iid, { author = '@me' } = {}) {
 const threadText = (th, replies) => [`# thread ${th.id} by ${th.author} at ${th.where}`, th.body,
   ...replies.map((r) => `## reply by ${r.author} at ${r.at}\n${r.body}`)].join('\n\n') + '\n'
 
-export function buildPackage({ row, discussions, jobs, traces, repoUrl, createdAt, spillDir }) {
+export function buildPackage({ row, discussions, jobs, traces, blockers, repoUrl, createdAt, spillDir }) {
   const spills = []
   const raw = openThreads(discussions)
   const threads = unresolved(discussions).map((th, i) => {
@@ -247,7 +259,7 @@ export function buildPackage({ row, discussions, jobs, traces, repoUrl, createdA
   const pkg = {
     schema: 'mr-followup/1', createdAt, repo: repoUrl,
     mr: { iid: row.iid, url: plain(row.url), source: plain(row.branch), target: plain(row.target), headSha: row.headSha, twinIid: row.twinIid, twinBranch: row.twinBranch === null ? null : plain(row.twinBranch), state: row.state, next: plain(row.next) },
-    threads, failedJobs, ticket: plain(row.branch).match(/[A-Z]+-\d+/)?.[0] ?? null,
+    ...(blockers && { blockers }), threads, failedJobs, ticket: plain(row.branch).match(/[A-Z]+-\d+/)?.[0] ?? null,
   }
   return { pkg, spills }
 }
@@ -302,13 +314,13 @@ if (isMain) {
       if (fs.existsSync(values.out) || fs.existsSync(spillDirOf(values.out))) throw new Error(`${values.out} or its .threads directory already exists`)
       for (const leftover of leftoverTemps(values.out)) console.error(`leftover temp: ${leftover}`)
       const repo = path.resolve(values.repo ?? process.cwd())
-      const { row, discussions, jobs, traces } = collectFollowup(repo, Number(values.followup), { author: values.author })
+      const { row, discussions, jobs, traces, blockers } = collectFollowup(repo, Number(values.followup), { author: values.author })
       if (!FOLLOWUP_STATES.has(row.state)) {
         console.log(plain(`!${row.iid} ${row.state}: ${row.next}`))
         process.exitCode = 1
         process.exit()
       }
-      const built = buildPackage({ row, discussions, jobs, traces, repoUrl: remoteUrl(repo), createdAt: new Date().toISOString(), spillDir: spillDirOf(values.out) })
+      const built = buildPackage({ row, discussions, jobs, traces, blockers, repoUrl: remoteUrl(repo), createdAt: new Date().toISOString(), spillDir: spillDirOf(values.out) })
       writePackage(values.out, built)
       console.log(values.out)
       process.exit()

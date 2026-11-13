@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { assertReadOnly, baseName, buildPackage, INLINE_CHARS, leftoverTemps, plainBody, tailLines, unresolved, verdict, writePackage } from './mr-watchman.mjs'
+import { assertReadOnly, baseName, blockersOf, buildPackage, INLINE_CHARS, leftoverTemps, plainBody, tailLines, unresolved, verdict, writePackage } from './mr-watchman.mjs'
 
 const CLI = fileURLToPath(new URL('./mr-watchman.mjs', import.meta.url))
 const SHA = 'a'.repeat(40)
@@ -235,6 +235,7 @@ test('a failed checking re-read keeps the MR identity and reads no third time', 
 
 test('--json2 reports partial coverage with a complete unverified row', (t) => {
   const r = run(t, { mrs: [mr(1, 'fix/a'), mr(2, 'fix/b')], json: false, args: ['--json2'], failCalls: [viewOf(2)] })
+  assert.equal(r.status, 1)
   const { coverage, rows } = JSON.parse(r.out)
   assert.equal(coverage, 'partial')
   const { next, ...rest } = rows[1]
@@ -393,10 +394,52 @@ test('followup: the twin is named in the package', (t) => {
   assert.equal(pkg.mr.twinBranch, 'fix/PROJ-1/x_develop')
 })
 
-test('followup: conflicts writes nothing', (t) => {
-  const r = run(t, { mrs: [mr(21, 'fix/a', { has_conflicts: true, detailed_merge_status: 'conflict' })], followup: 21, json: false })
+test('blockersOf lists blockers in work order', () => {
+  const conflict = mr(1, 'x', { detailed_merge_status: 'conflict' })
+  assert.deepEqual(blockersOf(conflict, [{ answered: false }], ['test']), ['conflicts', 'threads', 'ci-failed'])
+  assert.deepEqual(blockersOf(mr(1, 'x', { has_conflicts: true }), [], []), ['conflicts'])
+  assert.deepEqual(blockersOf(mr(1, 'x'), [], ['test']), ['ci-failed'])
+  assert.deepEqual(blockersOf(mr(1, 'x'), [], []), [])
+  assert.deepEqual(blockersOf(mr(1, 'x', { head_pipeline: { id: 101, status: 'canceled', sha: SHA } }), [], []), ['ci-failed'])
+})
+
+test('--followup writes a package for a conflicts MR', (t) => {
+  const r = run(t, { mrs: [mr(21, 'fix/PROJ-1/x', { has_conflicts: true, detailed_merge_status: 'conflict', head_pipeline: { id: 121, status: 'failed', sha: SHA } })], followup: 21, json: false,
+    discussions: { 21: [thread('alice', 'src/a.vue', 7, 'nit')] },
+    jobs: { 121: [{ id: 9, name: 'test', stage: 'test', allow_failure: false, failure_reason: 'script_failure' }] }, traces: { 9: 'boom\n' } })
+  assert.equal(r.status, 0)
+  const pkg = readPkg(r)
+  assert.equal(pkg.schema, 'mr-followup/1')
+  assert.equal(pkg.mr.state, 'conflicts')
+  assert.deepEqual(pkg.blockers, ['conflicts', 'threads', 'ci-failed'])
+  assert.deepEqual(pkg.failedJobs.map((j) => [j.id, j.name]), [[9, 'test']])
+  assert.deepEqual(pkg.threads.map((th) => [th.author, th.where, th.body]), [['alice', 'src/a.vue:7', 'nit']])
+})
+
+test('--followup exits 2 when the MR state changes between the two reads', (t) => {
+  const r = run(t, { mrs: [mr(21, 'fix/PROJ-1/x')], followup: 21, json: false, mergeStatuses: { 21: ['conflict', 'checking'] },
+    discussions: { 21: [thread('alice', 'src/a.vue', 7, 'nit')] } })
+  assert.equal(r.status, 2)
+  assert.equal(JSON.parse(r.out).status, 'unavailable')
+  assert.match(JSON.parse(r.out).problems[0], /state changed/)
+  assert.equal(existsSync(r.pkgPath), false)
+  assert.deepEqual(readdirSync(r.root).filter((f) => /threads|tmp/.test(f)), [])
+})
+
+test('--followup exits 2 when an earlier blocker appears between the two reads', (t) => {
+  const r = run(t, { mrs: [mr(21, 'fix/PROJ-1/x')], followup: 21, json: false, mergeStatuses: { 21: ['mergeable', 'conflict'] },
+    discussions: { 21: [thread('alice', 'src/a.vue', 7, 'nit')] } })
+  assert.equal(r.status, 2)
+  assert.equal(JSON.parse(r.out).status, 'unavailable')
+  assert.match(JSON.parse(r.out).problems[0], /state changed/)
+  assert.equal(existsSync(r.pkgPath), false)
+  assert.deepEqual(readdirSync(r.root).filter((f) => /threads|tmp/.test(f)), [])
+})
+
+test('--followup still refuses a ci-running MR', (t) => {
+  const r = run(t, { mrs: [mr(21, 'fix/a', { detailed_merge_status: 'ci_must_pass', head_pipeline: { id: 121, status: 'running', sha: SHA } })], followup: 21, json: false })
   assert.equal(r.status, 1)
-  assert.match(r.out, /conflicts: rebase fix\/a onto main/)
+  assert.match(r.out, /^!21 ci-running: pipeline 121 is running; re-run later$/m)
   assert.equal(existsSync(r.pkgPath), false)
   assert.deepEqual(readdirSync(r.root).filter((f) => f.includes('threads')), [])
 })
