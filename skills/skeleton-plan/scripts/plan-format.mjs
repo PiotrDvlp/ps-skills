@@ -11,7 +11,7 @@ const GATE_LINE = /^Gate: /;
 /** @typedef {'create'|'insert'|'replace'|'delete-declaration'|'delete-file'} Op */
 /** @typedef {{ id: string, path: string, op: Op, selectors: string[], after?: 'imports', into?: 'export-default', property?: string, label: string, code: string, line: number, selectorConflict?: true }} Block */
 /** @typedef {{ action: 'create'|'modify'|'delete', path: string, change: string }} FileRow */
-/** @typedef {{ base: string, gateLine: string|null, approval: string, files: FileRow[], blocks: Block[], unchanged: string[], taskSignatures: Map<string, string[]> }} ParsedPlan */
+/** @typedef {{ base: string, gateLine: string|null, approval: string, files: FileRow[], blocks: Block[], unchanged: string[], taskSignatures: Map<string, string[]>, taskFiles: Set<string> }} ParsedPlan */
 
 const fail = (reason) => new Error(`format: ${reason}`);
 const backticked = (text) => [...text.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
@@ -120,6 +120,34 @@ const readTaskSignatures = (lines) => {
   return map;
 };
 
+const FILES_LINE = '**Files:**';
+const FILES_TOKEN = /\b(create|modify|delete|test)\b|`([^`]+)`|\[\[([^\]|#]+)/gi;
+
+const readTaskFiles = (lines) => {
+  const named = new Set();
+  let text = null;
+  const flush = () => {
+    if (text === null) return;
+    let verb = null;
+    for (const m of text.matchAll(FILES_TOKEN)) {
+      if (m[1]) verb = m[1].toLowerCase();
+      else if (verb && verb !== 'test') named.add(m[2] ?? `[[${m[3].trim()}]]`);
+    }
+    text = null;
+  };
+  for (const line of lines) {
+    const at = line.indexOf(FILES_LINE);
+    if (at >= 0) {
+      flush();
+      text = line.slice(at + FILES_LINE.length);
+    }
+    else if (text !== null && (line.trim() === '' || /^(#|\*\*|Decided here|Verify|Expected)/.test(line))) flush();
+    else if (text !== null) text += ` ${line}`;
+  }
+  flush();
+  return named;
+};
+
 const findGateLine = (above) => {
   const files = above.findIndex((l) => FILES_HEADING.test(l));
   const frontEnd = above[0] === '---' ? above.indexOf('---', 1) : -1;
@@ -133,7 +161,7 @@ const findGateLine = (above) => {
   return -1;
 };
 
-/** Splits at the "Below this line" marker; reads files table, labelled blocks, unchanged lines, task signatures. The first `Gate: ` header line above `## 1. Files`, outside the front matter and code fences, is `gateLine` and is left out of `approval`. Throws `format: <reason>`. */
+/** Splits at the "Below this line" marker; reads files table, labelled blocks, unchanged lines, task signatures, and the paths task `**Files:**` lines create, modify or delete (`[[name]]` for a wikilink). The first `Gate: ` header line above `## 1. Files`, outside the front matter and code fences, is `gateLine` and is left out of `approval`. Throws `format: <reason>`. */
 export function parsePlan(markdown) {
   const lines = markdown.split(/\r?\n/);
   const cut = lines.findIndex((l) => l.trim() === MARKER);
@@ -148,6 +176,7 @@ export function parsePlan(markdown) {
     blocks: readBlocks(above),
     unchanged: readUnchanged(above),
     taskSignatures: readTaskSignatures(lines.slice(cut + 1)),
+    taskFiles: readTaskFiles(lines.slice(cut + 1)),
   };
 }
 
@@ -204,9 +233,16 @@ const blockErrors = (b, sharing) => {
   return out;
 };
 
-/** Every format violation as `format: <reason>`: labels, files rows, paths, ops, selectors, inserts, overlaps and task signatures; empty means clean. */
+/** Every format violation as `format: <reason>`: labels, files rows, rows with no block or task behind them, paths, ops, selectors, inserts, overlaps and task signatures; empty means clean. */
 export function checkFormat(plan) {
   const out = [];
+  const blockPaths = new Set(plan.blocks.map((b) => b.path));
+  for (const row of plan.files) {
+    const wikilink = `[[${posix.basename(row.path).replace(/\.md$/, '')}]]`;
+    if (!blockPaths.has(row.path) && !plan.taskFiles?.has(row.path) && !plan.taskFiles?.has(wikilink)) {
+      out.push(`format: orphan row ${capitalised(row.action)} for ${row.path}: no block, and no task Files line creates, modifies or deletes it`);
+    }
+  }
   const ids = new Set(plan.blocks.map((b) => b.id));
   const perPath = new Map();
   for (const b of plan.blocks) perPath.set(b.path, (perPath.get(b.path) ?? 0) + 1);

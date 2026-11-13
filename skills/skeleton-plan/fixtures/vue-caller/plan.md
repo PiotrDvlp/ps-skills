@@ -24,5 +24,5 @@ export const greet = (name: string): string => `hi ${name}`;
 
 ### Task 1: Greeting
 
-**Files:** Create `src/greet.ts`.
+**Files:** Create `src/greet.ts`. Modify `src/components/Card.vue`.
 **Interfaces:** Produces `t1-greet`.

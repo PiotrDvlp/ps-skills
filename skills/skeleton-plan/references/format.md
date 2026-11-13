@@ -125,6 +125,7 @@ The heading must start with `## 1. Files`. One table row per file: action (`Crea
 
 - Every block's path must have a row; otherwise `format: not in files table <path> in <id> (line N)`.
 - The row's action must fit the block's op: `create` needs `Create`, `delete-file` needs `Delete`, `replace`, `insert` and `delete-declaration` need `Modify`. Otherwise `format: row <Action> for <path> does not fit op <op> in <id>`.
+- Every row needs something behind it: a block with its path, or a task `**Files:**` line that names the path after `Create`, `Modify` or `Delete` (any case). A path named only after `Test`, in `Consumes`, or in prose does not count. A vault note row is also covered by a `[[note-name]]` wikilink in a `**Files:**` line. Otherwise `format: orphan row <Action> for <path>: no block, and no task Files line creates, modifies or deletes it`.
 - Name deleted declarations in their row.
 - List files the plan changes with no block (test files, docs, `.vue` callers the gate reported). A `.ts`, `.tsx`, `.mts`, `.cts` or `.vue` file with a type error that has no row fails the gate as `caller broken`; see "Status 1" in `cli.md`.
 
@@ -212,7 +213,7 @@ The approval part ends at a line that is exactly:
 *Below this line: for the implementer, the gates and the reviewer.*
 ```
 
-Without it the gate exits 1 with `format: no approval marker`. Text below the marker does not count toward the approval hash, so you can edit tasks without rerunning the gate, as long as the `**Interfaces:**` lines still pass the format check.
+Without it the gate exits 1 with `format: no approval marker`. Text below the marker does not count toward the approval hash, so you can edit tasks without rerunning the gate, as long as the `**Interfaces:**` and `**Files:**` lines still pass the format check.
 
 ### Every format message
 
@@ -227,6 +228,7 @@ The format check runs on the plan alone, before the gate exports any commit, so 
 | `format: label "<label>" does not name <what> in <id> (line N)` | The label misses the verb, the path, a selector name or the property. |
 | `format: not in files table <path> in <id> (line N)` | The block's path has no row. |
 | `format: row <Action> for <path> does not fit op <op> in <id>` | The row's action does not fit the op. |
+| `format: orphan row <Action> for <path>: no block, and no task Files line creates, modifies or deletes it` | A files row with no block and no task `**Files:**` line behind it. |
 | `format: path <path> leaves the repo in <id> (line N)` | An absolute path or one with `..`. |
 | `format: path <path> is not normalised` | Empty, `./`, `//`, a trailing `/`, or another form `posix.normalize` changes. |
 | `format: path <path> is not a TypeScript or Vue file in <id>` | Not `.ts`, `.tsx`, `.mts`, `.cts` or `.vue`. |

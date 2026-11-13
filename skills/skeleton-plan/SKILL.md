@@ -32,7 +32,7 @@ After a design is approved, write the implementation plan with the skeleton-plan
 Format: `references/format.md`. Above the marker line:
 
 1. Front matter with `base: <sha>`. Header: goal (one line), base commit, design link, and a `Gate:` line on its own (`Gate: pending` before the first run).
-2. `## 1. Files`: one row per file, including test files and docs the plan changes.
+2. `## 1. Files`: one row per file, including test files and docs the plan changes. Each row needs a block or a task `**Files:**` line that creates, modifies or deletes it; the gate fails an orphan row.
 3. `## 2. Interfaces`: one labelled block per splice operation. New exports are stubs with an explicit return type, a one-line JSDoc contract and a `return undefined as never` body. Then the "Signature unchanged, behaviour changed" list.
 4. `## 3. Test cases`: exact test titles, each with one `Given ...; then ...` line, grouped by test file; a final `**No dedicated cases:**` line.
 

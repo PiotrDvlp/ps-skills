@@ -148,6 +148,23 @@ test('checkFormat flags a splice path missing from the files table', () => {
   assert.deepEqual(kinds(md), ['format: not in files table']);
 });
 
+test('checkFormat flags a files-table row with no block and no task Files line', () => {
+  const row = '| Modify | `src/c.ts` | caches |\n';
+  const withRow = plan().replace('| Modify | `src/b.ts` | use the helper |\n', `| Modify | \`src/b.ts\` | use the helper |\n${row}`);
+  assert.deepEqual(kinds(withRow), ['format: orphan']);
+  const consumedOnly = withRow.replace('Consumes `Fixtures`', 'Consumes `src/c.ts`');
+  assert.deepEqual(kinds(consumedOnly), ['format: orphan']);
+  const testOnly = withRow.replace('**Files:** Create `src/a.ts`.', '**Files:** Create `src/a.ts`. Test `src/c.ts`.');
+  assert.deepEqual(kinds(testOnly), ['format: orphan']);
+});
+
+test('checkFormat accepts a row named by a task Files line or a vault wikilink', () => {
+  const rows = '| Modify | `src/c.ts` | caches |\n| Modify | vault `outputs/x/decisions/2026-11-07-old-decision.md` | amended line |\n';
+  const withRows = plan().replace('| Modify | `src/b.ts` | use the helper |\n', `| Modify | \`src/b.ts\` | use the helper |\n${rows}`);
+  const files = '**Files:** Create `src/a.ts`; modify\n`src/c.ts`; add a dated line to [[2026-11-07-old-decision]].';
+  assert.deepEqual(violations(withRows.replace('**Files:** Create `src/a.ts`.', files)), []);
+});
+
 test('checkFormat flags two blocks with the same selector', () => {
   const second = '**Replace in `src/b.ts` — `stop`**\n<!-- skeleton {"id":"t3-b","path":"src/b.ts","op":"replace","selector":"const:stop"} -->\n```ts\nexport const stop = (): void => undefined\n```\n\n';
   const md = plan().replace('**Signature unchanged', `${second}**Signature unchanged`);
