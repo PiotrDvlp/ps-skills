@@ -10,7 +10,7 @@ Usage: node mr-watchman.mjs --repo <path> [--branch <name>] [--author <user>] [-
        node mr-watchman.mjs --repo <path> --followup <iid> --out <absolute file> [--author <user>]
 Order per MR: conflicts, then unresolved review threads, then CI. Twins (<name> and <name>_develop) are grouped.
 An MR GitLab reports as still checking is re-read once after 60s (MR_WATCHMAN_RETRY_MS overrides the delay).
---json2 prints {coverage, rows}; coverage is partial when a row is unverified (a glab call for that MR failed).
+--json2 prints {coverage, rows}; coverage is partial when a row is unverified (a glab call for that MR failed). A verified row also carries blockers and failedJobIds.
 Exit 0: every MR ready or waiting for approval; 1: at least one MR needs action, GitLab is still checking after the retry, a row is unverified, or --branch matched nothing;
 2: glab or the MR list unavailable, invalid input (including --json with --json2), or the MR list at the 100-entry cap.
 --followup writes a package for one MR in state conflicts, threads or ci-failed (exit 0, path printed); any other state prints state and next and exits 1; an existing --out exits 2.
@@ -156,13 +156,14 @@ const rowOf = (repo, entry) => {
     call = 'discussions read'
     threads = unresolved(page(`discussions of !${entry.iid}`, glab(['api', `projects/:id/merge_requests/${entry.iid}/discussions?per_page=100`], repo)))
     call = 'failed jobs read'
-    failedJobs = failedJobsOf(repo, mr).map((j) => j.name)
+    failedJobs = failedJobsOf(repo, mr)
   } catch (error) {
     return { iid: entry.iid, branch: entry.source_branch, target: entry.target_branch, headSha: fullHeadSha.slice(0, 8), fullHeadSha, pipelineSha: null,
       twin: baseName(entry.source_branch), twinIid: null, url: entry.web_url, threads: [], state: 'unverified', next: `${call} failed: ${plain(error.message)}; re-run` }
   }
   return { iid: mr.iid, branch: mr.source_branch, target: mr.target_branch, headSha: fullHeadSha.slice(0, 8), fullHeadSha, pipelineSha: mr.head_pipeline ? pipelineSha(mr.head_pipeline) : null,
-    twin: baseName(mr.source_branch), twinIid: null, url: mr.web_url, threads, ...verdict(mr, threads, failedJobs) }
+    twin: baseName(mr.source_branch), twinIid: null, url: mr.web_url, threads, blockers: blockersOf(mr, threads, failedJobs),
+    failedJobIds: failedJobs.map((j) => j.id), ...verdict(mr, threads, failedJobs.map((j) => j.name)) }
 }
 
 /**

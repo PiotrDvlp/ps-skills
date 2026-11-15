@@ -253,6 +253,18 @@ test('--json2 reports complete coverage with full head and pipeline SHAs', (t) =
   assert.deepEqual(rows.map((x) => [x.fullHeadSha.length, x.pipelineSha]), [[40, SHA], [40, SHA]])
 })
 
+test('--json2 verified rows carry blockers in work order and failed job ids, unverified rows neither', (t) => {
+  const failing = { detailed_merge_status: 'conflict', has_conflicts: true, head_pipeline: { id: 101, status: 'failed', sha: SHA } }
+  const r = run(t, { mrs: [mr(1, 'fix/a', failing), mr(2, 'fix/b'), mr(3, 'fix/c')], json: false, args: ['--json2'], failCalls: [viewOf(3)],
+    discussions: { 1: [thread('rev', 'a.ts', 4, 'typo')] },
+    jobs: { 101: [{ id: 9, name: 'test', allow_failure: false }, { id: 10, name: 'audit', allow_failure: true }] } })
+  const { rows } = JSON.parse(r.out)
+  const byIid = Object.fromEntries(rows.map((x) => [x.iid, x]))
+  assert.deepEqual([byIid[1].blockers, byIid[1].failedJobIds], [['conflicts', 'threads', 'ci-failed'], [9]])
+  assert.deepEqual([byIid[2].blockers, byIid[2].failedJobIds], [[], []])
+  assert.deepEqual(['blockers' in byIid[3], 'failedJobIds' in byIid[3]], [false, false])
+})
+
 test('--json2 with an unmatched branch prints an empty complete object', (t) => {
   const r = run(t, { mrs: [mr(1, 'fix/a')], json: false, args: ['--json2', '--branch', 'nope'] })
   assert.equal(r.status, 1)
