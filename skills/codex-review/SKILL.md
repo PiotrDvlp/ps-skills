@@ -55,7 +55,7 @@ Before invoking Codex, run these in order. Stop with a clear error message if an
    - `plan` mode only, after the file exists: run `node "${CLAUDE_SKILL_DIR}/scripts/check-plan.mjs" <target-path>`. `${CLAUDE_SKILL_DIR}` is the directory holding this file; resolve it yourself where it is not substituted (inside `references/`, or under Codex). Exit 1 means the plan's acceptance criteria are not executable (no command, no expected output, or an unresolved placeholder), a `Task N` section has no verification command or expected result, a `Task N` that adds a test, scanner, verifier or gate has no `Negative proof:` line with a command expected to fail, or a test/typecheck/build is piped into tail/grep/head without `pipefail`; print the script's findings verbatim and stop without calling Codex, unless `--force` was passed. Exit 2 means the file could not be read; stop, `--force` does not apply. Fixing these first saves the Codex round that would only report rubric item 6.
 3. Soft warn if the target artifact size ≥50 KiB (`wc -c <target>`); suggest decomposition. At or above 50 KiB, stop and ask unless `--force` was passed.
 4. Hard refuse if the target artifact size ≥500 KiB. Stop.
-5. `design` / `plan` mode only: run the prechecker pre-step in `references/prechecker-step.md`. It runs only when `~/.claude/agents/plan-prechecker.md` exists and `CLAUDE.md` has a `Notes root:` line; otherwise skip silently. It dispatches `plan-prechecker` once, logs the attempt, and lets you fix accepted findings before Codex runs. After the review note is written, append its `reviewed` row (step 6 of that file).
+5. `design` / `plan` mode only: run the prechecker pre-step in `references/prechecker-step.md`. It runs only when `~/.claude/agents/plan-prechecker.md` exists and `CLAUDE.md` has a `Notes root:` line; otherwise skip silently, write nothing, and continue with step 6. It dispatches `plan-prechecker` once, logs the attempt, and lets you fix accepted findings before Codex runs. After the review note is written, append its `reviewed` row (step 6 of that file).
 6. For `code` mode only: check for a `## Review mode` heading in **either** `<repo-root>/AGENTS.md` **or** `~/.codex/AGENTS.md` — Codex merges the global file into every session, so the global one covers all repos. Warn only if the heading is in neither (continue anyway). This section is the only lever that exists on what Codex reads; see the sandbox gotcha below for why. The heading alone is not enough: the section must define review mode by the prompt (this skill's runners use `codex exec`, not `codex review`), or it never applies.
 7. For `duel` mode only: the brief must be self-contained. If it lacks a clear problem statement, constraints, OR success criteria (judged loosely, not by literal headings), warn that a thin brief produces divergence noise rather than signal, and continue only on user confirmation or `--force`.
 
@@ -126,6 +126,8 @@ Body:
 - Append a one-line warning at the end of the note: `> [!warning] Codex returned N > 10 issues; rubric cap not held.`
 
 Write the file with `Write`. If a file with the same path already exists, append a `-2`, `-3`, ... suffix.
+
+After writing a design or plan note, if pre-flight step 5 started an attempt, append its `reviewed` row (see `references/prechecker-step.md`).
 
 ## Log integration
 

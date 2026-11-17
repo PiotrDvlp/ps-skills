@@ -5,7 +5,7 @@
 - `~/.claude/agents/plan-prechecker.md` exists.
 - The user's `CLAUDE.md` has a `Notes root: <dir>` line.
 
-Without a `Notes root:` line, skip silently and record nothing. With `Notes root:` set but no agent file, only run `mkdir -p` on the `design-quality/` directory, append `{attemptId, target, status: "skipped"}` to `<log>` and go to step 5 below.
+If either is missing, skip silently: write nothing and continue with pre-flight step 6.
 
 `<log>` is `<Notes root>/insights/self-improve/design-quality/trial.jsonl`. Append one JSON object per line. Every line carries `attemptId` = UTC `YYYYMMDDTHHMMSSZ` + `-` + 8 random hex characters (`openssl rand -hex 4`) + `-` + target basename. Make one `attemptId` per `/codex-review` call and reuse it on every line of that call.
 
