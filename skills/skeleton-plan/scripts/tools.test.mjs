@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync, existsSync, readFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, readFileSync, realpathSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tmp } from './test-tmp.mjs';
@@ -64,6 +64,14 @@ test('setup keeps a complete install', async () => {
   let calls = 0;
   await setupTypescript(cache, async () => { calls++; });
   assert.equal(calls, 0);
+});
+
+test('CLI through a symlink prints the usage error and exits 3', () => {
+  const link = join(tmp('sk-tools-link-'), 'tools.mjs');
+  symlinkSync(join(import.meta.dirname, 'tools.mjs'), link);
+  const r = spawnSync(process.execPath, [link], { encoding: 'utf8' });
+  assert.equal(r.stderr.trim(), 'usage: setup [--cache-dir D]');
+  assert.equal(r.status, 3);
 });
 
 test('CLI setup reports fs errors with exit 3 and no TypeError', () => {

@@ -40,8 +40,8 @@ function fixture(name, planFile = 'plan.md') {
   return { root, repo, plan, base, cache, receipt: join(root, 'plan.receipt.json') };
 }
 
-function gate(f, env = {}) {
-  const r = spawnSync(process.execPath, [CLI, '--plan', f.plan, '--repo', f.repo, '--cache-dir', f.cache], { encoding: 'utf8', env: { ...process.env, ...env } });
+function gate(f, env = {}, cli = CLI) {
+  const r = spawnSync(process.execPath, [cli, '--plan', f.plan, '--repo', f.repo, '--cache-dir', f.cache], { encoding: 'utf8', env: { ...process.env, ...env } });
   return { code: r.status, first: r.stdout.split('\n')[0], out: `${r.stdout}\n${r.stderr}` };
 }
 
@@ -120,6 +120,20 @@ test('a malformed splice comment prints a format line first, never a stack trace
     assert.match(r.first, /^format: bad splice comment at line \d+$/);
     assert.doesNotMatch(r.out, /\n\s+at /);
   }
+});
+
+test('through a symlink the CLI prints the same first line and exit code as through its real path', () => {
+  const f = fixture('label-mismatch');
+  const link = join(tmp('sk-e2e-link-'), 'check-plan.mjs');
+  symlinkSync(CLI, link);
+  const real = gate(f);
+  const linked = gate(f, {}, link);
+  assert.match(linked.first, /^format: label /, linked.out);
+  assert.equal(linked.first, real.first);
+  assert.equal(linked.code, real.code);
+  const usage = spawnSync(process.execPath, [link], { encoding: 'utf8' });
+  assert.match(usage.stdout, /^blocked: usage: /);
+  assert.equal(usage.status, 3);
 });
 
 test('overlap: exit 1, format: overlapping', () => {
