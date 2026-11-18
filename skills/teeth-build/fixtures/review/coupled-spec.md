@@ -14,14 +14,14 @@ diff --git a/cart/createCart.ts b/cart/createCart.ts
 new file mode 100644
 --- /dev/null
 +++ b/cart/createCart.ts
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,17 @@
 +interface Line {
 +  price: number
 +  qty: number
 +}
 +
-+export function createCart() {
-+  return {
++export function createCart(): { add(price: number, qty: number): void; total(): number } {
++  const cart = {
 +    _lines: [] as Line[],
 +    add(price: number, qty: number): void {
 +      this._lines.push({ price, qty })
@@ -30,6 +30,7 @@ new file mode 100644
 +      return this._lines.reduce((sum, line) => sum + line.price * line.qty, 0)
 +    },
 +  }
++  return cart
 +}
 diff --git a/cart/__tests__/createCart.test.ts b/cart/__tests__/createCart.test.ts
 new file mode 100644
