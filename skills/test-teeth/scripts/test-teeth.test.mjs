@@ -1520,6 +1520,11 @@ test('report: the Limits section states per-spec removal and the template blind 
   assert.match(limits, /- Removal checks ran per spec file; removing cases from several spec files together was not verified\./);
   assert.match(limits, /- Stryker does not mutate Vue templates; a case that guards template output can have zero Stryker kills\./);
   assert.match(limits, /- A removable case adds no kill to this mutation set; that does not show it guards no behavior\./);
+  const block = limits.split('\n').slice(2, 6);
+  assert.match(block[0], /^- Stryker /);
+  assert.match(block[1], /^- Removal checks ran per spec file/);
+  assert.match(block[2], /^- Stryker does not mutate Vue templates/);
+  assert.match(block[3], /^- A removable case adds no kill/);
 });
 
 test('report: the Limits section names the Stryker bail state', () => {

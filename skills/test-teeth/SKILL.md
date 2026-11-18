@@ -48,7 +48,6 @@ Exit 0 means a report was produced; 2 means the baseline was not green; 3 means 
 - `not removable: no reporter output (vitest exit <status>)`: the trimmed run produced no parseable reporter file, including when its exit status was zero.
 - `not verified: duplicate identity`: reporter identities collide.
 - `not verified: unsupported call shape`: the call could not be located.
-- `## Limits` section: states the Stryker bail state and what the removal check did not cover (several spec files at once, Vue templates, measured evidence only). Read it before acting on a `removable` verdict.
 - `not verified: spec not in audited set`: vitest listed a spec outside the scan.
 - `not verified: no impl mapped`: no sibling `.ts` or `.vue` implementation exists.
 - `not verified: no valid mutants on <impl>`: the mapped implementation had no attributed valid mutant, so other implementations' evidence cannot justify removal.
@@ -58,6 +57,7 @@ Exit 0 means a report was produced; 2 means the baseline was not green; 3 means 
 - `not verified: shared call line`: distinct non-`each` cases share one source span, including cases generated inside a multi-line `describe.each`, so neither can be removed independently.
 - `not verified: every test in describe "<path>" is zero-kill; delete the describe block and rerun`: trimming every case would leave an empty describe; remove the whole block manually and audit again.
 - `not verified: no mutants planned`: the audited implementations offered no mutation, so deletion verification was skipped.
+- `## Limits` section: states the Stryker bail state and what the removal check did not cover (several spec files at once, Vue templates, measured evidence only). Read it before acting on a `removable` verdict.
 - Mutant `killed`: at least one case failed with an assertion.
 - Mutant `survived`: no case killed it.
 - Mutant `survived (runtime failure in K cases)`: no assertion killed it, while K cases crashed.
