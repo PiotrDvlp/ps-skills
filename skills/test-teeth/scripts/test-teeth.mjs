@@ -149,6 +149,17 @@ export function strykerKills(report) {
   };
 }
 
+/** 'off' when config.disableBail is true, 'unknown' when absent; throws code 3 when config.disableBail is false. */
+export function checkStrykerBail(report) {
+  const bail = report.config?.disableBail;
+  if (bail === false) {
+    const err = new Error('Stryker report ran with bail on (config.disableBail false); rerun Stryker with --disableBail');
+    err.code = 3;
+    throw err;
+  }
+  return bail === true ? 'off' : 'unknown';
+}
+
 export function caseId(specRel, name, line) {
   return `${specRel}::${name}::${line}`;
 }
@@ -661,7 +672,7 @@ export async function audit(opts) {
         const bad = verify(groups);
         if (!bad) {
           for (const group of groups) for (const id of group.ids) {
-            verdicts.find((v) => v.id === id).deletion = 'removable: suite green, no new warnings';
+            verdicts.find((v) => v.id === id).deletion = 'removable: zero Stryker assertion kills; suite green without it, no new warnings';
           }
           return true;
         }
@@ -718,6 +729,11 @@ export function renderReport(r) {
   const count = (s) => r.mutants.filter((m) => m.state === s || m.state.startsWith(`${s} (`)).length;
   lines.push('', '## Run', '', `- mutants: ${r.mutants.length} (killed ${count('killed')}, survived ${count('survived')}, invalid ${count('invalid')}, caught unattributed ${count('caught, unattributed')})`,
     `- vitest runs: ${r.runs}`, `- wall time: ${(r.ms / 1000).toFixed(1)} s`, `- files sampled: ${[...new Set(r.mutants.map((m) => m.file))].join(', ')}`, `- no impl mapped: ${r.unmapped.length ? r.unmapped.join(', ') : 'none'}`, `- manifest dir: ${r.manifest}`);
+  const bail = r.strykerBail === 'off' ? 'Stryker bail: off' : r.strykerBail === 'unknown' ? 'Stryker bail: unknown (report has no config.disableBail)' : 'Stryker report: none';
+  lines.push('', '## Limits', '', `- ${bail}`,
+    '- Removal checks ran per spec file; removing cases from several spec files together was not verified.',
+    '- Stryker does not mutate Vue templates; a case that guards template output can have zero Stryker kills.',
+    '- A removable case adds no kill to this mutation set; that does not show it guards no behavior.');
   return lines.join('\n') + '\n';
 }
 
@@ -746,7 +762,9 @@ export async function main(argv) {
     const vitestBin = flag(argv, 'vitest-bin');
     const report = flag(argv, 'report');
     const strykerReport = flag(argv, 'stryker-report');
-    const strykerKillsFn = strykerReport ? strykerKills(JSON.parse(readFileSync(strykerReport, 'utf8'))) : undefined;
+    const strykerParsed = strykerReport ? JSON.parse(readFileSync(strykerReport, 'utf8')) : undefined;
+    const strykerBail = strykerParsed ? checkStrykerBail(strykerParsed) : undefined;
+    const strykerKillsFn = strykerParsed ? strykerKills(strykerParsed) : undefined;
     if (argv.includes('--list-only')) {
       if (manual.length > maxMutations) process.stderr.write(`--mutations has ${manual.length} entries, more than --max-mutations ${maxMutations}; all ${manual.length} run\n`);
       const featureAbs = resolve(root, feature);
@@ -757,7 +775,7 @@ export async function main(argv) {
       return 0;
     }
     const result = await audit({ root, feature, maxMutations, manual, timeoutMs, vitestBin, strykerKills: strykerKillsFn, log: (s) => process.stderr.write(s + '\n') });
-    const md = renderReport(result);
+    const md = renderReport({ ...result, strykerBail });
     if (report) {
       try {
         mkdirSync(dirname(report), { recursive: true });

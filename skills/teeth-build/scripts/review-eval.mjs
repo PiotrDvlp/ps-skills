@@ -6,6 +6,15 @@ import { parseArgs } from 'node:util';
 const VERDICT = /^verdict: (clear|blocking finding)\s*$/;
 const RUN_TIMEOUT_MS = 300_000;
 
+/** Items under `<name>:` in a reviewer reply, `- ` stripped; null when the header is missing. */
+export function parseSection(stdout, name) {
+  const lines = stdout.split('\n').filter((line) => line.trim() !== '');
+  const at = lines.findIndex((line) => line.trim() === `${name}:`);
+  if (at === -1) return null;
+  const end = lines.findIndex((line, i) => i > at && !line.trim().startsWith('-'));
+  return lines.slice(at + 1, end === -1 ? lines.length : end).map((line) => line.trim().replace(/^-\s*/, ''));
+}
+
 export function parseVerdict(stdout) {
   const lines = stdout.split('\n').filter((line) => line.trim() !== '');
   const verdict = lines[0]?.match(VERDICT)?.[1];
@@ -24,12 +33,13 @@ function parse(argv) {
     options: {
       packet: { type: 'string' },
       expect: { type: 'string' },
+      'expect-risk': { type: 'string' },
       runs: { type: 'string', default: '3' },
       model: { type: 'string', default: 'claude-opus-5-5' },
       prompt: { type: 'string', default: fileURLToPath(new URL('../references/reviewer.md', import.meta.url)) },
     },
   });
-  const opts = { ...values, runs: Number(values.runs) };
+  const opts = { ...values, runs: Number(values.runs), risk: values['expect-risk'] === undefined ? null : new RegExp(values['expect-risk'], 'i') };
   if (!opts.packet) throw new Error('--packet is required');
   if (opts.expect !== 'clear' && opts.expect !== 'blocking finding') throw new Error('--expect must be "clear" or "blocking finding"');
   if (!Number.isInteger(opts.runs) || opts.runs < 1) throw new Error('--runs must be a positive integer');
@@ -57,13 +67,20 @@ export function main(argv) {
   const misses = [];
   for (let run = 1; run <= opts.runs; run++) {
     let got;
+    let reply;
     try {
-      got = parseVerdict(callClaude(opts.model, input));
+      reply = callClaude(opts.model, input);
+      got = parseVerdict(reply);
     } catch (e) {
       console.error(e.message);
       return 3;
     }
     if (got !== opts.expect) misses.push(`run ${run}: got ${got ?? 'no consistent verdict'}`);
+    else if (opts.risk) {
+      const items = parseSection(reply, 'correlated-risk');
+      if (items === null) misses.push(`run ${run}: correlated-risk section missing`);
+      else if (!items.some((item) => item !== 'none' && opts.risk.test(item))) misses.push(`run ${run}: correlated-risk did not match /${opts.risk.source}/`);
+    }
   }
   console.log(`${opts.runs - misses.length}/${opts.runs} verdict: ${opts.expect}`);
   for (const m of misses) console.log(m);

@@ -20,12 +20,12 @@ Flags:
 - `--max-mutations N`: total mutation budget, default 30. Hand-authored mutations always run in full, even when their count exceeds the budget; generated mutations fill any slots left.
 - `--mutations file.json`: hand-authored `[{file, find, replace, note}]`; `file` is repo-relative. These run first.
 - `--report PATH`: write the report and create its parent directory.
-- `--stryker-report mutation.json`: a Stryker JSON report run from `--root` on the same feature. Without it, no case gets a deletion check. A Stryker kill counts unless its only killer crashed (`Cannot read properties`, `is not a function`, and similar).
+- `--stryker-report mutation.json`: a Stryker JSON report run from `--root` on the same feature; run with `--disableBail`. Without it, no case gets a deletion check. A Stryker kill counts unless its only killer crashed (`Cannot read properties`, `is not a function`, and similar).
 - `--timeout-ms N`: timeout for each vitest run, default 120000.
 - `--vitest-bin PATH`: override `<root>/node_modules/.bin/vitest`.
 - `--list-only`: print the mutation plan without running vitest.
 
-Exit 0 means a report was produced; 2 means the baseline was not green; 3 means usage failure, manifest conflict, concurrent edit, another audit on the root, an unsafe manifest directory, a Stryker report whose killed mutants lack `killedBy`, `--feature` outside `--root`, or missing/broken vitest discovery; 130 means SIGINT or SIGTERM interrupted vitest.
+Exit 0 means a report was produced; 2 means the baseline was not green; 3 means usage failure, manifest conflict, concurrent edit, another audit on the root, an unsafe manifest directory, a Stryker report whose killed mutants lack `killedBy`, a Stryker report run with bail on, `--feature` outside `--root`, or missing/broken vitest discovery; 130 means SIGINT or SIGTERM interrupted vitest.
 
 ## Read the report
 
@@ -39,7 +39,7 @@ Exit 0 means a report was produced; 2 means the baseline was not green; 3 means 
 - `keep (Stryker: N assertion kills)`: the sample missed it, but the Stryker report credits it with N kills.
 - `not verified: sampled evidence only (N mutants); pass --stryker-report`: a sample cannot show a case is toothless, so the deletion check did not run.
 - `not verified: not in Stryker report`: the case is absent from the report, or its name is ambiguous there.
-- `removable: suite green, no new warnings`: the case has zero Stryker assertion kills, and removal kept the suite green without a new warning fingerprint.
+- `removable: zero Stryker assertion kills; suite green without it, no new warnings`: the case has zero Stryker assertion kills, and removal kept the suite green without a new warning fingerprint.
 - `; not together with [ids]: <not removable reason>`: every member was removable alone, but the smallest batch containing them failed for the stated reason.
 - `not removable: <case or warning>`: removal caused the named case failure or a new warning fingerprint.
 - `not removable: vitest exit <status>, <N> failed`: removal failed without a named failed case.
@@ -57,6 +57,7 @@ Exit 0 means a report was produced; 2 means the baseline was not green; 3 means 
 - `not verified: shared call line`: distinct non-`each` cases share one source span, including cases generated inside a multi-line `describe.each`, so neither can be removed independently.
 - `not verified: every test in describe "<path>" is zero-kill; delete the describe block and rerun`: trimming every case would leave an empty describe; remove the whole block manually and audit again.
 - `not verified: no mutants planned`: the audited implementations offered no mutation, so deletion verification was skipped.
+- `## Limits` section: states the Stryker bail state and what the removal check did not cover (several spec files at once, Vue templates, measured evidence only). Read it before acting on a `removable` verdict.
 - Mutant `killed`: at least one case failed with an assertion.
 - Mutant `survived`: no case killed it.
 - Mutant `survived (runtime failure in K cases)`: no assertion killed it, while K cases crashed.
