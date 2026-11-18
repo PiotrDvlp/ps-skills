@@ -39,7 +39,7 @@ Exit 0 means a report was produced; 2 means the baseline was not green; 3 means 
 - `keep (Stryker: N assertion kills)`: the sample missed it, but the Stryker report credits it with N kills.
 - `not verified: sampled evidence only (N mutants); pass --stryker-report`: a sample cannot show a case is toothless, so the deletion check did not run.
 - `not verified: not in Stryker report`: the case is absent from the report, or its name is ambiguous there.
-- `removable: suite green, no new warnings`: the case has zero Stryker assertion kills, and removal kept the suite green without a new warning fingerprint.
+- `removable: zero Stryker assertion kills; suite green without it, no new warnings`: the case has zero Stryker assertion kills, and removal kept the suite green without a new warning fingerprint.
 - `; not together with [ids]: <not removable reason>`: every member was removable alone, but the smallest batch containing them failed for the stated reason.
 - `not removable: <case or warning>`: removal caused the named case failure or a new warning fingerprint.
 - `not removable: vitest exit <status>, <N> failed`: removal failed without a named failed case.
@@ -48,6 +48,7 @@ Exit 0 means a report was produced; 2 means the baseline was not green; 3 means 
 - `not removable: no reporter output (vitest exit <status>)`: the trimmed run produced no parseable reporter file, including when its exit status was zero.
 - `not verified: duplicate identity`: reporter identities collide.
 - `not verified: unsupported call shape`: the call could not be located.
+- `## Limits` section: states the Stryker bail state and what the removal check did not cover (several spec files at once, Vue templates, measured evidence only). Read it before acting on a `removable` verdict.
 - `not verified: spec not in audited set`: vitest listed a spec outside the scan.
 - `not verified: no impl mapped`: no sibling `.ts` or `.vue` implementation exists.
 - `not verified: no valid mutants on <impl>`: the mapped implementation had no attributed valid mutant, so other implementations' evidence cannot justify removal.

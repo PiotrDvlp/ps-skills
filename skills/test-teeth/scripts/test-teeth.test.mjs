@@ -388,7 +388,7 @@ test('audit: tautology case killed none, real case killed M01, deletion removabl
     const taut = r.verdicts.find((v) => v.id.endsWith('::sum > tautology::5'));
     assert.equal(adds.result, 'killed [M01]');
     assert.equal(taut.result, 'killed none of 1 sampled mutants (1 in sum.ts)');
-    assert.equal(taut.deletion, 'removable: suite green, no new warnings');
+    assert.equal(taut.deletion, 'removable: zero Stryker assertion kills; suite green without it, no new warnings');
     assert.equal(adds.deletion, 'keep');
     assert.equal(readFileSync(join(root, 'sum.ts'), 'utf8').includes('a === 0'), true);
     assert.equal(readFileSync(join(root, '__tests__', 'sum.test.ts'), 'utf8').includes('tautology'), true);
@@ -1335,7 +1335,7 @@ test('audit: shared each rows are removed once without removing the next test', 
     const rows = r.verdicts.filter((v) => v.name.startsWith('row'));
     assert.equal(trimmed.includes("it('next'"), true);
     assert.equal(trimmed.includes('row %i'), false);
-    assert.equal(rows.every((v) => v.deletion === 'removable: suite green, no new warnings'), true);
+    assert.equal(rows.every((v) => v.deletion === 'removable: zero Stryker assertion kills; suite green without it, no new warnings'), true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -1382,7 +1382,7 @@ test('audit: failed batch but green singles records not-together pair', async ()
     const r = await tt.audit({ root, feature: '.', maxMutations: 1, strykerKills: () => 0, run, log: () => {} });
     for (const v of r.verdicts) {
       const other = r.verdicts.find((x) => x.id !== v.id).id;
-      assert.equal(v.deletion, `removable: suite green, no new warnings; not together with [${other}]: not removable: a`);
+      assert.equal(v.deletion, `removable: zero Stryker assertion kills; suite green without it, no new warnings; not together with [${other}]: not removable: a`);
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -1414,7 +1414,7 @@ test('audit: whole zero-kill describe is explained and never trimmed', async () 
     const empty = r.verdicts.filter((v) => v.name.startsWith('empty >'));
     assert.equal(empty.every((v) => v.deletion === 'not verified: every test in describe "empty" is zero-kill; delete the describe block and rerun'), true);
     assert.equal(trimmed.every((source) => source.includes("it('a'") && source.includes("it('b'")), true);
-    assert.equal(r.verdicts.find((v) => v.name === 'mixed > zero').deletion, 'removable: suite green, no new warnings');
+    assert.equal(r.verdicts.find((v) => v.name === 'mixed > zero').deletion, 'removable: zero Stryker assertion kills; suite green without it, no new warnings');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -1511,6 +1511,23 @@ test('report: pipes are escaped in every table cell', () => {
   assert.equal(row.split(/(?<!\\)\|/).length, 8);
 });
 
+const MINIMAL_RESULT = { touched: [], feature: '.', root: '/r', verdicts: [], mutants: [], runs: 0, ms: 0, unmapped: [], manifest: '/tmp/x' };
+
+test('report: the Limits section states per-spec removal and the template blind spot', () => {
+  const md = tt.renderReport(MINIMAL_RESULT);
+  const limits = md.slice(md.indexOf('## Limits'));
+  assert.ok(md.indexOf('## Run') < md.indexOf('## Limits'));
+  assert.match(limits, /- Removal checks ran per spec file; removing cases from several spec files together was not verified\./);
+  assert.match(limits, /- Stryker does not mutate Vue templates; a case that guards template output can have zero Stryker kills\./);
+  assert.match(limits, /- A removable case adds no kill to this mutation set; that does not show it guards no behavior\./);
+});
+
+test('report: the Limits section names the Stryker bail state', () => {
+  assert.match(tt.renderReport({ ...MINIMAL_RESULT, strykerBail: 'off' }), /^- Stryker bail: off$/m);
+  assert.match(tt.renderReport({ ...MINIMAL_RESULT, strykerBail: 'unknown' }), /^- Stryker bail: unknown \(report has no config\.disableBail\)$/m);
+  assert.match(tt.renderReport(MINIMAL_RESULT), /^- Stryker report: none$/m);
+});
+
 test('integration: vitest3 real run on the mini fixture', VITEST_TEST_OPTIONS, () => {
   const root = miniWithVitest();
   try {
@@ -1520,7 +1537,8 @@ test('integration: vitest3 real run on the mini fixture', VITEST_TEST_OPTIONS, (
     assert.match(r.stdout, /sum > tautology \| killed none of 2 sampled mutants \(2 in sum\.ts\) \| not verified: sampled evidence only \(2 mutants\); pass --stryker-report/);
     const withStryker = spawnSync(process.execPath, [SCRIPT, 'audit', '--root', root, '--feature', '.', '--max-mutations', '2', '--stryker-report', join(FIX, 'stryker', 'mini.json')], { encoding: 'utf8' });
     assert.equal(withStryker.status, 0, withStryker.stderr);
-    assert.match(withStryker.stdout, /sum > tautology \| killed none of 2 sampled mutants \(2 in sum\.ts\) \| removable: suite green, no new warnings/);
+    assert.match(withStryker.stdout, /sum > tautology \| killed none of 2 sampled mutants \(2 in sum\.ts\) \| removable: zero Stryker assertion kills; suite green without it, no new warnings/);
+    assert.match(withStryker.stdout, /- Stryker bail: unknown/);
     assert.equal(readFileSync(join(root, 'sum.ts'), 'utf8'), readFileSync(join(FIX, 'mini', 'sum.ts'), 'utf8'));
     const listed = spawnSync(process.execPath, [SCRIPT, 'audit', '--root', root, '--feature', '.', '--max-mutations', '2', '--list-only'], { encoding: 'utf8' });
     assert.equal(listed.status, 0, listed.stderr);

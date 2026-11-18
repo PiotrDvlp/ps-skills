@@ -672,7 +672,7 @@ export async function audit(opts) {
         const bad = verify(groups);
         if (!bad) {
           for (const group of groups) for (const id of group.ids) {
-            verdicts.find((v) => v.id === id).deletion = 'removable: suite green, no new warnings';
+            verdicts.find((v) => v.id === id).deletion = 'removable: zero Stryker assertion kills; suite green without it, no new warnings';
           }
           return true;
         }
@@ -729,6 +729,11 @@ export function renderReport(r) {
   const count = (s) => r.mutants.filter((m) => m.state === s || m.state.startsWith(`${s} (`)).length;
   lines.push('', '## Run', '', `- mutants: ${r.mutants.length} (killed ${count('killed')}, survived ${count('survived')}, invalid ${count('invalid')}, caught unattributed ${count('caught, unattributed')})`,
     `- vitest runs: ${r.runs}`, `- wall time: ${(r.ms / 1000).toFixed(1)} s`, `- files sampled: ${[...new Set(r.mutants.map((m) => m.file))].join(', ')}`, `- no impl mapped: ${r.unmapped.length ? r.unmapped.join(', ') : 'none'}`, `- manifest dir: ${r.manifest}`);
+  const bail = r.strykerBail === 'off' ? 'Stryker bail: off' : r.strykerBail === 'unknown' ? 'Stryker bail: unknown (report has no config.disableBail)' : 'Stryker report: none';
+  lines.push('', '## Limits', '', `- ${bail}`,
+    '- Removal checks ran per spec file; removing cases from several spec files together was not verified.',
+    '- Stryker does not mutate Vue templates; a case that guards template output can have zero Stryker kills.',
+    '- A removable case adds no kill to this mutation set; that does not show it guards no behavior.');
   return lines.join('\n') + '\n';
 }
 
