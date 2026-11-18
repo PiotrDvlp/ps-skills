@@ -149,6 +149,17 @@ export function strykerKills(report) {
   };
 }
 
+/** 'off' when config.disableBail is true, 'unknown' when absent; throws code 3 when config.disableBail is false. */
+export function checkStrykerBail(report) {
+  const bail = report.config?.disableBail;
+  if (bail === false) {
+    const err = new Error('Stryker report ran with bail on (config.disableBail false); rerun Stryker with --disableBail');
+    err.code = 3;
+    throw err;
+  }
+  return bail === true ? 'off' : 'unknown';
+}
+
 export function caseId(specRel, name, line) {
   return `${specRel}::${name}::${line}`;
 }
@@ -746,7 +757,9 @@ export async function main(argv) {
     const vitestBin = flag(argv, 'vitest-bin');
     const report = flag(argv, 'report');
     const strykerReport = flag(argv, 'stryker-report');
-    const strykerKillsFn = strykerReport ? strykerKills(JSON.parse(readFileSync(strykerReport, 'utf8'))) : undefined;
+    const strykerParsed = strykerReport ? JSON.parse(readFileSync(strykerReport, 'utf8')) : undefined;
+    const strykerBail = strykerParsed ? checkStrykerBail(strykerParsed) : undefined;
+    const strykerKillsFn = strykerParsed ? strykerKills(strykerParsed) : undefined;
     if (argv.includes('--list-only')) {
       if (manual.length > maxMutations) process.stderr.write(`--mutations has ${manual.length} entries, more than --max-mutations ${maxMutations}; all ${manual.length} run\n`);
       const featureAbs = resolve(root, feature);
@@ -757,7 +770,7 @@ export async function main(argv) {
       return 0;
     }
     const result = await audit({ root, feature, maxMutations, manual, timeoutMs, vitestBin, strykerKills: strykerKillsFn, log: (s) => process.stderr.write(s + '\n') });
-    const md = renderReport(result);
+    const md = renderReport({ ...result, strykerBail });
     if (report) {
       try {
         mkdirSync(dirname(report), { recursive: true });

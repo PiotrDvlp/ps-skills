@@ -20,12 +20,12 @@ Flags:
 - `--max-mutations N`: total mutation budget, default 30. Hand-authored mutations always run in full, even when their count exceeds the budget; generated mutations fill any slots left.
 - `--mutations file.json`: hand-authored `[{file, find, replace, note}]`; `file` is repo-relative. These run first.
 - `--report PATH`: write the report and create its parent directory.
-- `--stryker-report mutation.json`: a Stryker JSON report run from `--root` on the same feature. Without it, no case gets a deletion check. A Stryker kill counts unless its only killer crashed (`Cannot read properties`, `is not a function`, and similar).
+- `--stryker-report mutation.json`: a Stryker JSON report run from `--root` on the same feature; run with `--disableBail`. Without it, no case gets a deletion check. A Stryker kill counts unless its only killer crashed (`Cannot read properties`, `is not a function`, and similar).
 - `--timeout-ms N`: timeout for each vitest run, default 120000.
 - `--vitest-bin PATH`: override `<root>/node_modules/.bin/vitest`.
 - `--list-only`: print the mutation plan without running vitest.
 
-Exit 0 means a report was produced; 2 means the baseline was not green; 3 means usage failure, manifest conflict, concurrent edit, another audit on the root, an unsafe manifest directory, a Stryker report whose killed mutants lack `killedBy`, `--feature` outside `--root`, or missing/broken vitest discovery; 130 means SIGINT or SIGTERM interrupted vitest.
+Exit 0 means a report was produced; 2 means the baseline was not green; 3 means usage failure, manifest conflict, concurrent edit, another audit on the root, an unsafe manifest directory, a Stryker report whose killed mutants lack `killedBy`, a Stryker report run with bail on, `--feature` outside `--root`, or missing/broken vitest discovery; 130 means SIGINT or SIGTERM interrupted vitest.
 
 ## Read the report
 

@@ -322,6 +322,18 @@ test('stryker: a killed mutant without killedBy rejects the report', () => {
   assert.throws(() => tt.strykerKills(report), (e) => e.code === 3);
 });
 
+test('stryker: a report run with bail on is refused', () => {
+  assert.throws(() => tt.checkStrykerBail({ config: { disableBail: false } }), (e) => e.code === 3 && /disableBail/.test(e.message));
+});
+
+test('stryker: bail is off when config.disableBail is true', () => {
+  assert.equal(tt.checkStrykerBail({ config: { disableBail: true } }), 'off');
+});
+
+test('stryker: bail is unknown when the report has no config', () => {
+  assert.equal(tt.checkStrykerBail(fixture('stryker/mini.json')), 'unknown');
+});
+
 test('stryker: a crash shared by several killers still credits each of them', () => {
   const report = fixture('stryker/mini.json');
   report.files['sum.ts'].mutants[1].killedBy = ['1', '2'];
@@ -1582,4 +1594,16 @@ test('cli: missing vitest binary exits 3 with its path', () => {
     assert.equal(r.status, 3);
     assert.match(r.stderr, /vitest not found at \/nonexistent/);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('cli: a Stryker report run with bail on exits 3 before vitest', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tt-bail-'));
+  try {
+    const rep = join(dir, 'mutation.json');
+    writeFileSync(rep, JSON.stringify({ ...fixture('stryker/mini.json'), config: { disableBail: false } }));
+    const r = spawnSync(process.execPath, [SCRIPT, 'audit', '--root', join(FIX, 'mini'), '--feature', '.', '--stryker-report', rep, '--vitest-bin', '/nonexistent'], { encoding: 'utf8' });
+    assert.equal(r.status, 3);
+    assert.match(r.stderr, /disableBail/);
+    assert.doesNotMatch(r.stderr, /nonexistent/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
