@@ -92,6 +92,7 @@ Once per task diff, before Done: after `mutants` exits 0, or exits 1 when every 
 1. Evidence first: print the command of the last run of each gate with its exit code and decisive line (the summary line for `mutants`, the last line for the suite). Show raw output only when the user asks.
 2. Packet, in this order:
    - the contract (3a step 1; on the gate and refactor paths, the same fields copied from the plan task);
+   - the writer's report (relay and refactor paths): case names, defects and oracles;
    - the diff: `git -C <repo> diff HEAD`, then `git -C <repo> diff --no-index -- /dev/null <path>` for each path that `git -C <repo> ls-files --others --exclude-standard` prints;
    - the task's `checks`, decisions and assumptions (see Done), and its proposed equivalents, if any;
    - the last `mutants` output, verbatim.
