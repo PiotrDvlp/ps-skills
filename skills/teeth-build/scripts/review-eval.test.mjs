@@ -130,3 +130,22 @@ test('review-eval: --expect-risk ignores a match outside the correlated-risk sec
   assert.equal(r.code, 1);
   assert.match(r.out, /^run 1: correlated-risk did not match \/_lines\/$/m);
 });
+
+test('review-eval: --expect-risk reports a missing correlated-risk section', () => {
+  const s = setup();
+  const r = run(s, ['--prompt', s.prompt, '--packet', s.packet, '--expect', 'clear', '--expect-risk', '_lines', '--runs', '1'], { FAKE_REPLY: CLEAR });
+  assert.equal(r.code, 1);
+  assert.match(r.out, /^run 1: correlated-risk section missing$/m);
+});
+
+test('review-eval: --expect-risk matches case-insensitively', () => {
+  const s = setup();
+  const r = run(s, ['--prompt', s.prompt, '--packet', s.packet, '--expect', 'clear', '--expect-risk', '_LINES', '--runs', '1'], { FAKE_REPLY: `${CLEAR}\ncorrelated-risk:\n- asserts _lines directly` });
+  assert.equal(r.code, 0);
+});
+
+test('review-eval: --expect-risk never counts a none item', () => {
+  const s = setup();
+  const r = run(s, ['--prompt', s.prompt, '--packet', s.packet, '--expect', 'clear', '--expect-risk', 'none', '--runs', '1'], { FAKE_REPLY: `${CLEAR}\ncorrelated-risk:\n- none` });
+  assert.equal(r.code, 1);
+});

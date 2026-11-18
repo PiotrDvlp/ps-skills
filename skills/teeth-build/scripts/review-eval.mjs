@@ -76,8 +76,10 @@ export function main(argv) {
       return 3;
     }
     if (got !== opts.expect) misses.push(`run ${run}: got ${got ?? 'no consistent verdict'}`);
-    else if (opts.risk && !(parseSection(reply, 'correlated-risk') ?? []).some((item) => item !== 'none' && opts.risk.test(item))) {
-      misses.push(`run ${run}: correlated-risk did not match /${opts.risk.source}/`);
+    else if (opts.risk) {
+      const items = parseSection(reply, 'correlated-risk');
+      if (items === null) misses.push(`run ${run}: correlated-risk section missing`);
+      else if (!items.some((item) => item !== 'none' && opts.risk.test(item))) misses.push(`run ${run}: correlated-risk did not match /${opts.risk.source}/`);
     }
   }
   console.log(`${opts.runs - misses.length}/${opts.runs} verdict: ${opts.expect}`);

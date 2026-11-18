@@ -92,7 +92,7 @@ Once per task diff, before Done: after `mutants` exits 0, or exits 1 when every 
 1. Evidence first: print the command of the last run of each gate with its exit code and decisive line (the summary line for `mutants`, the last line for the suite). Show raw output only when the user asks.
 2. Packet, in this order:
    - the contract (3a step 1; on the gate and refactor paths, the same fields copied from the plan task);
-   - the writer's report (relay and refactor paths): case names, defects and oracles;
+   - the writer's reports from every round, if a writer ran (relay and refactor paths): case names, defects and oracles;
    - the diff: `git -C <repo> diff HEAD`, then `git -C <repo> diff --no-index -- /dev/null <path>` for each path that `git -C <repo> ls-files --others --exclude-standard` prints;
    - the task's `checks`, decisions and assumptions (see Done), and its proposed equivalents, if any;
    - the last `mutants` output, verbatim.
@@ -150,4 +150,4 @@ If the Agent tool in this harness has no `effort` parameter, pin `model` only an
 - The writer is told not to read the implementation; nothing enforces it. For new exports there is only the stub to read.
 - Gate limits (templates, macros, unsupported extensions, line ranges): `references/cli.md` § Limits.
 - Relay on composables and components is unproven: their specs stub auto-imported names, which the writer must guess. Use `**Route:** relay` there only as a pilot.
-- The reviewer's verdict is a judgment, not a gate. `scripts/review-eval.mjs` measures it on three fixture packets only, and its 300 s timeout path has no test. The reviewer can read any repo file; its fresh context is the Agent tool's, not enforced here. The eval runs the prompt with no tools (`claude -p --tools ''`) on `claude-opus-5-5`, while a run dispatches a general-purpose agent with tools on the session model, so the eval does not measure that setup.
+- The reviewer's verdict is a judgment, not a gate. `scripts/review-eval.mjs` measures it on three fixture packets only (`right-spec.md`: `--expect clear`; `wrong-spec.md`: `--expect 'blocking finding'`; `coupled-spec.md`: `--expect clear --expect-risk '_lines|private'`, since without `--expect-risk` that run cannot fail on the coupling), and its 300 s timeout path has no test. The reviewer can read any repo file; its fresh context is the Agent tool's, not enforced here. The eval runs the prompt with no tools (`claude -p --tools ''`) on `claude-opus-5-5`, while a run dispatches a general-purpose agent with tools on the session model, so the eval does not measure that setup.
