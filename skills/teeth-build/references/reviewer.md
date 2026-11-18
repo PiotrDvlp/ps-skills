@@ -24,7 +24,7 @@ Reply in exactly this form, as plain text. Do not wrap it in a code fence and wr
     not proved:
     - what no gate and no test in the diff shows
     correlated-risk:
-    - a test that asserts the value the code computes where the contract does not state that value, or that asserts private state, internal call order, or which helper ran; or none
+    - a test that asserts the value the code computes where the contract does not state that value; or none
     falsifying-conditions:
     - what would have to be true for this change to be wrong
     finding:
