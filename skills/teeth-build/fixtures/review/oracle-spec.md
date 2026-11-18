@@ -5,7 +5,7 @@ Task T1: VAT amount
 Files:
 - Create: `helpers/vat.ts`
 
-`export function vatAmount(netCents: number): number` returns 19 % of `netCents`, rounded half up to whole cents. Example: `vatAmount(1000)` is `190`.
+`export function vatAmount(netCents: number): number` takes `netCents >= 0` and returns 19 % of it, rounded half up to whole cents. Example: `vatAmount(1000)` is `190`.
 
 ## Writer's reports
 
