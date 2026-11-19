@@ -1,0 +1,41 @@
+```ts helpers/vat.ts
+export function vatAmount(netCents: number): number {
+  return Math.round(netCents * 0.19)
+}
+```
+
+```ts helpers/__tests__/vat.test.ts
+import { describe, expect, it } from 'vitest'
+import { vatAmount } from '../vat'
+
+describe('vatAmount', () => {
+  it('takes 19 percent of the net amount', () => {
+    expect(vatAmount(1000)).toBe(190)
+  })
+
+  it('rounds a half cent up', () => {
+    expect(vatAmount(1050)).toBe(200)
+  })
+
+  it('returns 0 for a zero net amount', () => {
+    expect(vatAmount(0)).toBe(0)
+  })
+})
+```
+
+files: helpers/vat.ts, helpers/__tests__/vat.test.ts
+suite: not run (no tools)
+
+BEGIN CASE REPORT
+case: contract-example
+- catches a wrong rate
+- oracle: contract example
+case: half-cent
+- catches truncation or half-down rounding
+- oracle: roundCents(1050 * 0.19) from helpers/money.ts, run in a scratch script
+case: zero
+- catches a constant offset
+- oracle: contract rule, 0 times 19 % is 0
+END CASE REPORT
+
+assumptions: none
