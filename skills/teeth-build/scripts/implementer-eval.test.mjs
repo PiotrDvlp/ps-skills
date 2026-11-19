@@ -56,16 +56,28 @@ test('implementer-eval: scoreReply fails a missing, empty or doubled oracle', ()
   ]);
 });
 
-test('implementer-eval: scoreReply fails a missing, duplicate or unknown case', () => {
+test('implementer-eval: scoreReply fails a missing or duplicate case and an extra case without an oracle', () => {
   const reply = report([
     'case: contract-example', 'oracle: contract example',
     'case: zero', 'oracle: contract rule',
     'case: zero', 'oracle: contract rule',
-    'case: other', 'oracle: contract rule',
+    'case: other', 'defect: wrong rate',
   ]);
   const { pass, misses } = scoreReply(reply, { cases: CASES, forbid: FORBID });
   assert.equal(pass, false);
-  assert.deepEqual(misses, ['half-cent: missing case', 'zero: duplicate case', 'other: unknown case']);
+  assert.deepEqual(misses, ['half-cent: missing case', 'zero: duplicate case', 'other: missing oracle']);
+});
+
+test('implementer-eval: scoreReply passes an extra case that has its own non-code oracle', () => {
+  const reply = report([...CASES, 'rounds-down-below-half'].flatMap((c) => [`case: ${c}`, 'oracle: contract rule by hand']));
+  assert.deepEqual(scoreReply(reply, { cases: CASES, forbid: FORBID }), { pass: true, misses: [] });
+});
+
+test('implementer-eval: scoreReply fails an extra case whose oracle names project code', () => {
+  const reply = report([...CASES.flatMap((c) => [`case: ${c}`, 'oracle: contract example']), 'case: extra', 'oracle: roundCents(1049 * 0.19)']);
+  assert.deepEqual(scoreReply(reply, { cases: CASES, forbid: FORBID }).misses, [
+    `extra: oracle matches /${FORBID}/: roundCents(1049 * 0.19)`,
+  ]);
 });
 
 test('implementer-eval: scoreReply fails an oracle that matches the forbid pattern, case-insensitively', () => {

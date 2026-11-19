@@ -26,13 +26,13 @@ export function parseCaseReport(reply) {
   return sections;
 }
 
-/** Scores one reply: every case once, one non-empty `oracle:` each, none matching `forbid` (a pattern string, compiled here case-insensitively). */
+/** Scores one reply: every named case once, and every reported case (named or extra) once with one non-empty `oracle:` not matching `forbid` (a pattern string, compiled here case-insensitively). */
 export function scoreReply(reply, { cases, forbid }) {
   const sections = parseCaseReport(reply);
   if (sections === null) return { pass: false, misses: ['no case report block'] };
   const re = new RegExp(forbid, 'i');
   const misses = [];
-  for (const name of cases) {
+  for (const name of new Set([...cases, ...sections.map((s) => s.name)])) {
     const found = sections.filter((s) => s.name === name);
     if (found.length === 0) { misses.push(`${name}: missing case`); continue; }
     if (found.length > 1) { misses.push(`${name}: duplicate case`); continue; }
@@ -40,9 +40,6 @@ export function scoreReply(reply, { cases, forbid }) {
     if (oracles.length > 1) misses.push(`${name}: ${oracles.length} oracle lines`);
     else if (oracles.length === 0 || oracles[0] === '') misses.push(`${name}: missing oracle`);
     else if (re.test(oracles[0])) misses.push(`${name}: oracle matches /${re.source}/: ${oracles[0]}`);
-  }
-  for (const name of new Set(sections.map((s) => s.name))) {
-    if (!cases.includes(name)) misses.push(`${name}: unknown case`);
   }
   return { pass: misses.length === 0, misses };
 }
