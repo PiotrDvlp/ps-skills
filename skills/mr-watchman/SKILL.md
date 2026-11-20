@@ -13,7 +13,7 @@ One read-only status pass over the user's open MRs, from the target repo:
 node "${CLAUDE_SKILL_DIR}/mr-watchman.mjs" --repo <repo root> [--branch <name>] [--author <user>] [--replies] [--json | --json2]
 ```
 
-`${CLAUDE_SKILL_DIR}` is the directory holding this file; resolve it yourself when the variable is not substituted (Codex does not substitute it). Requires Node 22+ and an authenticated `glab`. `glab` fails inside the Bash sandbox with a TLS error, so run the command with the sandbox off, or let the user run it with a `!` prefix.
+`${CLAUDE_SKILL_DIR}` is the directory holding this file; resolve it yourself when the variable is not substituted (Codex does not substitute it). Requires Node 22+ and an authenticated `glab`. Inside the Bash sandbox `glab` fails TLS verification (`x509: OSStatus -26276`), so run the command as one bare Bash call, exactly as above: no `cd`, `;`, `&&`, `||`, pipe, redirection (except `2>&1`), subshell or prefix. Only that shape matches a `sandbox.excludedCommands` entry for it. Without an entry, rerun with `dangerouslyDisableSandbox: true` where the session allows that; where it does not (`allowUnsandboxedCommands: false`), give the user the same line with a `!` prefix.
 
 Mode is always `check`: one verdict pass, report, stop. There is no loop and no fix in this skill; the follow-up package below is still read-only output.
 

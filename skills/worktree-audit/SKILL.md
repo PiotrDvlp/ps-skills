@@ -20,7 +20,7 @@ node "${CLAUDE_SKILL_DIR}/worktree-audit.mjs" --repo <repo root> [--mr]
 | `in-target` | `contained` = no commits beyond the target. This is not "merged": a branch created a minute ago is also contained. The `mr` column shows real merges |
 | `worktree` | `dirty` = uncommitted or untracked files. A `contained` but `dirty` worktree still holds work |
 | `node_modules` | `no-deps` = the worktree cannot run tests, typecheck or a dev server as it is |
-| `mr` | with `--mr`: MRs for the branch via `glab` (needs the sandbox off; inside it `glab` fails with a TLS error) |
+| `mr` | with `--mr`: MRs for the branch via `glab`; `unavailable` when `glab` failed. Inside the Bash sandbox `glab` fails TLS verification, so run the `--mr` form as one bare Bash call (no `cd`, `;`, `&&`, `\|\|`, pipe, redirection or subshell) that matches a `sandbox.excludedCommands` entry, or with `dangerouslyDisableSandbox: true` where the session allows that |
 
 Counts use the local remote-tracking refs; the script never fetches. Say how old the last
 fetch is when it matters.

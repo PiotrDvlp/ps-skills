@@ -72,10 +72,10 @@ Before invoking Codex, run these in order. Stop with a clear error message if an
 
 ## Running Codex
 
-Run every runner (`run-code-review.mjs run`, `run-exec.mjs`, `run-calibration.mjs run`) with Bash `run_in_background: true` and `dangerouslyDisableSandbox: true` (or a `sandbox.excludedCommands` entry for that command), then wait for the completion notice. Do not poll and do not run Codex in the foreground.
+Run every runner (`run-code-review.mjs run`, `run-exec.mjs`, `run-calibration.mjs run`) as one bare Bash call with `run_in_background: true`, exactly as its command block shows it: no `cd`, `;`, `&&`, `||`, pipe, redirection (except `2>&1`), subshell or prefix. Only a bare call matches a `sandbox.excludedCommands` entry for the runner; any other shape runs inside the Claude Code sandbox, and the runner refuses with `nested_sandbox`. If a bare call still refuses with `nested_sandbox` (no entry for it), rerun it with `dangerouslyDisableSandbox: true` where the session allows that; where it does not (`allowUnsandboxedCommands: false`), give the user the same line to run with a `!` prefix. Then wait for the completion notice. Do not poll and do not run Codex in the foreground.
 
 - Why background: 338 `codex exec` runs, Oct–Nov 2026, took a median 90–135 s and up to 577 s for reviews, 170–210 s median for proposals. The foreground Bash default timeout is 120 s and its maximum is 600 s, below the runners' 900 s timeout. A background call has no such cap.
-- Why sandbox off: Codex's `-s read-only` is a Seatbelt sandbox, and Seatbelt cannot nest inside the Claude Code sandbox; the runners refuse such a run (`nested_sandbox`), and code mode would otherwise review blind. Codex's own `-s read-only` still binds.
+- Why outside the sandbox: Codex's `-s read-only` is a Seatbelt sandbox, and Seatbelt cannot nest inside the Claude Code sandbox; the runners refuse such a run (`nested_sandbox`), and code mode would otherwise review blind. Codex's own `-s read-only` still binds.
 
 ## Resolution and invocation (spokes)
 

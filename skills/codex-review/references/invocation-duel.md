@@ -26,8 +26,8 @@ Run `scripts/run-exec.mjs` in duel mode. It streams the shared prompt file to Co
 node "${CLAUDE_SKILL_DIR}/scripts/run-exec.mjs" --mode duel --prompt-file "<shared-prompt-file>" [--repo <repo-root>] [--model <m>]
 ```
 
-Run it with Bash `run_in_background: true` and `dangerouslyDisableSandbox: true`, so the Claude
-track runs concurrently. `--model` defaults to the skill default.
+Run it as one bare Bash call with `run_in_background: true` (shape and `nested_sandbox` fallback:
+`## Running Codex` in `SKILL.md`), so the Claude track runs concurrently. `--model` defaults to the skill default.
 
 **`--deep` is rejected in duel mode**, by the runner (`deep_in_duel`) and by you before calling
 it. The override would apply to this track only, and the Claude track has no equivalent knob
