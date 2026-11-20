@@ -6,9 +6,9 @@ nothing in the output reveals it.
 
 ## Running
 
-Run it with Bash `run_in_background: true` and `dangerouslyDisableSandbox: true` (or a
-`sandbox.excludedCommands` entry for this command), then wait for the completion notice. See
-`## Running Codex` in `SKILL.md` for why.
+Run it as one bare Bash call with `run_in_background: true`, then wait for the completion
+notice. `## Running Codex` in `SKILL.md` gives the bare-call shape, the fallback when the runner
+refuses with `nested_sandbox`, and why.
 
 ```bash
 node "${CLAUDE_SKILL_DIR}/scripts/run-exec.mjs" --mode plan --target "<absolute path>" [--repo <repo-root>] [--model <m>] [--deep]

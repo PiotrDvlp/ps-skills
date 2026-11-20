@@ -17,6 +17,28 @@ Any agent that reads `SKILL.md` directories (`npx skills`, bare names):
 npx skills@latest add PiotrDvlp/ps-skills
 ```
 
+## Sandbox (Claude Code on macOS)
+
+Some scripts cannot work inside the Claude Code Bash sandbox. The Codex runners refuse with `nested_sandbox` (Codex's own Seatbelt sandbox cannot nest), and `glab` fails TLS verification with `x509: OSStatus -26276`. The skills run these scripts as one bare Bash call, so a `sandbox.excludedCommands` entry in `~/.claude/settings.json` takes them out of the sandbox without a prompt. Without an entry, the skills fall back to `dangerouslyDisableSandbox: true`, which asks for approval each time.
+
+An entry matches only the text of the call, so use the absolute skill path that your sessions show (for a plugin install, the path under `~/.claude/plugins/`):
+
+```json
+"sandbox": {
+  "excludedCommands": [
+    "node <skills>/codex-review/scripts/run-exec.mjs *",
+    "node <skills>/codex-review/scripts/run-code-review.mjs *",
+    "node <skills>/codex-review/scripts/run-calibration.mjs *",
+    "node <skills>/second-view/scripts/run-second-view.mjs *",
+    "node <skills>/mr-watchman/mr-watchman.mjs *",
+    "node <skills>/worktree-audit/worktree-audit.mjs *",
+    "node <skills>/dual-branch-finish/scripts/verify-mr.mjs *"
+  ]
+}
+```
+
+A call with `cd`, `;`, `&&`, `||`, a pipe, redirection or a subshell does not match and runs inside the sandbox.
+
 ## Skills
 
 | Skill | What it does | Needs |

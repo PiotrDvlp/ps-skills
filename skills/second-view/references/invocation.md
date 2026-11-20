@@ -8,8 +8,10 @@ is what pins `-s read-only`, and the runner is the only caller of both that is u
 
 1. Write the approved two-part brief to a file under `$TMPDIR` (the user's `/second-view <path>`
    form already has one). Never write the withheld half anywhere else.
-2. Run, with Bash `run_in_background: true` and `dangerouslyDisableSandbox: true`, then wait
-   for the completion notice:
+2. Run it as one bare Bash call with `run_in_background: true`, then wait for the completion
+   notice. Bare means exactly the line below: no `cd`, `;`, `&&`, `||`, pipe, redirection
+   (except `2>&1`), subshell or prefix. Only that shape matches a `sandbox.excludedCommands`
+   entry for the runner:
 
    ```bash
    node "${CLAUDE_SKILL_DIR}/scripts/run-second-view.mjs" --brief "<absolute brief path>" [--model <m>] [--deep] [--repo <repo-root>] [--keep-prompt <path>]
@@ -24,8 +26,8 @@ Quote every path: a notes root such as `~/Notes/My Vault/...` contains a space.
 
 The runner refuses to start inside a nested Seatbelt sandbox (`nested_sandbox`): Codex's
 `-s read-only` is itself a Seatbelt sandbox, Seatbelt cannot nest, and every Codex shell command
-would fail with `sandbox_apply: Operation not permitted`. Turning off the harness sandbox does not
-weaken Hard rule 1, because Codex still runs `-s read-only`.
+would fail with `sandbox_apply: Operation not permitted`. Running outside the harness sandbox does
+not weaken Hard rule 1, because Codex still runs `-s read-only`.
 
 What the runner sends: Codex `exec` with `-m <model> -s read-only --ignore-user-config
 --skip-git-repo-check -c model_reasoning_effort="medium|xhigh" [-C <repo>] -o <tmp> -`, with the
@@ -57,7 +59,7 @@ and report; nothing is retried silently. There is exactly one Codex call.
 | code | Behavior |
 |---|---|
 | `usage` (exit 2) | Unknown flag, missing value, or a forbidden sandbox flag; nothing spawned |
-| `nested_sandbox` | Re-run with `dangerouslyDisableSandbox: true` |
+| `nested_sandbox` | The call ran inside the harness sandbox. If it was not bare, rerun it bare. If it was bare (no exclusion entry for it), rerun with `dangerouslyDisableSandbox: true` where the session allows that; where it does not (`allowUnsandboxedCommands: false`), give the user the same line with a `!` prefix |
 | `model_not_allowed` | Model outside `ALLOWED_MODELS`, `gpt-5.6-pro` included |
 | `no_brief`, `bad_brief` | Brief missing, or `buildPrompt` refused it (markers); nothing spawned |
 | `codex_spawn_failed` | `codex` not on PATH; tell the user to install Codex CLI 0.130.0+ |

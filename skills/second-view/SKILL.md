@@ -73,11 +73,12 @@ the confirmation message rather than claiming blindness the skill cannot deliver
   Slack for context. The flag drops them; `AGENTS.md` files still load (probe
   2026-11-08, codex-cli 0.167.0). The effort is therefore pinned (`medium`, or
   `xhigh` with `--deep`) instead of inherited.
-- **Run the runner in the background with the harness sandbox off.** Seatbelt
+- **Run the runner in the background, outside the harness sandbox.** Seatbelt
   cannot nest: from inside the Claude Code Bash sandbox, every Codex shell
   command fails with `sandbox_apply: Operation not permitted`, so the runner
   refuses (`nested_sandbox`) before any API call. Codex still runs
-  `-s read-only`, so Hard rule 1 holds. Use Bash `run_in_background: true` and
+  `-s read-only`, so Hard rule 1 holds. Run it as one bare Bash call (shape and
+  fallback: `references/invocation.md`) with `run_in_background: true` and
   wait for the completion notice; never poll and never run it in the
   foreground: proposal runs took a median 170–210 s (338 Codex runs, Oct–Nov
   2026), the foreground Bash default timeout is 120 s, and its 600 s maximum is
