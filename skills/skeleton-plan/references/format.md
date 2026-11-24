@@ -1,6 +1,6 @@
 # skeleton-plan format
 
-A plan is one Markdown file in two parts. The part above the marker line is what the user approves: files, interfaces as code, test cases. The part below it is for the implementer, the gates and the reviewer. The gate reads only the approval part, except the `**Interfaces:**` lines of each task.
+A plan is one Markdown file in two parts. The part above the marker line holds files, interfaces as code and test cases. The user approves the files table and the test-case titles; the interfaces are the implementers' contract, checked by the gate and the reviewers. The part below it is for the implementer, the gates and the reviewer. The gate reads only the approval part, except the `**Interfaces:**` lines of each task.
 
 ## Whole example
 

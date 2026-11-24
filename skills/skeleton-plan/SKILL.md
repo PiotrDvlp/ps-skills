@@ -5,7 +5,7 @@ description: Use when an implementation plan should be written — "write the pl
 
 # skeleton-plan
 
-You write an implementation plan whose approval part is code the gate can check. The user approves files, interfaces and test cases, not prose. Read `references/format.md` before you write the first plan: it has a whole example and every rule the gate enforces. `references/cli.md` lists every command, output line, exit code and receipt field.
+You write an implementation plan whose approval part is code the gate can check. The user approves the files table and the test-case titles, not prose. The interfaces are the implementers' contract: the gate and the reviewers check them, the user does not. Read `references/format.md` before you write the first plan: it has a whole example and every rule the gate enforces. `references/cli.md` lists every command, output line, exit code and receipt field.
 
 Below, `C` stands for `node ${CLAUDE_SKILL_DIR}/scripts/check-plan.mjs`.
 
@@ -79,6 +79,7 @@ Show the plan only when its receipt matches it (status 0 or 4): run `C verify --
 Then give the user:
 
 - the plan path and its gate status line, with every ungated item;
+- what to read for approval: `## 1. Files` and the titles in `## 3. Test cases`. When the gate did not typecheck the interfaces (status 5, or ungated items), say that only the reviewers checked them;
 - what the second review found, in one line, or that it did not run;
 - the build options that are installed (`teeth-build`, `codex-build`, or subagent-driven development) with a one-sentence recommendation from the plan: how many tasks, how much they depend on each other's interfaces, what a shipped mistake would cost.
 
