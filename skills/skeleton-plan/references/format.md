@@ -90,7 +90,7 @@ Needs: none.
 Decided here: `clampQuantity(0)` returns 1.
 
 Verify: `npx vitest run src/cart`
-Expected: exit 0, 3 tests passed.
+Expected: exit 0, at least 3 tests passed.
 
 ## Acceptance
 
@@ -203,7 +203,7 @@ A block whose path ends in `.vue` (any case) is not spliced or typechecked. It s
 
 ### 3. Test cases
 
-Grouped by test file, with the file path as a bold line. Each case is the exact test title, then one line `Given ...; then ...`. A regression test that is red today states the required behaviour and today's failure. End with `**No dedicated cases:**` and the behaviours no case covers. The gate does not read this section; the reviewer does.
+Grouped by test file, with the file path as a bold line. Each case is the exact test title, then one line `Given ...; then ...`. A regression test that is red today states the required behaviour and today's failure. End with `**No dedicated cases:**` and the behaviours no case covers. Production `.ts` code and `.vue` script code that a task changes never goes there: list its cases, or mark the lines `browser check: <step>` and name that step in Acceptance. The gate does not read this section; the reviewer does.
 
 ### The marker
 

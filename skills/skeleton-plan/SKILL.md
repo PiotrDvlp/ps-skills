@@ -34,12 +34,12 @@ Format: `references/format.md`. Above the marker line:
 1. Front matter with `base: <sha>`. Header: goal (one line), base commit, design link, and a `Gate:` line on its own (`Gate: pending` before the first run).
 2. `## 1. Files`: one row per file, including test files and docs the plan changes. Each row needs a block or a task `**Files:**` line that creates, modifies or deletes it; the gate fails an orphan row.
 3. `## 2. Interfaces`: one labelled block per splice operation. New exports are stubs with an explicit return type, a one-line JSDoc contract and a `return undefined as never` body. Then the "Signature unchanged, behaviour changed" list.
-4. `## 3. Test cases`: exact test titles, each with one `Given ...; then ...` line, grouped by test file; a final `**No dedicated cases:**` line.
+4. `## 3. Test cases`: exact test titles, each with one `Given ...; then ...` line, grouped by test file; a final `**No dedicated cases:**` line. That line never names production `.ts` code or `.vue` script code a task changes: a mutation gate (teeth-build) mutates those lines and reports every surviving mutant as a finding. List cases for them, or mark the lines `browser check: <step>` and name that step in Acceptance; teeth-build then sends their findings to the user's waiver review instead of an agent. Templates, styles, config and type-only changes may go on the line.
 
 Below the marker: decisions table, then one `### Task N:` per task, then Acceptance and Rollback.
 
 - **Task size.** A task is the smallest unit that carries its own test cycle and is worth a reviewer's gate. Fold setup, configuration and docs into the task whose deliverable needs them. Split only where a reviewer could reject one task and approve its neighbour.
-- **What a task line contains.** Each line lets the implementer write exactly one reasonable thing. A code item is its signature and the values the spec fixes; the implementer writes the body. A body appears in `Decided here:` only for an algorithm or exact copy the signature and the tests do not decide. A verification line is a command and the output that means it passed.
+- **What a task line contains.** Each line lets the implementer write exactly one reasonable thing. A code item is its signature and the values the spec fixes; the implementer writes the body. A body appears in `Decided here:` only for an algorithm or exact copy the signature and the tests do not decide. A verification line is a command and the output that means it passed. Write a test count as a floor, `Expected: exit 0, at least N tests passed`: a mutation gate adds repair cases, and an exact count makes the reviewer block on wording.
 
 ### Self-review
 
