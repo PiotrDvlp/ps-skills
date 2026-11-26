@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ensureSafeDir, assertSafeDir, fail } from './safe-dir.mjs';
 import { record, verify, restore } from './locked.mjs';
-import { classifyMutants } from './classify.mjs';
+import { classifyMutants, formatRow } from './classify.mjs';
 import { loadVueParsers, vueRanges } from './vue-ranges.mjs';
 import { changedLines, gitOk, TEST_FILE } from './git-changes.mjs';
 import { withRepoLock, syncWork, toolReady, setupTool, linkTool, writeConfig, runStryker } from './stryker.mjs';
@@ -261,7 +261,7 @@ async function mutants(ctx, argv) {
     deps.linkTool(toolDir, root);
     writeConfig(workDir, mutate, { hasVitestConfig: existsSync(join(root, 'vitest.config.ts')) });
     const res = deps.runStryker(toolDir, workDir);
-    const row = (r) => `${r.file}:${r.line} ${r.mutator} → ${r.replacement} (${r.reason})`;
+    const row = formatRow;
     if (res.signal) {
       if (res.signal === 'SIGINT' || res.signal === 'SIGTERM') return 130;
       throw fail(`stryker killed by ${res.signal}`, 2);

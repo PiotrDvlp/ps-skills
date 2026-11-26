@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { classifyMutants } from './classify.mjs';
+import { classifyMutants, formatRow } from './classify.mjs';
 const fx = () => JSON.parse(readFileSync(new URL('../fixtures/stryker/classify.json', import.meta.url)));
 const all = new Map([['src/a.ts', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]]]);
 const lines = (rows) => rows.map((r) => r.line);
@@ -26,4 +26,20 @@ test('classify: mutants outside the changed lines are ignored', () => {
   const r = classifyMutants(fx(), new Map([['src/a.ts', [1]]]));
   assert.deepEqual(lines(r.passed), [1]);
   assert.equal(r.findings.length, 0);
+});
+
+test('classify: each row carries the original expression the mutant replaced', () => {
+  const report = { files: { 'src/b.ts': { source: 'const a = 1;\nreturn n < max ? n : max;\nconst o = {\n  k: 1,\n};', mutants: [
+    { mutatorName: 'EqualityOperator', replacement: 'n <= max', status: 'Survived', location: { start: { line: 2, column: 8 }, end: { line: 2, column: 15 } } },
+    { mutatorName: 'ObjectLiteral', replacement: '{}', status: 'Survived', location: { start: { line: 3, column: 11 }, end: { line: 5, column: 2 } } },
+  ] } } };
+  const r = classifyMutants(report, new Map([['src/b.ts', [2, 3]]]));
+  assert.deepEqual(r.findings.map((f) => f.original), ['n < max', '{ …']);
+});
+
+test('formatRow: the original goes in a code span that survives a backtick inside it', () => {
+  const r = { file: 'src/b.ts', line: 2, mutator: 'StringLiteral', replacement: '``', reason: 'Survived' };
+  assert.equal(formatRow({ ...r, original: 'n < max' }), 'src/b.ts:2 StringLiteral `n < max` → `` (Survived)');
+  assert.equal(formatRow({ ...r, original: '`${a}b`' }), 'src/b.ts:2 StringLiteral `` `${a}b` `` → `` (Survived)');
+  assert.equal(formatRow({ ...r, original: '' }), 'src/b.ts:2 StringLiteral → `` (Survived)');
 });

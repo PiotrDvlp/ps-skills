@@ -30,5 +30,10 @@ Current direction    Claude's live position from the conversation
   message — do not imply the withheld half never touches disk in that form —
   and note that the file is readable by Codex regardless of what this skill
   passes to it.
+- A code change named in the sent half shows the original source line and the
+  changed sub-expression together, never the new text alone. For a mutant:
+  `src/x.ts:4` `` return n < max ? n : max `` with `n < max` → `n <= max`.
+  Codex misread 2 of 14 mutants in one brief that gave only Stryker's
+  replacement text.
 - Marker strings are exact: `=== SENT TO CODEX ===` and `=== WITHHELD ===`.
   `buildPrompt` throws if the first is missing, or if the second precedes it.

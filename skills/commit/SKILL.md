@@ -93,6 +93,8 @@ Run it as its own Bash call and commit in a separate call only after it exits 0.
 two: a worktree-isolated session refuses a compound line that contains `git` as "too complex to
 verify" (2026-10-19), so the commit itself stays a single bare `git commit --only …` command.
 
+After each commit, run `git status --short -- <paths>` as its own call. A path whose first status column is not blank means its index entry differs from HEAD. Then run `git diff --quiet HEAD -- <path>`: exit 0 means the working tree matches HEAD and the index entry is stale (lint-staged reformatted the file after `--only` staged it). Run `git restore --staged -- <path>` and report it in one line. Exit 1: stop and report the path; the commit did not take all of its changes.
+
 **One commit**: commit immediately. No need to ask. Report what was committed after it's done.
 
 **Two or more commits**: show the plan first and wait for a go-ahead:

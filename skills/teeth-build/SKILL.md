@@ -17,7 +17,8 @@ Below, `G` stands for `node ${CLAUDE_SKILL_DIR}/scripts/relay-gate.mjs` and `F` 
 4. The working tree is clean, unless any result block in the plan has status `blocked, review finding`; then go to step 7 with the tree as it is. Otherwise stop and ask the user to commit, stash or stop.
 5. Cache: `~/.cache/teeth-build` unless the user names another directory. If the sandbox blocks writes there, every command exits 3; ask the user to allow the directory or name a writable one.
 6. In a Nuxt repo, `.nuxt/` exists. Otherwise ask the user to run `npx nuxi prepare`.
-7. Resume: read the plan. Skip a task whose status starts with `done`, whatever follows it (`, waiver pending`, `, not mutation-checked`, `, review overridden`, `, accepted`). For a `blocked` task, ask the user whether to retry it. For `blocked, review finding`, show its `review:` line and `git status --short`, and ask override, retry or stop as in Review step 5. A task with no result block and a dirty working tree: show `git status --short` and ask the user to discard those edits or stop.
+7. Typecheck: below, `typecheck` means `(cd <repo> && npm run typecheck)`, or the `type-check` script when `package.json` has no `typecheck`. Vitest strips types, so no other gate sees a type error. On a clean tree, run it once now; a non-zero exit means the base is red: stop and report. In a Nuxt repo, run it with the sandbox off: Nuxt reads `.env`, which the sandbox denies (`EPERM ... stat '.env'`). With neither script, add the decision `typecheck: no script` to every task and leave the typecheck steps out.
+8. Resume: read the plan. Skip a task whose status starts with `done`, whatever follows it (`, waiver pending`, `, not mutation-checked`, `, review overridden`, `, accepted`). For a `blocked` task, ask the user whether to retry it. For `blocked, review finding`, show its `review:` line and `git status --short`, and ask override, retry or stop as in Review step 5. A task with no result block and a dirty working tree: show `git status --short` and ask the user to discard those edits or stop.
 
 ## Per task
 
@@ -33,20 +34,21 @@ Run `G baseline F`. Exit 2: the feature suite was red before the task; stop and 
 
 ### 3a. Relay path
 
-1. Contract: copy from the plan task its files, exported names with full signatures, behaviour, and acceptance criteria. If an export the tests will call has no signature, stop and ask.
+1. Contract: copy from the plan task its files, exported names with full signatures, behaviour, and acceptance criteria. If an export the tests will call has no signature, stop and ask. Copy a planned test count as `at least N`: mutation-proven repair cases add tests. End every sentence you add that the plan task does not contain with `(controller wording)`.
 2. Stubs: write every new export with the planned signature and a body that returns without throwing (`return undefined as never` for a value, an empty body for `void`). Leave existing exports alone.
 3. Dispatch the writer (see Agents) in write mode with the contract, the stub paths and the feature path.
-4. `G red F`. Exit 1, or exit 2 (a spec does not load): send the output to the writer. This is a red round.
+4. `G red F`. Exit 1, or exit 2 (a spec does not load): send the output to the writer. This is a red round. After exit 0, run `typecheck`: an error in a test file goes to the writer as a red round; an error in a stub means the planned signature is wrong: stop and ask.
 5. `G locked --record F`.
 6. Dispatch the implementer in relay mode with the contract and the locked test paths.
 7. Green checks, in this order. A failure goes back to the implementer as a green round:
    - `G locked --verify F`. On exit 1, run `G locked --restore F` first, then send the printed paths.
    - `(cd <repo> && CI=1 node_modules/.bin/vitest run <feature> --no-cache)` exits 0.
+   - `typecheck` exits 0. Give the implementer the command with the contract. On the relay path, an error in a test file the writer wrote goes to the writer instead; after its fix, run `G locked --record F`. On the refactor path, an error in an existing test means the implementer changed a signature the tests pin: it goes back to the implementer, and the tests stay as they are.
    - `G scope F --allow <list>`. The list, comma-separated and repo-relative: every file the plan task names (production and test), plus, on the relay and refactor paths, the test files the writer reported. On exit 1 the implementer reverts the printed paths.
    - `G cases F`. On exit 1, send the removed cases, unless the plan task names that removal.
 8. `G mutants F`.
    - Exit 0: go to Review.
-   - Exit 1: send the findings to the writer in repair mode (a mutants round). For `no assertion evidence`, tell the writer that the gate reads only the first failing test of each mutant, so the repair case must come before any test that crashes on that mutant. Run the feature suite; a failing repair test goes back to the writer once, and if the writer reports that the implementation is wrong, the task is `blocked`. Then rerun `G scope F --allow <list>` (the list from step 7 plus the repair test files) and `G cases F`; a failure goes back to the writer as a mutants round. Then `G locked --record F` and `G mutants F` again; the targeted mutants must be gone from the findings.
+   - Exit 1: send the findings to the writer in repair mode (a mutants round). For `no assertion evidence`, tell the writer that the gate reads only the first failing test of each mutant, so the repair case must come before any test that crashes on that mutant. Run the feature suite; a failing repair test goes back to the writer once, and if the writer reports that the implementation is wrong, the task is `blocked`. Then rerun `typecheck`, `G scope F --allow <list>` (the list from step 7 plus the repair test files) and `G cases F`; a failure goes back to the writer as a mutants round. Then `G locked --record F` and `G mutants F` again; the targeted mutants must be gone from the findings.
    - Exit 2: send the output to the implementer (a green round).
    - Exit 3 with `run: relay-gate.mjs setup`: see Setup. Any other exit 3: stop and show the message.
 
@@ -70,6 +72,8 @@ A round is one return of work to an agent. Each loop (red, green, mutants) gets 
 
 You may propose a surviving mutant as `equivalent` when its replacement cannot change behaviour any caller can observe, with a one-line reason. You never approve your own proposal. A task whose only remaining findings are proposed equivalents goes to Review, and on `clear` is committed with status `done, waiver pending`.
 
+A finding on a line the plan marks `browser check: <step>` goes to no agent. Record it with the proposed equivalents as `browser check: <step>` instead of a reason; it follows the same path to Review, the status and the waiver review.
+
 ### Decisions and assumptions
 
 Keep two lists for the task while it runs. One line per entry.
@@ -91,7 +95,7 @@ Once per task diff, before Done: after `mutants` exits 0, or exits 1 when every 
 
 1. Evidence first: print the command of the last run of each gate with its exit code and decisive line (the summary line for `mutants`, the last line for the suite). Show raw output only when the user asks.
 2. Packet, in this order:
-   - the contract (3a step 1; on the gate and refactor paths, the same fields copied from the plan task);
+   - the contract (3a step 1; on the gate and refactor paths, the same fields copied from the plan task). On every path, apply the 3a step 1 rules: a planned test count reads `at least N`, and a sentence the plan task does not contain ends with `(controller wording)`;
    - the writer's reports from every round, if a writer ran (relay and refactor paths): case names, defects and oracles;
    - on the gate path, the implementer's reports from every round: case names and oracles;
    - the diff: `git -C <repo> diff HEAD`, then `git -C <repo> diff --no-index -- /dev/null <path>` for each path that `git -C <repo> ls-files --others --exclude-standard` prints;
@@ -117,9 +121,9 @@ Once per task diff, before Done: after `mutants` exits 0, or exits 1 when every 
    - planned removals: none
    - mutants: 23 killed of 25; timed out: none; invalid: none
    - not covered: src/x/Badge.vue:3 template
-   - proposed equivalents: src/x/clamp.ts:4 EqualityOperator → `n <= max` (n equal to max returns max either way)
+   - proposed equivalents: src/x/clamp.ts:4 EqualityOperator `n < max` → n <= max (n equal to max returns max either way)
    - rounds: red 0, green 1, mutants 1
-   - checks: baseline 0; red 1, 0; locked --verify 0; suite 0; scope 0; cases 0; mutants 1, 0
+   - checks: baseline 0; red 1, 0; typecheck 0, 0, 0; locked --verify 0; suite 0; scope 0; cases 0; mutants 1, 0
    - review: clear; not proved: src/x/Badge.vue:3 template output
    - decisions: route inferred as relay (helpers/)
    - assumptions: implementer: callers pass finite numbers
@@ -130,7 +134,7 @@ Once per task diff, before Done: after `mutants` exits 0, or exits 1 when every 
 
 ## After the last task: waiver review
 
-List every proposed equivalent from all result blocks (task, `file:line mutator → replacement`, reason) and ask the user to approve or reject each one. Mark an approved one `approved` in its result block. For a rejected one, reopen its task: the writer (relay, refactor) or the implementer (gate) gets the mutant. Run the feature suite, then `G mutants F --base <base from that task's result block>`. A fresh baseline would see no changed lines, because the task's code is already committed. The rejected mutant must no longer be a finding; findings on lines from later tasks belong to those tasks. Before the commit, the follow-up diff goes through Review (its packet as in Review step 2); a blocking finding there follows Review step 5. Commit the follow-up as a new commit and update the result block.
+List every proposed equivalent from all result blocks (task, `file:line mutator original → replacement` exactly as `mutants` printed it, reason) and ask the user to approve or reject each one. Mark an approved one `approved` in its result block. For a rejected one, reopen its task: the writer (relay, refactor) or the implementer (gate) gets the mutant. Run the feature suite, then `G mutants F --base <base from that task's result block>`. A fresh baseline would see no changed lines, because the task's code is already committed. The rejected mutant must no longer be a finding; findings on lines from later tasks belong to those tasks. Before the commit, the follow-up diff goes through Review (its packet as in Review step 2); a blocking finding there follows Review step 5. Commit the follow-up as a new commit and update the result block.
 
 Then list every task whose status starts with `done, not mutation-checked` and its `not covered` lines, and ask the user to accept each one. Append `, accepted` to an accepted status. For a rejected one, tell the user that no gate checks those lines and leave the follow-up to them. The run is done when no waiver is pending and the user has answered for every such task.
 
