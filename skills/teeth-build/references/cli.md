@@ -48,7 +48,9 @@ Exit codes:
 
 `cases` prints `removed: <spec> > <test name>`; exit 1 when any line prints. A renamed spec or test shows its old name as removed.
 
-`mutants` prints findings as `<file>:<line> <mutator> → <replacement> (<reason>)`, then the other lists, then a summary: `N findings, N passed, N timed out, N invalid, N not covered`.
+`mutants` prints findings as ``<file>:<line> <mutator> `<original>` → <replacement> (<reason>)``, then the other lists, then a summary: `N findings, N passed, N timed out, N invalid, N not covered`.
+
+`<original>` is the source text the mutant replaces, cut at 80 characters; ` …` marks a cut or a node that goes on past its first line. It is left out when the report has no source for the file.
 
 Finding reasons:
 

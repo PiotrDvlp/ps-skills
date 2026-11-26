@@ -14,6 +14,11 @@ You review one finished task of an implementation plan. You did not write it. Yo
 
 A finding is blocking only when you can quote both a contract line (behaviour, signature or acceptance criterion) and either a `file:line` in the diff that contradicts it or another contract line it clashes with. Everything else goes under `not proved`.
 
+Two kinds of contract text never carry a blocking finding on their own; quote them under `not proved` instead:
+
+- A test count. Mutation-proven repair cases add tests after the plan was written, so more tests than the contract names is expected.
+- A sentence ending in `(controller wording)`. The controller wrote it, not the plan.
+
 ## Report
 
 Reply in exactly this form, as plain text. Do not wrap it in a code fence and write nothing before it: the first line of your reply is `verdict: clear` or `verdict: blocking finding`. The verdict is `blocking finding` exactly when `finding` is not `none`.

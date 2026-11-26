@@ -1,14 +1,26 @@
 const ASSERTION = /^(expected |AssertionError)|Snapshot .* mismatched/;
 
+function originalText(sourceLines, { start, end }) {
+  const text = sourceLines?.[start.line - 1]?.slice(start.column - 1, start.line === end.line ? end.column - 1 : undefined).trim();
+  if (!text) return '';
+  const cut = text.length > 80 ? `${text.slice(0, 80)} …` : text;
+  return start.line === end.line || cut.endsWith('…') ? cut : `${cut} …`;
+}
+
+const codeSpan = (text) => (text.includes('`') ? `\`\` ${text} \`\`` : `\`${text}\``);
+
+export const formatRow = (r) => `${r.file}:${r.line} ${r.mutator} ${r.original ? `${codeSpan(r.original)} ` : ''}→ ${r.replacement} (${r.reason})`;
+
 export function classifyMutants(report, changed) {
   const out = { findings: [], timedOut: [], invalid: [], passed: [], notCovered: [] };
   for (const [file, wanted] of changed) {
     const want = new Set(wanted);
     const validLines = new Set();
+    const sourceLines = report.files?.[file]?.source?.split('\n');
     for (const m of report.files?.[file]?.mutants ?? []) {
       const line = m.location.start.line;
       if (!want.has(line)) continue;
-      const row = { file, line, mutator: m.mutatorName, replacement: m.replacement ?? '', reason: '' };
+      const row = { file, line, mutator: m.mutatorName, original: originalText(sourceLines, m.location), replacement: m.replacement ?? '', reason: '' };
       const reason = m.statusReason ?? '';
       if (m.status === 'CompileError' || m.status === 'RuntimeError') { out.invalid.push(row); continue; }
       validLines.add(line);
