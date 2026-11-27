@@ -160,3 +160,33 @@ console.log(JSON.stringify(await page.evaluate(() => window.__gql), null, 1));
 - Accept a cookie banner first: it intercepts clicks and the script times out on the next locator.
 
 Verified 2026-10-15 on a Nuxt 4 + Apollo shop: the wrapper captured a probe query, `CategoryByUrl` after a menu click, and a tracking mutation.
+
+### Passkeys (WebAuthn) with a virtual authenticator
+
+Add the authenticator through CDP before the page calls `navigator.credentials`. Use the `usb` transport: a second `internal` authenticator fails with "Chrome only supports one internal authenticator per environment".
+
+```javascript
+const page = await browser.getPage("a");
+const cdp = await page.context().newCDPSession(page);
+await cdp.send("WebAuthn.enable");
+const { authenticatorId } = await cdp.send("WebAuthn.addVirtualAuthenticator", {
+  options: { protocol: "ctap2", transport: "usb", hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true },
+});
+// ... register the passkey in the app ...
+const { credentials } = await cdp.send("WebAuthn.getCredentials", { authenticatorId });
+await writeFile("passkey-cred.json", JSON.stringify(credentials));
+```
+
+Restore the saved credential into a fresh authenticator in another script or browser:
+
+```javascript
+for (const credential of JSON.parse(await readFile("passkey-cred.json"))) {
+  await cdp.send("WebAuthn.addCredential", { authenticatorId, credential });
+}
+```
+
+- Save the credential right after each registration. The authenticator lives only as long as the daemon: after a restart or `dev-browser stop`, an unsaved credential is gone, and its passkey stays on the server account with no private key. Delete such passkeys from the account by hand.
+- To test as a logged-out user, use a separate `--browser <name>` instance and restore the credential there. Do not log out in the same browser: a login page that uses conditional mediation (passkey autofill) signs the browser back in, and `context.clearCookies` did not stop it.
+- Accept a cookie banner first, as in the other workflows.
+
+Verified 2026-11-27 on a deployed shop with a same-origin auth service: registration, a second registration in the same browser, and a passkey login in a second browser instance with the restored credential.
