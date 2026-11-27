@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
-import { createProof, manifestDir, treeFingerprint } from './proof.mjs'
+import { createProof, graphqlOperations, isGraphqlOperation, manifestDir, treeFingerprint } from './proof.mjs'
 import { makeRepo } from './test-repo.mjs'
 
 delete process.env.PROVE_UI_PHASE
@@ -209,4 +209,27 @@ test('an evidence root that is missing or outside git throws EVIDENCE_ROOT_INVAL
   for (const evidenceRoot of [path.join(loose, 'missing'), loose]) {
     assert.throws(() => createProof({ ...opts, evidenceRoot }), { code: 'EVIDENCE_ROOT_INVALID' })
   }
+})
+
+const request = (method, url, body = null) => ({ method: () => method, url: () => url, postData: () => body })
+
+test('graphqlOperations reads a single and a batched POST body', () => {
+  assert.deepEqual(graphqlOperations(request('POST', 'https://shop.test/api/graphql/', JSON.stringify({ operationName: 'MenuItem', variables: {} }))), ['MenuItem'])
+  const batch = JSON.stringify([{ operationName: 'MenuItem' }, { operationName: 'Cart' }, { query: '{ a }' }])
+  assert.deepEqual(graphqlOperations(request('POST', 'https://shop.test/api/graphql/', batch)), ['MenuItem', 'Cart'])
+})
+
+test('graphqlOperations ignores a dev-server GET for a module named after the operation', () => {
+  assert.deepEqual(graphqlOperations(request('GET', 'http://127.0.0.1:3000/_nuxt/composables/useGetMenuItem.ts')), [])
+})
+
+test('graphqlOperations reads the operationName of a GET persisted query', () => {
+  assert.deepEqual(graphqlOperations(request('GET', 'https://shop.test/api/graphql/?operationName=MenuItem&extensions=%7B%7D')), ['MenuItem'])
+})
+
+test('graphqlOperations returns nothing for a body that is not JSON, and isGraphqlOperation matches the exact name', () => {
+  assert.deepEqual(graphqlOperations(request('POST', 'https://shop.test/form', 'a=MenuItem')), [])
+  const post = request('POST', 'https://shop.test/api/graphql/', JSON.stringify({ operationName: 'MenuItemList' }))
+  assert.equal(isGraphqlOperation(post, 'MenuItem'), false)
+  assert.equal(isGraphqlOperation(post, 'MenuItemList'), true)
 })

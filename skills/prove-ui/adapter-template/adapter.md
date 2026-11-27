@@ -27,6 +27,14 @@ Never overwrite an existing checkout.
 Read-only commands that answer "is this instance worth driving?", run before the first
 drive and after any surprise. What to do on a stray process: stop and report.
 
+## Runtime flags
+
+Configuration that changes network behaviour and can differ between local and deployed runs
+(request batching, persisted queries, feature toggles): each flag, where the rendered page
+exposes it, its deployed default, and its local value. A check that observes requests reads
+these from the page and asserts the ones it depends on as preconditions, so a local-only
+setting never passes for deployed behaviour.
+
 ## Infrastructure codes
 
 Harness exit codes that mean infrastructure, never behaviour.

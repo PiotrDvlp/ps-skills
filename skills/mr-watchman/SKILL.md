@@ -10,8 +10,10 @@ Night watch for your merge requests: one lap, a lantern on each MR, "all is well
 One read-only status pass over the user's open MRs, from the target repo:
 
 ```
-node "${CLAUDE_SKILL_DIR}/mr-watchman.mjs" --repo <repo root> [--branch <name>] [--author <user>] [--replies] [--json | --json2]
+node "${CLAUDE_SKILL_DIR}/mr-watchman.mjs" --repo <repo root> [--branch <name> | --ticket <PROJ-123>] [--author <user>] [--replies] [--json | --json2]
 ```
+
+When the argument is a ticket key (`PROJ-123`), pass `--ticket`: it selects every open MR whose branch carries that key, twins with different names included. `--branch` matches only `<name>` and `<name>_develop`. The two cannot be combined.
 
 `${CLAUDE_SKILL_DIR}` is the directory holding this file; resolve it yourself when the variable is not substituted (Codex does not substitute it). Requires Node 22+ and an authenticated `glab`. Inside the Bash sandbox `glab` fails TLS verification (`x509: OSStatus -26276`), so run the command as one bare Bash call, exactly as above: no `cd`, `;`, `&&`, `||`, pipe, redirection (except `2>&1`), subshell or prefix. Only that shape matches a `sandbox.excludedCommands` entry for it. Without an entry, rerun with `dangerouslyDisableSandbox: true` where the session allows that; where it does not (`allowUnsandboxedCommands: false`), give the user the same line with a `!` prefix.
 
@@ -19,9 +21,9 @@ Mode is always `check`: one verdict pass, report, stop. There is no loop and no 
 
 | Column | Meaning |
 |---|---|
-| `mr` | MR number; twins (`<name>` and `<name>_develop` or `_dev`) sort next to each other |
+| `mr` | MR number; twins sort next to each other: `<name>` and `<name>_develop` or `_dev`, or else the only two open MRs of one ticket key when their targets differ |
 | `branch` | source branch and target |
-| `state` | the first blocker in babysit order: `conflicts`, `threads`, `ci-none`, `ci-stale`, `ci-running`, `ci-failed`, `checking`, `ready`, `waiting-approval`, `unverified`, or `blocked:<GitLab merge status>` |
+| `state` | the first blocker in babysit order: `conflicts`, `threads`, `ci-none`, `ci-stale`, `ci-running`, `ci-failed`, `checking`, `ready`, `waiting-approval`, `unverified`, or `blocked:<GitLab merge status>`. When more than one of `conflicts`, `threads`, `ci-failed` is present, the table joins them (`threads+ci-failed`); JSON `state` stays the first one and `blockers` lists them all |
 | `threads` | unresolved review threads (resolvable, not resolved); bot summary comments do not count |
 | `next` | the one action for that blocker; a blocker on a twin ends with `twin !<n>` |
 
@@ -29,9 +31,9 @@ One line per unresolved thread follows the table: `!<mr> <author> <path>:<line>:
 
 One MR's failed read does not stop the pass. When `glab mr view`, the discussions read or the failed-jobs read fails for an MR (a timeout, say), that row is `unverified` and `next` names the failed call; the other rows are still reported. An `unverified` row is not settled and makes the run exit 1. Never infer a state for it: re-run, and report it as unverified.
 
-`--json2` prints `{"coverage": "complete" | "partial", "rows": [...]}` instead of the plain array. `coverage` is `partial` when any row is `unverified`. Every row also carries `fullHeadSha` (40 characters) and `pipelineSha` (the head pipeline's SHA, `null` without a pipeline or on an `unverified` row); on an `unverified` row `fullHeadSha` is the list entry's SHA when the view could not be read. Every row that is not `unverified` carries `blockers` (what is present on the MR in work order: `conflicts`, `threads`, `ci-failed`; empty when none) and `failedJobIds` (the ids of the failed jobs that may not fail; empty when none); an `unverified` row has neither. `--json` keeps the array and the 8-character `headSha`; the two flags cannot be combined. With `--branch` matching nothing, `--json2` prints `{"coverage":"complete","rows":[]}` and exits 1. At exit 2 stdout is not `{coverage, rows}`: it is `{"status":"unavailable",...}`, or empty for the `--json` with `--json2` usage error, so check the exit code before parsing.
+`--json2` prints `{"coverage": "complete" | "partial", "rows": [...]}` instead of the plain array. `coverage` is `partial` when any row is `unverified`. Every row also carries `fullHeadSha` (40 characters) and `pipelineSha` (the head pipeline's SHA, `null` without a pipeline or on an `unverified` row); on an `unverified` row `fullHeadSha` is the list entry's SHA when the view could not be read. Every row that is not `unverified` carries `blockers` (what is present on the MR in work order: `conflicts`, `threads`, `ci-failed`; empty when none) and `failedJobIds` (the ids of the failed jobs that may not fail; empty when none); an `unverified` row has neither. `--json` keeps the array and the 8-character `headSha`; the two flags cannot be combined. With `--branch` or `--ticket` matching nothing, `--json2` prints `{"coverage":"complete","rows":[]}` and exits 1. At exit 2 stdout is not `{coverage, rows}`: it is `{"status":"unavailable",...}`, or empty for the `--json` with `--json2` usage error, so check the exit code before parsing.
 
-Exit 0: every MR is `ready` or `waiting-approval`. Exit 1: something needs action, GitLab is still computing after the built-in retry (`checking`), a row is `unverified`, or `--branch` matched no open MR (`no open MR for branch <name>`, so a typo never reads as all clear). Exit 2: `glab` unavailable, invalid input (including `--json` with `--json2`), an unavailable MR list, or an MR list that hit the 100-entry cap (`truncated:`); report it as unverified, never infer a state.
+Exit 0: every MR is `ready` or `waiting-approval`. Exit 1: something needs action, GitLab is still computing after the built-in retry (`checking`), a row is `unverified`, or `--branch` or `--ticket` matched no open MR (`no open MR for branch <name>` or `no open MR for ticket <KEY>`, so a typo never reads as all clear). Exit 2: `glab` unavailable, invalid input (including `--json` with `--json2`, `--ticket` with `--branch`, or a malformed ticket key), an unavailable MR list, or an MR list that hit the 100-entry cap (`truncated:`); report it as unverified, never infer a state.
 
 ## Follow-up package
 
@@ -79,4 +81,4 @@ Reply with: the rows that are not `ready`, what each needs, and which items need
 - `--branch` accepts either twin; both are reported.
 - `glab mr list` and `glab mr view` default to the project of `--repo`; `:id` in the API paths resolves there too, so `--repo` must be a checkout of the project.
 - `ci-stale` compares the MR head with the pipeline's `source_sha` when GitLab sends one (merged-results pipelines run on a merge commit, so their `sha` never equals the head) and with `sha` otherwise. A project whose pipeline objects carry neither matching field reads `ci-stale` on every MR; report that as a tool limit, not as a stale pipeline.
-- Twins are matched only among the listed MRs (open, by `--author`) and only across different target branches. A twin opened by someone else, or already merged or closed, is not shown; say so when a row has no `twin !<n>` and the branch name has a sibling.
+- Twins are matched only among the listed MRs (open, by `--author`) and only across different target branches. Ticket pairing needs exactly two such MRs of the key, so a third MR of the same ticket leaves all of them unpaired. A follow-up package finds its twin by ticket key when the branch carries one. A twin opened by someone else, or already merged or closed, is not shown; say so when a row has no `twin !<n>` and the branch name has a sibling.

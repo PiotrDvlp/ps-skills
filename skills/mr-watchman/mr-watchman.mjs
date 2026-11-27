@@ -6,9 +6,11 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
 const HELP = `Read-only GitLab MR status pass (Node 22+, authenticated glab). Never merges, rebases, retries or comments.
-Usage: node mr-watchman.mjs --repo <path> [--branch <name>] [--author <user>] [--replies] [--json | --json2]
+Usage: node mr-watchman.mjs --repo <path> [--branch <name> | --ticket <PROJ-123>] [--author <user>] [--replies] [--json | --json2]
        node mr-watchman.mjs --repo <path> --followup <iid> --out <absolute file> [--author <user>]
-Order per MR: conflicts, then unresolved review threads, then CI. Twins (<name> and <name>_develop) are grouped.
+Order per MR: conflicts, then unresolved review threads, then CI. Twins (<name> and <name>_develop) are grouped;
+so are the only two MRs of one ticket key when their targets differ. --ticket selects every MR whose branch carries that key.
+The table's state column joins every blocker present (threads+ci-failed); JSON state stays the first one.
 An MR GitLab reports as still checking is re-read once after 60s (MR_WATCHMAN_RETRY_MS overrides the delay).
 --json2 prints {coverage, rows}; coverage is partial when a row is unverified (a glab call for that MR failed). A verified row also carries blockers and failedJobIds.
 Exit 0: every MR ready or waiting for approval; 1: at least one MR needs action, GitLab is still checking after the retry, a row is unverified, or --branch matched nothing;
@@ -47,6 +49,28 @@ export const pipelineSha = (p) => p.source_sha ?? p.sha
 export const tailLines = (text, n) => text.replace(/\n$/, '').split('\n').slice(-n).join('\n')
 
 export const baseName = (branch) => branch.replace(/_dev(elop)?$/, '')
+
+export const ticketOf = (branch) => String(branch).match(/[A-Z][A-Z\d]*-\d+/)?.[0] ?? null
+
+export const TICKET_KEY = /^[A-Za-z][A-Za-z0-9]*-\d+$/
+
+/**
+ * Twin partners by iid: same base name across targets first; then the two MRs of a ticket that
+ * nothing else pairs, when exactly two exist and their targets differ.
+ */
+export function pairTwins(rows) {
+  const partner = new Map()
+  for (const r of rows) {
+    const other = rows.find((o) => o.twin === r.twin && o.iid !== r.iid && o.target !== r.target)
+    if (other) partner.set(r.iid, other)
+  }
+  const loose = rows.filter((r) => !partner.has(r.iid) && ticketOf(r.branch))
+  for (const r of loose) {
+    const same = loose.filter((o) => ticketOf(o.branch) === ticketOf(r.branch))
+    if (same.length === 2 && same[0].target !== same[1].target) partner.set(r.iid, same.find((o) => o !== r))
+  }
+  return partner
+}
 
 export const plainBody = (text) => String(text ?? '').replace(/(?![\n\t])[\p{Cc}\p{Zl}\p{Zp}]/gu, ' ')
 
@@ -171,9 +195,10 @@ const rowOf = (repo, entry) => {
  * Throws only when `glab mr list` fails or reaches the 100-entry cap.
  * @returns {{ coverage: 'complete' | 'partial', rows: object[] }}
  */
-export function collectCoverage(repo, { branch, author = '@me' } = {}) {
+export function collectCoverage(repo, { branch, ticket, author = '@me' } = {}) {
   const list = listMine(repo, author)
-  const wanted = branch ? list.filter((m) => baseName(m.source_branch) === baseName(branch)) : list
+  const wanted = ticket ? list.filter((m) => ticketOf(m.source_branch) === ticket.toUpperCase())
+    : branch ? list.filter((m) => baseName(m.source_branch) === baseName(branch)) : list
   let rows = wanted.map((m) => rowOf(repo, m))
   if (rows.some((r) => r.state === 'checking')) {
     const ms = retryMs()
@@ -181,9 +206,11 @@ export function collectCoverage(repo, { branch, author = '@me' } = {}) {
     rows = rows.map((r, i) => r.state === 'checking' ? rowOf(repo, wanted[i]) : r)
     for (const r of rows) if (r.state === 'checking') r.next = `GitLab still recomputing merge status ${Math.round(ms / 1000)}s later, after one retry; not a blocker, re-run later`
   }
-  rows.sort((a, b) => a.twin.localeCompare(b.twin) || a.branch.length - b.branch.length)
+  const partner = pairTwins(rows)
+  const groupOf = (r) => [r.twin, partner.get(r.iid)?.twin ?? r.twin].sort()[0]
+  rows.sort((a, b) => groupOf(a).localeCompare(groupOf(b)) || a.branch.length - b.branch.length)
   for (const r of rows) {
-    const other = rows.find((o) => o.twin === r.twin && o.iid !== r.iid && o.target !== r.target)
+    const other = partner.get(r.iid)
     if (!other) continue
     r.twinIid = other.iid
     if (r.state !== 'ready') r.next += `; twin !${other.iid}`
@@ -211,7 +238,8 @@ export const leftoverTemps = (out) => {
 export function collectFollowup(repo, iid, { author = '@me' } = {}) {
   const mine = listMine(repo, author).find((m) => m.iid === iid)
   if (!mine) throw new Error(`!${iid} is not open or not authored by ${author}`)
-  const rows = collect(repo, { branch: mine.source_branch, author })
+  const ticket = ticketOf(mine.source_branch)
+  const rows = collect(repo, ticket ? { ticket, author } : { branch: mine.source_branch, author })
   const row = rows.find((r) => r.iid === iid)
   if (!row) throw new Error(`!${iid} is not open or not authored by ${author}`)
   if (row.state === 'unverified') throw new Error(row.next)
@@ -304,10 +332,12 @@ const isMain = process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpa
 
 if (isMain) {
   try {
-    const { values } = parseArgs({ options: { repo: { type: 'string' }, branch: { type: 'string' }, author: { type: 'string' }, json: { type: 'boolean' }, json2: { type: 'boolean' }, replies: { type: 'boolean' }, followup: { type: 'string' }, out: { type: 'string' }, help: { type: 'boolean' } } })
+    const { values } = parseArgs({ options: { repo: { type: 'string' }, branch: { type: 'string' }, ticket: { type: 'string' }, author: { type: 'string' }, json: { type: 'boolean' }, json2: { type: 'boolean' }, replies: { type: 'boolean' }, followup: { type: 'string' }, out: { type: 'string' }, help: { type: 'boolean' } } })
     if (values.help) { console.log(HELP); process.exit(0) }
     if (values.json && values.json2) { console.error('--json and --json2 cannot be combined'); process.exit(2) }
     if (values.branch?.startsWith('-') || values.author?.startsWith('-')) throw new Error('invalid --branch or --author')
+    if (values.ticket !== undefined && values.branch !== undefined) throw new Error('--ticket and --branch cannot be combined')
+    if (values.ticket !== undefined && !TICKET_KEY.test(values.ticket)) throw new Error('--ticket needs a key like PROJ-123')
     if (values.followup !== undefined || values.out !== undefined) {
       if (!/^\d+$/.test(values.followup ?? '')) throw new Error('--followup <iid> needs a numeric IID')
       if (!values.out) throw new Error('--followup needs --out <absolute file>')
@@ -326,9 +356,10 @@ if (isMain) {
       console.log(values.out)
       process.exit()
     }
-    const { coverage, rows } = collectCoverage(path.resolve(values.repo ?? process.cwd()), { branch: values.branch, author: values.author })
-    if (values.branch && !rows.length) {
-      console.log(values.json2 ? JSON.stringify({ coverage, rows }) : values.json ? '[]' : `no open MR for branch ${plain(values.branch)}`)
+    const { coverage, rows } = collectCoverage(path.resolve(values.repo ?? process.cwd()), { branch: values.branch, ticket: values.ticket, author: values.author })
+    if ((values.branch || values.ticket) && !rows.length) {
+      const missing = values.ticket ? `ticket ${values.ticket.toUpperCase()}` : `branch ${plain(values.branch)}`
+      console.log(values.json2 ? JSON.stringify({ coverage, rows }) : values.json ? '[]' : `no open MR for ${missing}`)
       process.exitCode = 1
       process.exit()
     }
@@ -337,7 +368,7 @@ if (isMain) {
     else if (!rows.length) console.log('no open MRs')
     else {
       const header = ['mr', 'branch', 'state', 'threads', 'next']
-      const table = rows.map((r) => [`!${r.iid}`, `${r.branch} -> ${r.target}`, r.state, String(r.threads.length), r.next].map(plain))
+      const table = rows.map((r) => [`!${r.iid}`, `${r.branch} -> ${r.target}`, r.blockers?.length > 1 ? r.blockers.join('+') : r.state, String(r.threads.length), r.next].map(plain))
       const widths = header.map((h, i) => Math.max(h.length, ...table.map((t) => t[i].length)))
       for (const t of [header, ...table]) console.log(t.map((c, i) => (i === t.length - 1 ? c : c.padEnd(widths[i]))).join('  '))
       for (const r of rows) {
@@ -347,7 +378,8 @@ if (isMain) {
         }
       }
       const ready = rows.filter(settled).length
-      console.log(`${new Set(rows.map((r) => r.twin)).size} twin group(s), ${rows.length - ready} need action, ${ready} ready or waiting`)
+      const groups = new Set(rows.map((r) => (r.twinIid ? Math.min(r.iid, r.twinIid) : r.twin))).size
+      console.log(`${groups} twin group(s), ${rows.length - ready} need action, ${ready} ready or waiting`)
     }
     process.exitCode = rows.every(settled) ? 0 : 1
   } catch (error) {

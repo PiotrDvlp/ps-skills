@@ -189,6 +189,45 @@ test('twins: --branch on the develop twin selects both, home first, and a blocke
   assert.match(rows[1].next, /twin !8/)
 })
 
+test('--ticket selects every MR of that ticket and pairs twins whose names differ', (t) => {
+  const { status, rows } = run(t, { mrs: [mr(21, 'fix/PROJ-7/deadline_develop', { detailed_merge_status: 'discussions_not_resolved' }), mr(20, 'feat/PROJ-7/color'), mr(22, 'feat/PROJ-70/other')],
+    discussions: { 21: [thread('alice', 'src/n.ts', 3, 'guard')] }, args: ['--ticket', 'proj-7'] })
+  assert.equal(status, 1)
+  assert.deepEqual(rows.map((r) => [r.iid, r.twinIid]), [[20, 21], [21, 20]])
+  assert.match(rows[1].next, /twin !20$/)
+})
+
+test('ticket pairing needs exactly two MRs of the ticket on different targets', (t) => {
+  const three = run(t, { mrs: [mr(30, 'feat/PROJ-8/a'), mr(31, 'fix/PROJ-8/b_develop'), mr(32, 'fix/PROJ-8/c')] })
+  assert.deepEqual(three.rows.map((r) => r.twinIid), [null, null, null])
+  const sameTarget = run(t, { mrs: [mr(33, 'feat/PROJ-9/a'), mr(34, 'fix/PROJ-9/b')] })
+  assert.deepEqual(sameTarget.rows.map((r) => r.twinIid), [null, null])
+})
+
+test('a full pass pairs ticket twins too, sorts them together and counts them as one group', (t) => {
+  const text = run(t, { mrs: [mr(41, 'fix/PROJ-5/z_develop'), mr(42, 'feat/PROJ-6/m'), mr(40, 'feat/PROJ-5/a')], json: false })
+  const order = [...text.out.matchAll(/^!(\d+)\s/gm)].map((m) => m[1])
+  assert.deepEqual(order, ['40', '41', '42'])
+  assert.match(text.out, /^2 twin group\(s\), 0 need action, 3 ready or waiting$/m)
+})
+
+test('--ticket input errors: with --branch, a malformed key, and no match', (t) => {
+  const both = run(t, { mrs: [mr(1, 'feat/PROJ-1/a')], args: ['--ticket', 'PROJ-1', '--branch', 'feat/PROJ-1/a'] })
+  assert.equal(both.status, 2)
+  const bad = run(t, { mrs: [mr(1, 'feat/PROJ-1/a')], args: ['--ticket', 'feat/PROJ-1'] })
+  assert.equal(bad.status, 2)
+  const none = run(t, { mrs: [mr(1, 'feat/PROJ-1/a')], args: ['--ticket', 'PROJ-2'], json: false })
+  assert.equal(none.status, 1)
+  assert.match(none.out, /^no open MR for ticket PROJ-2$/m)
+})
+
+test('the table state column names every blocker present, the JSON state stays the first one', (t) => {
+  const config = { mrs: [mr(50, 'fix/s', { detailed_merge_status: 'discussions_not_resolved', head_pipeline: { id: 150, status: 'failed', sha: SHA } })],
+    discussions: { 50: [thread('alice', 'src/s.ts', 1, 'typo')] }, jobs: { 150: [{ id: 5, name: 'build', allow_failure: false }] } }
+  assert.equal(run(t, config).rows[0].state, 'threads')
+  assert.match(run(t, { ...config, json: false }).out, /^!50\s+fix\/s -> main\s+threads\+ci-failed\s+1\s/m)
+})
+
 test('glab failure exits 2 with an unavailable line, malformed JSON too', (t) => {
   const broken = run(t, { mrs: [], glabError: true })
   assert.equal(broken.status, 2)
@@ -404,6 +443,14 @@ test('followup: the twin is named in the package', (t) => {
   const pkg = readPkg(r)
   assert.equal(pkg.mr.twinIid, 22)
   assert.equal(pkg.mr.twinBranch, 'fix/PROJ-1/x_develop')
+})
+
+test('followup: a ticket twin with a different branch name is named in the package', (t) => {
+  const r = run(t, { mrs: [followupThreads(), mr(23, 'fix/PROJ-1/other_name_develop')], followup: 21, json: false,
+    discussions: { 21: [thread('alice', 'src/a.vue', 7, 'nit')] } })
+  const pkg = readPkg(r)
+  assert.equal(pkg.mr.twinIid, 23)
+  assert.equal(pkg.mr.twinBranch, 'fix/PROJ-1/other_name_develop')
 })
 
 test('blockersOf lists blockers in work order', () => {
