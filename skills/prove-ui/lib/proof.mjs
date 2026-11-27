@@ -36,6 +36,31 @@ export const treeFingerprint = (root) => {
   }
 }
 
+const parseJson = (text) => {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * GraphQL operation names one Playwright request sends: from a POST body (single or batched array)
+ * or a GET `operationName` parameter. A substring match on the URL or body instead also hits a dev
+ * server's GET for a module file named after the operation.
+ */
+export const graphqlOperations = (request) => {
+  if (request.method() === 'GET') {
+    const name = new URL(request.url()).searchParams.get('operationName')
+    return name ? [name] : []
+  }
+  if (request.method() !== 'POST') return []
+  const body = parseJson(request.postData() ?? '')
+  return (Array.isArray(body) ? body : [body]).map((op) => op?.operationName).filter((name) => typeof name === 'string')
+}
+
+export const isGraphqlOperation = (request, name) => graphqlOperations(request).includes(name)
+
 export const manifestDir = (root, id) => path.join(root, '.distro', 'browser', 'prove-ui', id)
 
 const isNot = (expected) => expected !== null && typeof expected === 'object' && !Array.isArray(expected) && Object.keys(expected).length === 1 && 'not' in expected

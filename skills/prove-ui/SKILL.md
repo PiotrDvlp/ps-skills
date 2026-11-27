@@ -65,6 +65,10 @@ gitignored `.claude/` dies with the worktree (2026-10-19), so checks go in `$PRO
    value that must hold in both phases is a `precondition`. Assert the state a precondition
    names (market, shop, login) from the rendered app, not from the URL.
    Prefer computed style, geometry, ARIA state or text over pixels.
+   To match a GraphQL request, use `isGraphqlOperation(request, '<OperationName>')` from the
+   same `lib/proof.mjs`, never a substring of the URL or body: a dev server's GET for a module
+   named after the operation matches a substring too. A check about requests asserts the
+   adapter's runtime flags it depends on (batching, persisted queries) as preconditions.
 3. Run the adapter's harness command with `PROVE_UI_PHASE=baseline`. The manifest under
    `.distro/browser/prove-ui/<id>/baseline.json` must say `OBSERVED`. A mismatch here
    means the check is wrong: fix the check, rerun the baseline, still before any edit.

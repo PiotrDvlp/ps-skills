@@ -13,7 +13,8 @@ H2 sections in this order:
 4. `States and discriminators` — each state worth proving and the value that tells it apart.
 5. `Gotchas` — traps that waste or invalidate a run.
 
-Rules: do not report a skipped entry point as verified through a different path. A file
+Rules: do not report a skipped entry point as verified through a different path. A claim
+about network requests names the adapter's runtime flags it was observed under. A file
 never driven is marked `Status: draft` under its H1; a driven one says
 `Status: proven <date> by <check id>`.
 
